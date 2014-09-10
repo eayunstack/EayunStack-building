@@ -1,0 +1,28 @@
+From 710c97638083bd2099426883282002d4880cf1bd Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Wed, 10 Sep 2014 15:35:17 +0800
+Subject: [PATCH] Fix comparison with 7 bug(nova)
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ manifests/params.pp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/manifests/params.pp b/manifests/params.pp
+index f553567..e62f58d 100644
+--- a/manifests/params.pp
++++ b/manifests/params.pp
+@@ -44,8 +44,8 @@ class nova::params {
+         'Fedora', 'RedHat': {
+           $special_service_provider = undef
+         }
+-        'RedHat': {
+-          if ($::operatingsystemrelease < 7) {
++        'RedHat', 'CentOS', 'Scientific': {
++          if ($::operatingsystemmajrelease < 7) {
+             $special_service_provider = 'init'
+           } else {
+             $special_service_provider = undef
+-- 
+1.9.1
+

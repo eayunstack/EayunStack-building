@@ -1,0 +1,28 @@
+From 3c8d8c369584c705c42825abe05c019fa4d00674 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Wed, 10 Sep 2014 10:02:30 +0800
+Subject: [PATCH] Fix comparison with 7 bug(mysql)
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ manifests/params.pp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/manifests/params.pp b/manifests/params.pp
+index baac867..9b817fa 100644
+--- a/manifests/params.pp
++++ b/manifests/params.pp
+@@ -37,8 +37,8 @@ class mysql::params {
+             $provider = 'mysql'
+           }
+         }
+-        'RedHat': {
+-          if $::operatingsystemrelease >= 7 {
++        /^(RedHat|CentOS|Scientific)$/: {
++          if $::operatingsystemmajrelease >= 7 {
+             $provider = 'mariadb'
+           } else {
+             $provider = 'mysql'
+-- 
+1.9.1
+

@@ -1,0 +1,62 @@
+From 769ff363a8a3c51e24f63a2494217d2d029289c6 Mon Sep 17 00:00:00 2001
+From: jrnt30 <justin.r.nauman+github@gmail.com>
+Date: Wed, 26 Feb 2014 17:05:11 -0600
+Subject: [PATCH] Modifying hierarchy of the Version/Params to allow for proper
+ parsing of release on Amazon Linux
+
+---
+ manifests/params.pp  |  7 -------
+ manifests/version.pp | 11 +++++++++--
+ 2 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/manifests/params.pp b/manifests/params.pp
+index be6e331..04c3b65 100644
+--- a/manifests/params.pp
++++ b/manifests/params.pp
+@@ -19,13 +19,6 @@
+ # Sample Usage:
+ #
+ class apache::params inherits ::apache::version {
+-  # This will be 5 or 6 on RedHat, 6 or wheezy on Debian, 12 or quantal on Ubuntu, 3 on Amazon, etc.
+-  $osr_array = split($::operatingsystemrelease,'[\/\.]')
+-  $distrelease = $osr_array[0]
+-  if ! $distrelease {
+-    fail("Class['apache::params']: Unparsable \$::operatingsystemrelease: ${::operatingsystemrelease}")
+-  }
+-
+   if($::fqdn) {
+     $servername = $::fqdn
+   } else {
+diff --git a/manifests/version.pp b/manifests/version.pp
+index 4ed960d..581fdde 100644
+--- a/manifests/version.pp
++++ b/manifests/version.pp
+@@ -3,16 +3,23 @@
+ # Try to automatically detect the version by OS
+ #
+ class apache::version {
++  # This will be 5 or 6 on RedHat, 6 or wheezy on Debian, 12 or quantal on Ubuntu, 3 on Amazon, etc.
++  $osr_array = split($::operatingsystemrelease,'[\/\.]')
++  $distrelease = $osr_array[0]
++  if ! $distrelease {
++    fail("Class['apache::params']: Unparsable \$::operatingsystemrelease: ${::operatingsystemrelease}")
++  }
++  
+   case $::osfamily {
+     'RedHat': {
+-      if ($::operatingsystem == 'Fedora' and $::operatingsystemrelease >= 18) or ($::operatingsystem != 'Fedora' and $::operatingsystemrelease >= 7) {
++      if ($::operatingsystem == 'Fedora' and $distrelease >= 18) or ($::operatingsystem != 'Fedora' and $distrelease >= 7) {
+         $default = 2.4
+       } else {
+         $default = 2.2
+       }
+     }
+     'Debian': {
+-      if $::operatingsystem == 'Ubuntu' and $::operatingsystemrelease >= 13.10 {
++      if $::operatingsystem == 'Ubuntu' and $distrelease >= 13.10 {
+         $default = 2.4
+       } else {
+         $default = 2.2
+-- 
+1.9.1
+
