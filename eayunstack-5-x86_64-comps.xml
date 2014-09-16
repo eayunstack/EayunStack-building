@@ -1,0 +1,585 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE comps PUBLIC "-//EayunStack//DTD Comps info//EN" "comps.dtd">
+<comps>
+  <group>
+   <id>base</id>
+   <name>Base</name>
+   <name xml:lang='zh_CN'>基本</name>
+   <name xml:lang='zh_TW'>基礎</name>
+   <description>The basic installation of EayunStack.</description>
+   <description xml:lang='zh_CN'>EayunStack 基本安装。</description>
+   <description xml:lang='zh_TW'>EayunStack 基本安裝。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+      <packagereq requires="ruby" type="conditional">rubygem-abrt</packagereq>
+      <packagereq type="default">abrt-addon-ccpp</packagereq>
+      <packagereq type="default">abrt-addon-python</packagereq>
+      <packagereq type="default">abrt-cli</packagereq>
+      <packagereq type="default">abrt-console-notification</packagereq>
+      <packagereq type="default">bash-completion</packagereq>
+      <packagereq type="default">blktrace</packagereq>
+      <packagereq type="default">bridge-utils</packagereq>
+      <packagereq type="default">bzip2</packagereq>
+      <packagereq type="default">chrony</packagereq>
+      <packagereq type="default">cryptsetup</packagereq>
+      <packagereq type="default">dmraid</packagereq>
+      <packagereq type="default">dosfstools</packagereq>
+      <packagereq type="default">ethtool</packagereq>
+      <packagereq type="default">fprintd-pam</packagereq>
+      <packagereq type="default">gnupg2</packagereq>
+      <packagereq type="default">hunspell-en</packagereq>
+      <packagereq type="default">hunspell</packagereq>
+      <packagereq type="default">kpatch</packagereq>
+      <packagereq type="default">ledmon</packagereq>
+      <packagereq type="default">libaio</packagereq>
+      <packagereq type="default">libreport-plugin-mailx</packagereq>
+      <packagereq type="default">libstoragemgmt</packagereq>
+      <packagereq type="default">lvm2</packagereq>
+      <packagereq type="default">man-pages-overrides</packagereq>
+      <packagereq type="default">man-pages</packagereq>
+      <packagereq type="default">mdadm</packagereq>
+      <packagereq type="default">mlocate</packagereq>
+      <packagereq type="default">mtr</packagereq>
+      <packagereq type="default">nano</packagereq>
+      <packagereq type="default">ntpdate</packagereq>
+      <packagereq type="default">pinfo</packagereq>
+      <packagereq type="default">plymouth</packagereq>
+      <packagereq type="default">pm-utils</packagereq>
+      <packagereq type="default">rdate</packagereq>
+      <packagereq type="default">rfkill</packagereq>
+      <packagereq type="default">rng-tools</packagereq>
+      <packagereq type="default">rsync</packagereq>
+      <packagereq type="default">scl-utils</packagereq>
+      <packagereq type="default">setuptool</packagereq>
+      <packagereq type="default">smartmontools</packagereq>
+      <packagereq type="default">sos</packagereq>
+      <packagereq type="default">sssd-client</packagereq>
+      <packagereq type="default">strace</packagereq>
+      <packagereq type="default">sysstat</packagereq>
+      <packagereq type="default">systemtap-runtime</packagereq>
+      <packagereq type="default">tcpdump</packagereq>
+      <packagereq type="default">tcsh</packagereq>
+      <packagereq type="default">teamd</packagereq>
+      <packagereq type="default">time</packagereq>
+      <packagereq type="default">unzip</packagereq>
+      <packagereq type="default">usbutils</packagereq>
+      <packagereq type="default">vim-enhanced</packagereq>
+      <packagereq type="default">virt-what</packagereq>
+      <packagereq type="default">wget</packagereq>
+      <packagereq type="default">which</packagereq>
+      <packagereq type="default">words</packagereq>
+      <packagereq type="default">xfsdump</packagereq>
+      <packagereq type="default">xz</packagereq>
+      <packagereq type="default">yum-langpacks</packagereq>
+      <packagereq type="default">yum-plugin-security</packagereq>
+      <packagereq type="default">yum-utils</packagereq>
+      <packagereq type="default">zip</packagereq>
+      <packagereq type="mandatory">acl</packagereq>
+      <packagereq type="mandatory">at</packagereq>
+      <packagereq type="mandatory">attr</packagereq>
+      <packagereq type="mandatory">authconfig</packagereq>
+      <packagereq type="mandatory">bc</packagereq>
+      <packagereq type="mandatory">bind-utils</packagereq>
+      <packagereq type="mandatory">cpio</packagereq>
+      <packagereq type="mandatory">crda</packagereq>
+      <packagereq type="mandatory">crontabs</packagereq>
+      <packagereq type="mandatory">cyrus-sasl-plain</packagereq>
+      <packagereq type="mandatory">dbus</packagereq>
+      <packagereq type="mandatory">ed</packagereq>
+      <packagereq type="mandatory">file</packagereq>
+      <packagereq type="mandatory">firewalld</packagereq>
+      <packagereq type="mandatory">logrotate</packagereq>
+      <packagereq type="mandatory">lsof</packagereq>
+      <packagereq type="mandatory">man-db</packagereq>
+      <packagereq type="mandatory">net-tools</packagereq>
+      <packagereq type="mandatory">ntsysv</packagereq>
+      <packagereq type="mandatory">pciutils</packagereq>
+      <packagereq type="mandatory">psacct</packagereq>
+      <packagereq type="mandatory">quota</packagereq>
+      <packagereq type="mandatory">centos-indexhtml</packagereq>
+      <packagereq type="mandatory">setserial</packagereq>
+      <packagereq type="mandatory">traceroute</packagereq>
+      <packagereq type="mandatory">usb_modeswitch</packagereq>
+      <packagereq type="optional">acpid</packagereq>
+      <packagereq type="optional">audispd-plugins</packagereq>
+      <packagereq type="optional">brltty</packagereq>
+      <packagereq type="optional">cryptsetup-reencrypt</packagereq>
+      <packagereq type="optional">device-mapper-persistent-data</packagereq>
+      <packagereq type="optional">dos2unix</packagereq>
+      <packagereq type="optional">dumpet</packagereq>
+      <packagereq type="optional">genisoimage</packagereq>
+      <packagereq type="optional">gpm</packagereq>
+      <packagereq type="optional">i2c-tools</packagereq>
+      <packagereq type="optional">kabi-yum-plugins</packagereq>
+      <packagereq type="optional">libatomic</packagereq>
+      <packagereq type="optional">libcgroup</packagereq>
+      <packagereq type="optional">libcgroup-tools</packagereq>
+      <packagereq type="optional">libitm</packagereq>
+      <packagereq type="optional">libstoragemgmt-netapp-plugin</packagereq>
+      <packagereq type="optional">libstoragemgmt-nstor-plugin</packagereq>
+      <packagereq type="optional">libstoragemgmt-smis-plugin</packagereq>
+      <packagereq type="optional">libstoragemgmt-targetd-plugin</packagereq>
+      <packagereq type="optional">libstoragemgmt-udev</packagereq>
+      <packagereq type="optional">linuxptp</packagereq>
+      <packagereq type="optional">logwatch</packagereq>
+      <packagereq type="optional">mkbootdisk</packagereq>
+      <packagereq type="optional">mtools</packagereq>
+      <packagereq type="optional">ncurses-term</packagereq>
+      <packagereq type="optional">ntp</packagereq>
+      <packagereq type="optional">oddjob</packagereq>
+      <packagereq type="optional">pax</packagereq>
+      <packagereq type="optional">prelink</packagereq>
+      <packagereq type="optional">PyPAM</packagereq>
+      <packagereq type="optional">python-volume_key</packagereq>
+      <packagereq type="optional">redhat-lsb-core</packagereq>
+      <packagereq type="optional">redhat-upgrade-dracut</packagereq>
+      <packagereq type="optional">redhat-upgrade-tool</packagereq>
+      <packagereq type="optional">rsyslog-gnutls</packagereq>
+      <packagereq type="optional">rsyslog-gssapi</packagereq>
+      <packagereq type="optional">rsyslog-relp</packagereq>
+      <packagereq type="optional">sgpio</packagereq>
+      <packagereq type="optional">sox</packagereq>
+      <packagereq type="optional">squashfs-tools</packagereq>
+      <packagereq type="optional">star</packagereq>
+      <packagereq type="optional">tmpwatch</packagereq>
+      <packagereq type="optional">udftools</packagereq>
+      <packagereq type="optional">uuidd</packagereq>
+      <packagereq type="optional">volume_key</packagereq>
+      <packagereq type="optional">wodim</packagereq>
+      <packagereq type="optional">x86info</packagereq>
+      <packagereq type="optional">yum-plugin-aliases</packagereq>
+      <packagereq type="optional">yum-plugin-changelog</packagereq>
+      <packagereq type="optional">yum-plugin-tmprepo</packagereq>
+      <packagereq type="optional">yum-plugin-verify</packagereq>
+      <packagereq type="optional">yum-plugin-versionlock</packagereq>
+      <packagereq type="optional">zsh</packagereq>
+    </packagelist>
+  </group>
+  <group>
+   <id>core</id>
+   <name>Core</name>
+   <name xml:lang='zh_CN'>核心</name>
+   <name xml:lang='zh_TW'>核心</name>
+   <description>Smallest possible installation.</description>
+   <description xml:lang='zh_CN'>最小可能安装。</description>
+   <description xml:lang='zh_TW'>最小型安裝。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+      <packagereq type="default">aic94xx-firmware</packagereq>
+      <packagereq type="default">alsa-firmware</packagereq>
+      <packagereq type="default">dracut-config-rescue</packagereq>
+      <packagereq type="default">ivtv-firmware</packagereq>
+      <packagereq type="default">iwl1000-firmware</packagereq>
+      <packagereq type="default">iwl100-firmware</packagereq>
+      <packagereq type="default">iwl105-firmware</packagereq>
+      <packagereq type="default">iwl135-firmware</packagereq>
+      <packagereq type="default">iwl2000-firmware</packagereq>
+      <packagereq type="default">iwl2030-firmware</packagereq>
+      <packagereq type="default">iwl3160-firmware</packagereq>
+      <packagereq type="default">iwl3945-firmware</packagereq>
+      <packagereq type="default">iwl4965-firmware</packagereq>
+      <packagereq type="default">iwl5000-firmware</packagereq>
+      <packagereq type="default">iwl5150-firmware</packagereq>
+      <packagereq type="default">iwl6000-firmware</packagereq>
+      <packagereq type="default">iwl6000g2a-firmware</packagereq>
+      <packagereq type="default">iwl6000g2b-firmware</packagereq>
+      <packagereq type="default">iwl6050-firmware</packagereq>
+      <packagereq type="default">iwl7260-firmware</packagereq>
+      <packagereq type="default">kernel-tools</packagereq>
+      <packagereq type="default">libertas-sd8686-firmware</packagereq>
+      <packagereq type="default">libertas-sd8787-firmware</packagereq>
+      <packagereq type="default">libertas-usb8388-firmware</packagereq>
+      <packagereq type="default">linux-firmware</packagereq>
+      <packagereq type="default">microcode_ctl</packagereq>
+      <packagereq type="default">NetworkManager</packagereq>
+      <packagereq type="default">NetworkManager-tui</packagereq>
+      <packagereq type="default">postfix</packagereq>
+      <packagereq type="mandatory">audit</packagereq>
+      <packagereq type="mandatory">basesystem</packagereq>
+      <packagereq type="mandatory">bash</packagereq>
+      <packagereq type="mandatory">biosdevname</packagereq>
+      <packagereq type="mandatory">btrfs-progs</packagereq>
+      <packagereq type="mandatory">coreutils</packagereq>
+      <packagereq type="mandatory">cronie</packagereq>
+      <packagereq type="mandatory">curl</packagereq>
+      <packagereq type="mandatory">dhclient</packagereq>
+      <packagereq type="mandatory">e2fsprogs</packagereq>
+      <packagereq type="mandatory">filesystem</packagereq>
+      <packagereq type="mandatory">glibc</packagereq>
+      <packagereq type="mandatory">grub2</packagereq>
+      <packagereq type="mandatory">grub2-efi</packagereq>
+      <packagereq type="mandatory">hostname</packagereq>
+      <packagereq type="mandatory">initscripts</packagereq>
+      <packagereq type="mandatory">iproute</packagereq>
+      <packagereq type="mandatory">iprutils</packagereq>
+      <packagereq type="mandatory">iptables</packagereq>
+      <packagereq type="mandatory">iptables-services</packagereq>
+      <packagereq type="mandatory">iputils</packagereq>
+      <packagereq type="mandatory">irqbalance</packagereq>
+      <packagereq type="mandatory">kbd</packagereq>
+      <packagereq type="mandatory">kexec-tools</packagereq>
+      <packagereq type="mandatory">less</packagereq>
+      <packagereq type="mandatory">man-db</packagereq>
+      <packagereq type="mandatory">ncurses</packagereq>
+      <packagereq type="mandatory">openssh-clients</packagereq>
+      <packagereq type="mandatory">openssh-server</packagereq>
+      <packagereq type="mandatory">parted</packagereq>
+      <packagereq type="mandatory">passwd</packagereq>
+      <packagereq type="mandatory">plymouth</packagereq>
+      <packagereq type="mandatory">policycoreutils</packagereq>
+      <packagereq type="mandatory">procps-ng</packagereq>
+      <packagereq type="mandatory">rootfiles</packagereq>
+      <packagereq type="mandatory">rpm</packagereq>
+      <packagereq type="mandatory">rsyslog</packagereq>
+      <packagereq type="mandatory">selinux-policy-targeted</packagereq>
+      <packagereq type="mandatory">setup</packagereq>
+      <packagereq type="mandatory">shadow-utils</packagereq>
+      <packagereq type="mandatory">sudo</packagereq>
+      <packagereq type="mandatory">systemd</packagereq>
+      <packagereq type="mandatory">tar</packagereq>
+      <packagereq type="mandatory">tuned</packagereq>
+      <packagereq type="mandatory">util-linux</packagereq>
+      <packagereq type="mandatory">vim-minimal</packagereq>
+      <packagereq type="mandatory">xfsprogs</packagereq>
+      <packagereq type="mandatory">yum</packagereq>
+      <packagereq type="optional">dracut-config-generic</packagereq>
+      <packagereq type="optional">dracut-fips-aesni</packagereq>
+      <packagereq type="optional">dracut-fips</packagereq>
+      <packagereq type="optional">dracut-network</packagereq>
+      <packagereq type="optional">openssh-keycat</packagereq>
+      <packagereq type="optional">selinux-policy-mls</packagereq>
+      <packagereq type="optional">tboot</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-common</id>
+   <name>EayunStack Common</name>
+   <name xml:lang='zh_CN'>EayunStack 通用</name>
+   <name xml:lang='zh_TW'>EayunStack 通用</name>
+   <description>The common packages of different EayunStack components.</description>
+   <description xml:lang='zh_CN'>EayunStack 通用软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 通用軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">MySQL-python</packagereq>
+       <packagereq type="mandatory">qpid-cpp-server</packagereq>
+       <packagereq type="mandatory">openstack-selinux</packagereq>
+       <packagereq type="default">openstack-utils</packagereq>
+       <packagereq type="mandatory">openstack-neutron</packagereq>
+       <packagereq type="mandatory">openstack-neutron-ml2</packagereq>
+       <packagereq type="mandatory">python-neutronclient</packagereq>
+       <packagereq type="mandatory">openstack-packstack</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-controller</id>
+   <name>EayunStack Controller</name>
+   <name xml:lang='zh_CN'>EayunStack 控制节点</name>
+   <name xml:lang='zh_TW'>EayunStack 控制節点</name>
+   <description>The packages of EayunStack controller nodes.</description>
+   <description xml:lang='zh_CN'>EayunStack 控制节点软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 控制節点軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">mariadb</packagereq>
+       <packagereq type="mandatory">mariadb-server</packagereq>
+       <packagereq type="mandatory">openstack-keystone</packagereq>
+       <packagereq type="mandatory">python-keystoneclient</packagereq>
+       <packagereq type="mandatory">openstack-glance</packagereq>
+       <packagereq type="mandatory">python-glanceclient</packagereq>
+       <packagereq type="mandatory">openstack-nova-api</packagereq>
+       <packagereq type="mandatory">openstack-nova-cert</packagereq>
+       <packagereq type="mandatory">openstack-nova-conductor</packagereq>
+       <packagereq type="mandatory">openstack-nova-console</packagereq>
+       <packagereq type="mandatory">openstack-nova-novncproxy</packagereq>
+       <packagereq type="mandatory">openstack-nova-scheduler</packagereq>
+       <packagereq type="mandatory">python-novaclient</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-compute</id>
+   <name>EayunStack Compute</name>
+   <name xml:lang='zh_CN'>EayunStack 计算节点</name>
+   <name xml:lang='zh_TW'>EayunStack 計算節点</name>
+   <description>The packages of EayunStack compute nodes.</description>
+   <description xml:lang='zh_CN'>EayunStack 计算节点软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 計算節点軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-nova-compute</packagereq>
+       <packagereq type="mandatory">openstack-neutron-openvswitch</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-network</id>
+   <name>EayunStack Network</name>
+   <name xml:lang='zh_CN'>EayunStack 网络节点</name>
+   <name xml:lang='zh_TW'>EayunStack 網絡節点</name>
+   <description>The packages of EayunStack network nodes.</description>
+   <description xml:lang='zh_CN'>EayunStack 网络节点软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 网络節点軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-neutron-openvswitch</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-dashboard</id>
+   <name>EayunStack Dashboard</name>
+   <name xml:lang='zh_CN'>EayunStack Dashboard</name>
+   <name xml:lang='zh_TW'>EayunStack Dashboard</name>
+   <description>The packages of EayunStack dashboard nodes.</description>
+   <description xml:lang='zh_CN'>EayunStack dashboard 软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack dashboard 軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">memcached</packagereq>
+       <packagereq type="mandatory">python-memcached</packagereq>
+       <packagereq type="mandatory">mod_wsgi</packagereq>
+       <packagereq type="mandatory">openstack-dashboard</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-blockstorage</id>
+   <name>EayunStack Block Storage</name>
+   <name xml:lang='zh_CN'>EayunStack 块设备服务</name>
+   <name xml:lang='zh_TW'>EayunStack 块設备服務</name>
+   <description>The packages of EayunStack block stroage nodes.</description>
+   <description xml:lang='zh_CN'>EayunStack 块设备服务软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 块設备服務軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-cinder</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-objectstorage</id>
+   <name>EayunStack Object Storage</name>
+   <name xml:lang='zh_CN'>EayunStack 对象存储服务</name>
+   <name xml:lang='zh_TW'>EayunStack 物件儲存服務</name>
+   <description>The packages of EayunStack object stroage service.</description>
+   <description xml:lang='zh_CN'>EayunStack 对象存储服务软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 物件儲存服務軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-swift-account</packagereq>
+       <packagereq type="mandatory">openstack-swift-container</packagereq>
+       <packagereq type="mandatory">openstack-swift-object</packagereq>
+       <packagereq type="mandatory">xinetd</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-objectstorage-proxy</id>
+   <name>EayunStack Object Storage Porxy</name>
+   <name xml:lang='zh_CN'>EayunStack 对象存储代理服务</name>
+   <name xml:lang='zh_TW'>EayunStack 物件儲存代理服務</name>
+   <description>The packages of EayunStack object stroage proxy service.</description>
+   <description xml:lang='zh_CN'>EayunStack 对象存储代理服务软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 物件儲存代理服務軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-swift-proxy</packagereq>
+       <packagereq type="mandatory">memcached</packagereq>
+       <packagereq type="mandatory">python-swiftclient</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-orchestration</id>
+   <name>EayunStack Orchestration</name>
+   <name xml:lang='zh_CN'>EayunStack Orchestration</name>
+   <name xml:lang='zh_TW'>EayunStack Orchestration</name>
+   <description>The packages of EayunStack orchestration service.</description>
+   <description xml:lang='zh_CN'>EayunStack orchestration 服务软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack orchestration 服務軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-heat-api</packagereq>
+       <packagereq type="mandatory">openstack-heat-engine</packagereq>
+       <packagereq type="mandatory">openstack-heat-api-cfn</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-telemetry</id>
+   <name>EayunStack Telemetry</name>
+   <name xml:lang='zh_CN'>EayunStack Telemetry</name>
+   <name xml:lang='zh_TW'>EayunStack Telemetry</name>
+   <description>The packages of EayunStack telemetry service.</description>
+   <description xml:lang='zh_CN'>EayunStack telemetry 服务软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack telemetry 服務軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-ceilometer-api</packagereq>
+       <packagereq type="mandatory">openstack-ceilometer-collector</packagereq>
+       <packagereq type="mandatory">openstack-ceilometer-notification</packagereq>
+       <packagereq type="mandatory">openstack-ceilometer-central</packagereq>
+       <packagereq type="mandatory">openstack-ceilometer-alarm</packagereq>
+       <packagereq type="mandatory">python-ceilometerclient</packagereq>
+       <packagereq type="mandatory">mongodb-server</packagereq>
+       <packagereq type="mandatory">mongodb</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-telemetry-compute-agent</id>
+   <name>EayunStack Telemetry Compute Agent</name>
+   <name xml:lang='zh_CN'>EayunStack Telemetry Compute Agent</name>
+   <name xml:lang='zh_TW'>EayunStack Telemetry Compute Agent</name>
+   <description>The packages of EayunStack telemetry compute agent.</description>
+   <description xml:lang='zh_CN'>EayunStack telemetry compute agent 软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack telemetry compute agent 軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-ceilometer-compute</packagereq>
+       <packagereq type="mandatory">python-ceilometerclient</packagereq>
+       <packagereq type="mandatory">python-pecan</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-database</id>
+   <name>EayunStack Database</name>
+   <name xml:lang='zh_CN'>EayunStack 数据库服务</name>
+   <name xml:lang='zh_TW'>EayunStack 數據庫服務 </name>
+   <description>The packages of EayunStack database service.</description>
+   <description xml:lang='zh_CN'>EayunStack 数据库软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack 數據庫軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">openstack-trove</packagereq>
+       <packagereq type="mandatory">python-troveclient</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-nagios</id>
+   <name>EayunStack Nagios</name>
+   <name xml:lang='zh_CN'>EayunStack Nagios 监控服务</name>
+   <name xml:lang='zh_TW'>EayunStack Nagios 監控服務</name>
+   <description>The packages of EayunStack nagios service.</description>
+   <description xml:lang='zh_CN'>EayunStack nagios 监控软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack nagios 監控軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">nagios</packagereq>
+       <packagereq type="mandatory">nagios-devel</packagereq>
+   </packagelist>
+  </group>
+  <group>
+   <id>eayunstack-nagios-remote</id>
+   <name>EayunStack Nagios Remote</name>
+   <name xml:lang='zh_CN'>EayunStack Nagios Remote</name>
+   <name xml:lang='zh_TW'>EayunStack Nagios Remote</name>
+   <description>The packages of EayunStack nagios remote.</description>
+   <description xml:lang='zh_CN'>EayunStack nagios remote 软件包。</description>
+   <description xml:lang='zh_TW'>EayunStack nagios remote 軟體包。</description>
+   <default>false</default>
+   <uservisible>false</uservisible>
+   <packagelist>
+       <packagereq type="mandatory">nrpe</packagereq>
+       <packagereq type="mandatory">nagios-plugins</packagereq>
+       <packagereq type="mandatory">nagios-plugins-all</packagereq>
+   </packagelist>
+  </group>
+  <category>
+   <id>eayunstack-controller-node</id>
+   <name>EayunStack Controller Node</name>
+   <name xml:lang='zh_CN'>EayunStack 控制节点软件目录</name>
+   <name xml:lang='zh_TW'>EayunStack 控制節点軟體目録</name>
+   <description>EayunStack controller node components.</description>
+   <description xml:lang='zh_CN'>EayunStack 控制节点组件。</description>
+   <description xml:lang='zh_TW'>EayunStack 控制節点元件。</description>
+   <grouplist>
+    <groupid>eayunstack-common</groupid>
+    <groupid>eayunstack-controller</groupid>
+    <groupid>eayunstack-network</groupid>
+    <groupid>eayunstack-blockstorage</groupid>
+    <groupid>eayunstack-dashboard</groupid>
+    <groupid>eayunstack-database</groupid>
+    <groupid>eayunstack-nagios</groupid>
+    <groupid>eayunstack-nagios-remote</groupid>
+    <groupid>eayunstack-objectstorage</groupid>
+    <groupid>eayunstack-objectstorage-proxy</groupid>
+    <groupid>eayunstack-orchestration</groupid>
+    <groupid>eayunstack-telemetry</groupid>
+    <groupid>eayunstack-telemetry-compute-agent</groupid>
+   </grouplist>
+  </category>
+  <category>
+   <id>eayunstack-compute-node</id>
+   <name>EayunStack Compute Node</name>
+   <name xml:lang='zh_CN'>EayunStack 计算节点软件目录</name>
+   <name xml:lang='zh_TW'>EayunStack 計算節点軟體目録</name>
+   <description>EayunStack compute node components.</description>
+   <description xml:lang='zh_CN'>EayunStack 计算节点组件。</description>
+   <description xml:lang='zh_TW'>EayunStack 計算節点元件。</description>
+   <grouplist>
+    <groupid>eayunstack-common</groupid>
+    <groupid>eayunstack-compute</groupid>
+    <groupid>eayunstack-nagios-remote</groupid>
+    <groupid>eayunstack-telemetry-compute-agent</groupid>
+   </grouplist>
+  </category>
+  <environment>
+   <id>eayunstack-controller-environment</id>
+   <name>EayunStack Controller</name>
+   <name xml:lang='zh_CN'>EayunStack 控制节点</name>
+   <name xml:lang='zh_TW'>EayunStack 控制節点</name>
+   <description>EayunStack Controller Server.</description>
+   <description xml:lang='zh_CN'>EayunStack 控制节点服务器。</description>
+   <description xml:lang='zh_TW'>EayunStack 控制節点伺服器。</description>
+   <display_order>5</display_order>
+   <grouplist>
+         <groupid>base</groupid>
+         <groupid>core</groupid>
+         <groupid>eayunstack-common</groupid>
+         <groupid>eayunstack-controller</groupid>
+         <groupid>eayunstack-network</groupid>
+         <groupid>eayunstack-blockstorage</groupid>
+         <groupid>eayunstack-dashboard</groupid>
+         <groupid>eayunstack-database</groupid>
+         <groupid>eayunstack-nagios</groupid>
+         <groupid>eayunstack-nagios-remote</groupid>
+         <groupid>eayunstack-objectstorage</groupid>
+         <groupid>eayunstack-objectstorage-proxy</groupid>
+         <groupid>eayunstack-orchestration</groupid>
+         <groupid>eayunstack-telemetry</groupid>
+         <groupid>eayunstack-telemetry-compute-agent</groupid>
+   </grouplist>
+   <optionlist>
+
+   </optionlist>
+  </environment>
+  <environment>
+   <id>eayunstack-compute-environment</id>
+   <name>EayunStack Compute</name>
+   <name xml:lang='zh_CN'>EayunStack 计算节点</name>
+   <name xml:lang='zh_TW'>EayunStack 計算節点</name>
+   <description>EayunStack Compute Server.</description>
+   <description xml:lang='zh_CN'>EayunStack 计算节点服务器。</description>
+   <description xml:lang='zh_TW'>EayunStack 計算節点伺服器。</description>
+   <display_order>5</display_order>
+   <grouplist>
+         <groupid>base</groupid>
+         <groupid>core</groupid>
+         <groupid>eayunstack-common</groupid>
+         <groupid>eayunstack-compute</groupid>
+         <groupid>eayunstack-nagios-remote</groupid>
+         <groupid>eayunstack-telemetry-compute-agent</groupid>
+   </grouplist>
+   <optionlist>
+
+   </optionlist>
+  </environment>
+</comps>
