@@ -350,6 +350,7 @@
        <packagereq type="mandatory">python-memcached</packagereq>
        <packagereq type="mandatory">mod_wsgi</packagereq>
        <packagereq type="mandatory">openstack-dashboard</packagereq>
+       <packagereq type="mandatory">eayunstack-dashboard-theme</packagereq>
    </packagelist>
   </group>
   <group>
