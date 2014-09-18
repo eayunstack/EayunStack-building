@@ -264,6 +264,9 @@
    <default>false</default>
    <uservisible>false</uservisible>
    <packagelist>
+       <packagereq type="mandatory">puppet</packagereq>
+       <packagereq type="mandatory">erlang</packagereq>
+       <packagereq type="mandatory">rabbitmq-server</package>
        <packagereq type="mandatory">MySQL-python</packagereq>
        <packagereq type="mandatory">qpid-cpp-server</packagereq>
        <packagereq type="mandatory">openstack-selinux</packagereq>
@@ -285,8 +288,11 @@
    <default>false</default>
    <uservisible>false</uservisible>
    <packagelist>
+       <!--
        <packagereq type="mandatory">mariadb</packagereq>
        <packagereq type="mandatory">mariadb-server</packagereq>
+       -->
+       <packagereq type="mandatory">mariadb-galera-server</packagereq>
        <packagereq type="mandatory">openstack-keystone</packagereq>
        <packagereq type="mandatory">python-keystoneclient</packagereq>
        <packagereq type="mandatory">openstack-glance</packagereq>
@@ -490,6 +496,7 @@
        <packagereq type="mandatory">nrpe</packagereq>
        <packagereq type="mandatory">nagios-plugins</packagereq>
        <packagereq type="mandatory">nagios-plugins-all</packagereq>
+       <packagereq type="mandatory">nagios-plugins-nrpe</packagereq>
    </packagelist>
   </group>
   <category>
@@ -545,6 +552,7 @@
          <groupid>core</groupid>
          <groupid>eayunstack-common</groupid>
          <groupid>eayunstack-controller</groupid>
+         <groupid>eayunstack-compute</groupid>
          <groupid>eayunstack-network</groupid>
          <groupid>eayunstack-blockstorage</groupid>
          <groupid>eayunstack-dashboard</groupid>
