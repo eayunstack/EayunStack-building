@@ -1,0 +1,67 @@
+* 2014年9月19日，19时31分42秒，赵超，<chao.zhao@eayun.com>
+- EayunStack-5.0_Preview-1 发布。
+- 1. 软件包来源：
+-   a）基础软件，来自 CentOS 7 官方源的 os 、 updates 、 extras 3个目录；
+-   b）EPEL 7 软件源；
+-   c) RDO Icehouse 软件源；
+-   d) EayunStack 软件源，（包括所有需要自行构建的软件包），目前包括:
+-      * eayunstack-dashboard-theme
+-      * eayunstack-setup
+-      * openstack-neutron 相关软件包
+-        该软件包自行构建的原因是，openstack-neutron 这个 subpackage 使用了
+-        pretrans 脚本，而在系统安装时 pretrans 脚本会出错（原因是脚本执行时
+-        目标根目录下还没有开始安装任何软件包，而 openstack-neutron 在
+-        pretrans 中调用 rpm 命令）。由于该 pretrans 脚本只用于从旧版本的
+-        openstack-quantum 升级到 openstack-neutron，因此删除 pretrans 脚本
+-        进行重新打包。
+-
+- 2. 软件包分组（comps）：
+-   a）一共包含 16 个分组：
+-      * base
+-      * core
+-      * eayunstack-blockstorage
+-      * eayunstack-common
+-      * eayunstack-compute
+-      * eayunstack-controller
+-      * eayunstack-dashboard
+-      * eayunstack-database
+-      * eayunstack-nagios
+-      * eayunstack-nagios-remote
+-      * eayunstack-network
+-      * eayunstack-objectstorage
+-      * eayunstack-objectstorage-proxy
+-      * eayunstack-orchestration
+-      * eayunstack-telemetry
+-      * eayunstack-telemetry-compute-agent
+-   b）建立 2 个 category ：
+-      * eayunstack-compute-node
+-        包括上述 EayunStack 相关的 14 个软件包组（除去 base 和 core ）。
+-      * eayunstack-controller-node
+-        包括 eayunstack-common 、 eayunstack-compute 、
+-        eayunstack-nagios-remote 、 eayunstack-telemetry-compute-agent
+-        4 个软件包组。
+-   c）建立 2 个 environment ：
+-      * eayunstack-controller-environment
+-        包括上述所有 16 个软件包组。
+-      * eayunstack-compute-environment
+-        包括 eayunstack-controller-node 中 4 个软件包组加上 base 和 core 。
+-
+- 3. 安装模式：
+-   通过 kickstack 配置文件提供 2 种基本安装模式：
+-   a）EayunStack Controller:
+-      对应 eayunstack-controller-environment 。
+-   b）EayunStack Compute:
+-      对应 eayunstack-compute-environment 。
+-
+- 其他说明：
+- 1. EayunStack 5 软件源地址：
+-    http://192.168.3.159/EayunStack/5/rpms/
+-    Preview 版 ISO 发布地址：
+-    http://192.168.3.239/testing/EayunStack/
+-    本次发布版本下载地址：
+-    http://192.168.3.239/testing/EayunStack/EayunStack-5.0_Preview-20140919173751-x86_64.iso
+-    同时提供 samba 共享：
+-    smb://192.168.3.239/testing/EayunStack/EayunStack-5.0_Preview-20140919173751-x86_64.iso
+-
+- 2. 本次发布的 Preview 版本安装介质只限于内部测试，对外演示之前最好
+-    完善产品化工作，如产品标识等。
