@@ -266,7 +266,7 @@
    <packagelist>
        <packagereq type="mandatory">puppet</packagereq>
        <packagereq type="mandatory">erlang</packagereq>
-       <packagereq type="mandatory">rabbitmq-server</package>
+       <packagereq type="mandatory">rabbitmq-server</packagereq>
        <packagereq type="mandatory">MySQL-python</packagereq>
        <packagereq type="mandatory">qpid-cpp-server</packagereq>
        <packagereq type="mandatory">openstack-selinux</packagereq>
