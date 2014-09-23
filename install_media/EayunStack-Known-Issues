@@ -1,0 +1,192 @@
+* EayunStack-5.0_Preview-1
+    1、keystone 500 错误
+    故障描述：
+    在 packstack-setup.log 中，出现：
+    
+    2014-09-22 16:56:48::ERROR::run_setup::921::root:: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 916, in main
+        _main(confFile)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 605, in _main
+        runSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 584, in runSequences
+        controller.runAllSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/setup_controller.py", line 68, in runAllSequences
+        sequence.run(config=self.CONF, messages=self.MESSAGES)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 98, in run
+        step.run(config=config, messages=messages)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 44, in run
+        raise SequenceError(str(ex))
+    SequenceError: Error appeared during Puppet run: 192.168.2.189_keystone.pp
+    Error: /Stage[main]/Keystone::Roles::Admin/Keystone_role[_member_]: Could not evaluate: Execution of '/usr/bin/keystone --os-endpoint http://127.0.0.1:35357/v2.0/ role-list' returned 1: An unexpected error prevented the server from fulfilling your request. (HTTP 500)^[[0m
+    You will find full trace in log /var/tmp/packstack/20140922-165614-vPyf7F/manifests/192.168.2.189_keystone.pp.log
+    
+    而在 /var/log/keystone/keystone.log 中可以看到：
+    
+    ...
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 272, in connect
+    2014-09-22 16:54:02.003 659 TRACE keystone     return _ConnectionFairy(self).checkout()
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 431, in __init__
+    2014-09-22 16:54:02.003 659 TRACE keystone     rec = self._connection_record = pool._do_get()
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 772, in _do_get
+    2014-09-22 16:54:02.003 659 TRACE keystone     return self._create_connection()
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 225, in _create_connection
+    2014-09-22 16:54:02.003 659 TRACE keystone     return _ConnectionRecord(self)
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 318, in __init__
+    2014-09-22 16:54:02.003 659 TRACE keystone     self.connection = self.__connect()
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/pool.py", line 379, in __connect
+    2014-09-22 16:54:02.003 659 TRACE keystone     connection = self.__pool._creator()
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/engine/strategies.py", line 80, in connect
+    2014-09-22 16:54:02.003 659 TRACE keystone     return dialect.connect(*cargs, **cparams)
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/sqlalchemy/engine/default.py", line 283, in connect
+    2014-09-22 16:54:02.003 659 TRACE keystone     return self.dbapi.connect(*cargs, **cparams)
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/MySQLdb/__init__.py", line 81, in Connect
+    2014-09-22 16:54:02.003 659 TRACE keystone     return Connection(*args, **kwargs)
+    2014-09-22 16:54:02.003 659 TRACE keystone   File "/usr/lib64/python2.7/site-packages/MySQLdb/connections.py", line 187, in __init__
+    2014-09-22 16:54:02.003 659 TRACE keystone     super(Connection, self).__init__(*args, **kwargs2)
+    2014-09-22 16:54:02.003 659 TRACE keystone OperationalError: (OperationalError) (1045, "Access denied for user 'keystone_admin'@'controller' (using password: YES)") None None
+    
+    手动尝试登录数据库，也出现同样的问题。
+    
+    解决尝试：
+    （1）最开始觉得是由于多次执行 es-setup ，导致数据库密码出现不一致的情况，所以尝试了手动清除数据库和数据库用户，删除 maira 软件包并删除 mysql 文件然后重装 mariadb，都没有解决问题；
+    （2）后来仔细研究了下 user 表，发现有一行 host 列对应 controller 服务器主机名，是这一样导致 keystone_admin 不能以指定主机 ip 的方式登录的，删除了这一行之后，重新 keystone-manage db_sync，之后重新执行 es-setup （使用原来的配置），问题解决。
+    
+    2、nova.pp 安装 qemu-kvm 失败
+    故障描述：
+    在 packstack-setup.log 中，出现：
+    
+    2014-09-22 17:00:09::ERROR::run_setup::921::root:: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 916, in main
+        _main(confFile)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 605, in _main
+        runSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 584, in runSequences
+        controller.runAllSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/setup_controller.py", line 68, in runAllSequences
+        sequence.run(config=self.CONF, messages=self.MESSAGES)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 98, in run
+        step.run(config=config, messages=messages)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 44, in run
+        raise SequenceError(str(ex))
+    SequenceError: Error appeared during Puppet run: 192.168.2.187_nova.pp
+    Error: yum install -y -d 0 -e 0 qemu-kvm returned 1 instead of one of [0]^[[0m
+    You will find full trace in log /var/tmp/packstack/20140922-165817-Z__h0U/manifests/192.168.2.187_nova.pp.log
+    
+    解决尝试：
+    修改 /usr/lib/python2.7/site-packages/packstack/puppet/templates/nova_compute_libvirt.pp ，将以下几行注释：
+    exec { 'qemu-kvm':
+        path => '/usr/bin',
+        command => 'yum install -y -d 0 -e 0 qemu-kvm',
+        onlyif => 'yum install -y -d 0 -e 0 qemu-kvm-rhev &> /dev/null && exit 1 || exit 0',
+        before => Class['nova::compute::libvirt']
+    }
+    
+    3、neutron.pp 检测 tunneling 失败
+    故障描述：
+    在 packstack-setup.log 中，出现：
+    
+    2014-09-22 19:25:38::ERROR::run_setup::921::root:: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 916, in main
+        _main(confFile)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 605, in _main
+        runSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 584, in runSequences
+        controller.runAllSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/setup_controller.py", line 68, in runAllSequences
+        sequence.run(config=self.CONF, messages=self.MESSAGES)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 98, in run
+        step.run(config=config, messages=messages)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 44, in run
+        raise SequenceError(str(ex))
+    SequenceError: Error appeared during Puppet run: 192.168.2.188_neutron.pp
+    Error: Local ip for ovs agent must be set when tunneling is enabled at /var/tmp/packstack/69bbce45c76c4b269d2de7afefbac449/modules/neutron/manifests/agents/ml2/ovs.pp:107 on node compute1^[[0m
+    You will find full trace in log /var/tmp/packstack/20140922-192418-a6rV37/manifests/192.168.2.188_neutron.pp.log
+    
+    解决尝试：
+    出现问题的地方是这里， packstack/puppet/templates/neutron_ovs_agent_gre.pp:
+    if "%(CONFIG_NEUTRON_OVS_TUNNEL_IF)s" {
+      $iface = regsubst('%(CONFIG_NEUTRON_OVS_TUNNEL_IF)s', '[\.\-\:]', '_', 'G')
+      $localip = inline_template("<%%= scope.lookupvar('::ipaddress_${iface}') %%>")
+    } else {
+      $localip = '%(CONFIG_NEUTRON_OVS_HOST)s'
+    }
+    
+    CONFIG_NEUTRON_OVS_TUNNEL_IF 是 es-setup 配置的 tunnel 网卡的名字，在其他节点服务器上不一定有这个网卡，因此会出现问题。手动调整这段代码之后，packstack 可以继续进行。 但是由于 es-setup 没有对 external 和 management 网络使用同一个网卡的情况进行处理，因此 es-setup 是过不去，启动网络时会出现问题， 实际网卡和 br-ex 会使用相同的 ip 地址而且该网卡也没有加入到 br-ex 中去，这里需要手动修改实际网卡的配置文件，配置 TYPE=OVSPort 和 OVS_BRIDGE=br-ex 。后续的测试只能使用
+    # packstack --answer-file=.es-setup.answer
+    继续。
+    
+    4、nova.pp 安装 monitoring-plugins-ping 失败
+    故障描述：
+    在 packstack-setup.log 中，出现：
+    
+    2014-09-23 14:33:04::ERROR::run_setup::921::root:: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 916, in main
+        _main(confFile)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 605, in _main
+        runSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 584, in runSequences
+        controller.runAllSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/setup_controller.py", line 68, in runAllSequences
+        sequence.run(config=self.CONF, messages=self.MESSAGES)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 98, in run
+        step.run(config=config, messages=messages)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 44, in run
+        raise SequenceError(str(ex))
+    SequenceError: Error appeared during Puppet run: 192.168.2.189_nagios.pp
+    Error: yum install -y -d 0 -e 0 monitoring-plugins-ping returned 1 instead of one of [0]^[[0m
+    You will find full trace in log /var/tmp/packstack/20140923-142839-X9jnzy/manifests/192.168.2.189_nagios.pp.log
+    
+    尝试解决：
+    /usr/lib/python2.7/site-packages/packstack/puppet/templates/nagios_server.pp：
+    # We need to preferably install nagios-plugins-ping
+    exec { 'nagios-plugins-ping':
+        path => '/usr/bin',
+        command => 'yum install -y -d 0 -e 0 monitoring-plugins-ping',
+        onlyif => 'yum install -y -d 0 -e 0 nagios-plugins-ping &> /dev/null && exit 1 || exit 0',
+        before => Class['nagios_configs']
+    }
+    ...
+    
+    系统已经安装了 nagios-plugins-ping ，因此这一段注释掉即可。
+    
+    5、postscript.pp 安装 selinux-policy-targeted 失败
+    故障描述：
+    在 packstack-setup.log 中，出现：
+    
+    2014-09-23 14:46:19::ERROR::run_setup::921::root:: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 916, in main
+        _main(confFile)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 605, in _main
+        runSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/run_setup.py", line 584, in runSequences
+        controller.runAllSequences()
+      File "/usr/lib/python2.7/site-packages/packstack/installer/setup_controller.py", line 68, in runAllSequences
+        sequence.run(config=self.CONF, messages=self.MESSAGES)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 98, in run
+        step.run(config=config, messages=messages)
+      File "/usr/lib/python2.7/site-packages/packstack/installer/core/sequences.py", line 44, in run
+        raise SequenceError(str(ex))
+    SequenceError: Error appeared during Puppet run: 192.168.2.188_postscript.pp
+    Error: yum update -y selinux-policy-targeted returned 1 instead of one of [0]^[[0m
+    You will find full trace in log /var/tmp/packstack/20140923-144147-RrEYbp/manifests/192.168.2.188_postscript.pp.log
+    
+    尝试解决：
+    将 /usr/lib/python2.7/site-packages/packstack/puppet/templates/postscript.pp 里面所有内容（其实只有下面几行）
+    exec { 'update-selinux-policy':
+        path => "/usr/bin/",
+        command => "yum update -y selinux-policy-targeted"
+    }
+    注释掉即可。
+    
+    6、部署完成之后，登录 dashboard 提示 “无法获取云硬盘信息”
+    故障描述：
+    在 /var/log/cinder/cinder-manage.log 中有：
+    
+    ...
+    2014-09-23 15:01:45.735 13638 TRACE cinder.openstack.common.threadgroup ProgrammingError: (ProgrammingError) (1146, "Table 'cinder.volumes' doesn't exist") 'SELECT volumes.created_at AS volumes_created_at, volumes.updated_at AS volumes_updated_at, volumes.deleted_at AS volumes_deleted_at, volumes.id AS volumes_id, volumes._name_id AS volumes__name_id, volumes.ec2_id AS volumes_ec2_id, volumes.user_id AS volumes_user_id, volumes.project_id AS volumes_project_id, volumes.snapshot_id AS volumes_snapshot_id, volumes.host AS volumes_host, volumes.size AS volumes_size, volumes.availability_zone AS volumes_availability_zone, volumes.instance_uuid AS volumes_instance_uuid, volumes.attached_host AS volumes_attached_host, volumes.mountpoint AS volumes_mountpoint, volumes.attach_time AS volumes_attach_time, volumes.status AS volumes_status, volumes.attach_status AS volumes_attach_status, volumes.migration_status AS volumes_migration_status, volumes.scheduled_at AS volumes_scheduled_at, volumes.launched_at AS volumes_launched_at, volumes.terminated_at AS volumes_terminated_at, volumes.display_name AS volumes_display_name, volumes.display_description AS volumes_display_description, volumes.provider_location AS volumes_provider_location, volumes.provider_auth AS volumes_provider_auth, volumes.provider_geometry AS volumes_provider_geometry, volumes.volume_type_id AS volumes_volume_type_id, volumes.source_volid AS volumes_source_volid, volumes.encryption_key_id AS volumes_encryption_key_id, volumes.deleted AS volumes_deleted, volumes.bootable AS volumes_bootable, volume_admin_metadata_1.created_at AS volume_admin_metadata_1_created_at, volume_admin_metadata_1.updated_at AS volume_admin_metadata_1_updated_at, volume_admin_metadata_1.deleted_at AS volume_admin_metadata_1_deleted_at, volume_admin_metadata_1.deleted AS volume_admin_metadata_1_deleted, volume_admin_metadata_1.id AS volume_admin_metadata_1_id, volume_admin_metadata_1.`key` AS volume_admin_metadata_1_key, volume_admin_metadata_1.value AS volume_admin_metadata_1_value, volume_admin_metadata_1.volume_id AS volume_admin_metadata_1_volume_id, volume_metadata_1.created_at AS volume_metadata_1_created_at, volume_metadata_1.updated_at AS volume_metadata_1_updated_at, volume_metadata_1.deleted_at AS volume_metadata_1_deleted_at, volume_metadata_1.deleted AS volume_metadata_1_deleted, volume_metadata_1.id AS volume_metadata_1_id, volume_metadata_1.`key` AS volume_metadata_1_key, volume_metadata_1.value AS volume_metadata_1_value, volume_metadata_1.volume_id AS volume_metadata_1_volume_id, volume_types_1.created_at AS volume_types_1_created_at, volume_types_1.updated_at AS volume_types_1_updated_at, volume_types_1.deleted_at AS volume_types_1_deleted_at, volume_types_1.deleted AS volume_types_1_deleted, volume_types_1.id AS volume_types_1_id, volume_types_1.name AS volume_types_1_name, volume_types_1.qos_specs_id AS volume_types_1_qos_specs_id \nFROM volumes LEFT OUTER JOIN volume_admin_metadata AS volume_admin_metadata_1 ON volume_admin_metadata_1.volume_id = volumes.id AND volume_admin_metadata_1.deleted = false LEFT OUTER JOIN volume_metadata AS volume_metadata_1 ON volume_metadata_1.volume_id = volumes.id AND volume_metadata_1.deleted = false LEFT OUTER JOIN volume_types AS volume_types_1 ON volumes.volume_type_id = volume_types_1.id AND volume_types_1.deleted = false \nWHERE volumes.deleted = false AND volumes.host = %s' ('Controller',)
+    
+    尝试解决：
+    手动登录到数据库，发现 cinder 数据库下没有任何表，应该是 cinder 的 db_sync 没有完成。手动执行：
+    # su -s /bin/sh -c "cinder-manage db sync" cinder
+    即可。
+    packstack 为何没有完成这一步，目前还没分析清楚。
