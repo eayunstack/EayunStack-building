@@ -446,6 +446,9 @@ cp -a %{SOURCE5} %{buildroot}%{_sysconfdir}/logrotate.d/openstack-dashboard
 %{_datadir}/openstack-dashboard/openstack_dashboard/enabled/_99_customization.*
 
 %changelog
+* Tue May 05 2015 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-3.eayunstack.1.0
+- add 0024-Pass-correct-project-ID-to-get-tenant_usages.patch.
+
 * Mon Dec 15 2014 Matthias Runge <mrunge@redhat.com> - 2014.2.1-2
 - Fix CVE-2014-8124 (rhbz#1174066)
 
