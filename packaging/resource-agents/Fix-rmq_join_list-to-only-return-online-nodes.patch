@@ -1,0 +1,22 @@
+From ddb8e97e2860a3d375e9a422d48a0b9e0830416d Mon Sep 17 00:00:00 2001
+From: Chris Card <ctcard@hotmail.com>
+Date: Tue, 17 Mar 2015 14:10:18 +0000
+Subject: [PATCH] Fix rmq_join_list to only return online nodes
+
+---
+ heartbeat/rabbitmq-cluster | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/heartbeat/rabbitmq-cluster b/heartbeat/rabbitmq-cluster
+index b9dcfc3..5b55f69 100755
+--- a/heartbeat/rabbitmq-cluster
++++ b/heartbeat/rabbitmq-cluster
+@@ -104,7 +104,7 @@ rmq_local_node()
+ 
+ rmq_join_list()
+ {
+-	cibadmin -Q 2>/dev/null | grep "$RMQ_CRM_ATTR_COOKIE" | sed -n -e "s/^.*value=.\(.*\)\".*$/\1/p"
++    cibadmin -Q --xpath "//node_state[@crmd='online']//nvpair[@name='$RMQ_CRM_ATTR_COOKIE']" | grep "$RMQ_CRM_ATTR_COOKIE" | sed -n -e "s/^.*value=.\(.*\)\".*$/\1/p"
+ }
+ 
+ rmq_write_nodename()
