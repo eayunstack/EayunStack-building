@@ -1,0 +1,101 @@
+From 8dc2016b6aa123b2e549bca4562f7a2b0a272812 Mon Sep 17 00:00:00 2001
+From: rajinir <rajini_ram@dell.com>
+Date: Tue, 3 Feb 2015 15:38:13 -0600
+Subject: [PATCH 3/3] Fixes the EQL driver CI tests AttributeError
+
+Moved the ssh object back to a 'with' Block to
+fix the AttributeError thrown by the GeneralContextManager
+in the Eqlx CI tests
+
+Fixed the unit tests to mock the enter and exit methods
+instead
+
+Change-Id: I629d20e815fb7da3df90dfeee76abc1c60daeefe
+Closes-Bug: #1417772
+
+Conflicts:
+	cinder/volume/drivers/eqlx.py
+---
+ cinder/tests/test_eqlx.py     |  8 ++++++--
+ cinder/volume/drivers/eqlx.py | 37 ++++++++++++++++++-------------------
+ 2 files changed, 24 insertions(+), 21 deletions(-)
+
+diff --git a/cinder/tests/test_eqlx.py b/cinder/tests/test_eqlx.py
+index 1f086bc..1479c95 100644
+--- a/cinder/tests/test_eqlx.py
++++ b/cinder/tests/test_eqlx.py
+@@ -343,8 +343,10 @@ class DellEQLSanISCSIDriverTestCase(test.TestCase):
+                                     password="test",
+                                     min_size=1,
+                                     max_size=1)
+-        self.mock_object(sshpool.item(), 'close')
+         self.driver.sshpool = mock.Mock(return_value=sshpool)
++        ssh = mock.Mock(paramiko.SSHClient)
++        self.driver.sshpool.item().__enter__ = mock.Mock(return_value=ssh)
++        self.driver.sshpool.item().__exit__ = mock.Mock(return_value=False)
+         # now call the execute
+         self.assertRaises(exception.VolumeBackendAPIException,
+                           self.driver._eql_execute, "fake command")
+@@ -365,8 +367,10 @@ class DellEQLSanISCSIDriverTestCase(test.TestCase):
+                                     password="test",
+                                     min_size=1,
+                                     max_size=1)
+-        self.mock_object(sshpool.item(), 'close')
+         self.driver.sshpool = mock.Mock(return_value=sshpool)
++        ssh = mock.Mock(paramiko.SSHClient)
++        self.driver.sshpool.item().__enter__ = mock.Mock(return_value=ssh)
++        self.driver.sshpool.item().__exit__ = mock.Mock(return_value=False)
+         # mocks for _ssh_execute and _get_output
+         self.mock_object(self.driver, '_get_output',
+                          mock.Mock(side_effect=exception.
+diff --git a/cinder/volume/drivers/eqlx.py b/cinder/volume/drivers/eqlx.py
+index 5298cc0..9601f55 100644
+--- a/cinder/volume/drivers/eqlx.py
++++ b/cinder/volume/drivers/eqlx.py
+@@ -211,25 +211,24 @@ class DellEQLSanISCSIDriver(SanISCSIDriver):
+                 max_size=max_size)
+         try:
+             total_attempts = attempts
+-            ssh = self.sshpool.item()
+-            while attempts > 0:
+-                attempts -= 1
+-                try:
+-                    LOG.info(_('EQL-driver: executing "%s".'), command)
+-                    return self._ssh_execute(
+-                        ssh, command,
+-                        timeout=self.configuration.eqlx_cli_timeout)
+-                except processutils.ProcessExecutionError:
+-                    raise
+-                except Exception as e:
+-                    LOG.exception(e)
+-                    greenthread.sleep(random.randint(20, 500) / 100.0)
+-            msg = (_("SSH Command failed after '%(total_attempts)r' "
+-                     "attempts : '%(command)s'") %
+-                   {'total_attempts': total_attempts - attempts,
+-                    'command': command})
+-            ssh.close()
+-            raise exception.VolumeBackendAPIException(data=msg)
++            with self.sshpool.item() as ssh:
++                while attempts > 0:
++                    attempts -= 1
++                    try:
++                        LOG.info(_('EQL-driver: executing "%s".'), command)
++                        return self._ssh_execute(
++                            ssh, command,
++                            timeout=self.configuration.eqlx_cli_timeout)
++                    except processutils.ProcessExecutionError:
++                        raise
++                    except Exception as e:
++                        LOG.exception(e)
++                        greenthread.sleep(random.randint(20, 500) / 100.0)
++                msg = (_("SSH Command failed after '%(total_attempts)r' "
++                         "attempts : '%(command)s'") %
++                       {'total_attempts': total_attempts - attempts,
++                        'command': command})
++                raise exception.VolumeBackendAPIException(data=msg)
+ 
+         except Exception:
+             with excutils.save_and_reraise_exception():
+-- 
+2.1.0
+
