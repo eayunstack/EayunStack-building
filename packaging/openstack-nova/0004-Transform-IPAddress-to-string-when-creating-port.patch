@@ -1,0 +1,35 @@
+From 790aeb3a60dcb3d299c806ffea14e4df6c21a81b Mon Sep 17 00:00:00 2001
+From: zhiyuan_cai <luckyvega.g@gmail.com>
+Date: Fri, 23 Jan 2015 18:21:17 +0800
+Subject: [PATCH 4/4] Transform IPAddress to string when creating port
+
+If ip address is provided when running nova boot, nova compute
+will invoke neutron client to create a port. However, the ip
+address parameter is an IPAddress object so neutron client will
+fail to send the request to neutron server. Transform IPAddress
+object to string to address this issue.
+
+Change-Id: I858cca475748795aa2532f32bfe0f1443b30966f
+Closes-Bug: #1408529
+(cherry picked from commit 7dfdcbd8835d65cd4a4403c7d575310cf5585474)
+---
+ nova/network/neutronv2/api.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/nova/network/neutronv2/api.py b/nova/network/neutronv2/api.py
+index b563b45..87512f9 100644
+--- a/nova/network/neutronv2/api.py
++++ b/nova/network/neutronv2/api.py
+@@ -197,7 +197,8 @@ class API(base_api.NetworkAPI):
+         """
+         try:
+             if fixed_ip:
+-                port_req_body['port']['fixed_ips'] = [{'ip_address': fixed_ip}]
++                port_req_body['port']['fixed_ips'] = [
++                    {'ip_address': str(fixed_ip)}]
+             port_req_body['port']['network_id'] = network_id
+             port_req_body['port']['admin_state_up'] = True
+             port_req_body['port']['tenant_id'] = instance['project_id']
+-- 
+1.8.3.1
+
