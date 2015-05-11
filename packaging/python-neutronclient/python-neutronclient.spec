@@ -11,6 +11,8 @@ URL:        http://launchpad.net/python-neutronclient/
 Source0:    https://pypi.python.org/packages/source/p/%{name}/%{name}-%{version}.tar.gz
 
 Patch0001: 0001-Remove-runtime-dependency-on-python-pbr.patch
+Patch0002: 0002-Add-floating-ip-address-to-floatingip-create.patch
+Patch0003: 0003-Add-external-fixed-ip-to-router-gateway-set.patch
 
 BuildArch:  noarch
 
@@ -35,6 +37,8 @@ Neutron's API.
 %setup -q -n %{name}-%{version}
 
 %patch0001 -p1
+%patch0002 -p1
+%patch0003 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATNEUTRONCLIENTVERSION/%{version}/ neutronclient/version.py
