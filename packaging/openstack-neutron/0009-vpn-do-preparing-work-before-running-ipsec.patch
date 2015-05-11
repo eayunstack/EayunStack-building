@@ -1,0 +1,56 @@
+From 5aa43717c5449b9a1a43adaabd1f805e6c4f4ba9 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 7 May 2015 15:00:09 +0800
+Subject: [PATCH 3/3] vpn: do preparing work before running ipsec
+
+Run "ipsec _stackmanager start" and "ipsec --checknss" before start.
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/device_drivers/ipsec.py | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/vpn/device_drivers/ipsec.py b/neutron/services/vpn/device_drivers/ipsec.py
+index 36d2ca5..6c65472 100644
+--- a/neutron/services/vpn/device_drivers/ipsec.py
++++ b/neutron/services/vpn/device_drivers/ipsec.py
+@@ -306,12 +306,13 @@ class OpenSwanProcess(BaseSwanProcess):
+         self.pid_path = os.path.join(
+             self.config_dir, 'var', 'run', 'pluto') + os.sep
+ 
+-    def _execute(self, cmd, check_exit_code=True):
++    def _execute(self, cmd, check_exit_code=True, addl_env={}):
+         """Execute command on namespace."""
+         ip_wrapper = ip_lib.IPWrapper(self.root_helper, self.namespace)
+         return ip_wrapper.netns.execute(
+             cmd,
+-            check_exit_code=check_exit_code)
++            check_exit_code=check_exit_code,
++            addl_env=addl_env)
+ 
+     def ensure_configs(self):
+         """Generate config files which are needed for OpenSwan.
+@@ -364,12 +365,20 @@ class OpenSwanProcess(BaseSwanProcess):
+             virtual_privates.append('%%v%s:%s' % (version, net))
+         return ','.join(virtual_privates)
+ 
++    def start_pre(self):
++        addl_env = {'IPSEC_CONF': self.config_file}
++        self._execute([self.binary, '_stackmanager', 'start'],
++                      check_exit_code=False, addl_env=addl_env)
++        self._execute([self.binary, '--checknss', self.etc_dir],
++                      check_exit_code=False, addl_env=addl_env)
++
+     def start(self):
+         """Start the process.
+ 
+         Note: if there is not namespace yet,
+         just do nothing, and wait next event.
+         """
++        self.start_pre()
+         if not self.namespace:
+             return
+         virtual_private = self._virtual_privates()
+-- 
+2.4.0
+

@@ -1,0 +1,206 @@
+From 07b3d506704103d74dd46360f3b29e814e55fe74 Mon Sep 17 00:00:00 2001
+From: fujioka yuuichi <fujioka-yuuichi@zx.mxh.nes.nec.co.jp>
+Date: Fri, 31 Jan 2014 10:54:34 +0900
+Subject: [PATCH 1/2] Allow to specify IP address of floating ip
+
+IP address of floating ip will be automatically allocated.
+There are cases where users need to specify a floating IP address.
+This patch addresses the problem.
+
+The feature is limited by "create_floatingip:floating_ip_address" in
+"policy.json".
+By default, it needs an admin role.
+
+DocImpact
+APIImpact
+
+Implements: blueprint allow-specific-floating-ip-address
+
+Change-Id: Iba64a0f0a38ca5eb39c605e121a12c956637b96c
+(cherry picked from commit e4f5b0d986d0d8a2bb230793bb5def6105a0620c)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ etc/policy.json                      |  1 +
+ neutron/db/l3_db.py                  | 27 ++++++++-----
+ neutron/extensions/l3.py             |  5 ++-
+ neutron/tests/unit/test_l3_plugin.py | 76 ++++++++++++++++++++++++++++++++++--
+ 4 files changed, 93 insertions(+), 16 deletions(-)
+
+diff --git a/etc/policy.json b/etc/policy.json
+index e7db435..d29e8ac 100644
+--- a/etc/policy.json
++++ b/etc/policy.json
+@@ -111,6 +111,7 @@
+     "get_loadbalancer-pools": "rule:admin_only",
+ 
+     "create_floatingip": "rule:regular_user",
++    "create_floatingip:floating_ip_address": "rule:admin_only",
+     "update_floatingip": "rule:admin_or_owner",
+     "delete_floatingip": "rule:admin_or_owner",
+     "get_floatingip": "rule:admin_or_owner",
+diff --git a/neutron/db/l3_db.py b/neutron/db/l3_db.py
+index 0f8a56c..0418930 100644
+--- a/neutron/db/l3_db.py
++++ b/neutron/db/l3_db.py
+@@ -761,16 +761,23 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+             # This external port is never exposed to the tenant.
+             # it is used purely for internal system and admin use when
+             # managing floating IPs.
+-            external_port = self._core_plugin.create_port(context.elevated(), {
+-                'port':
+-                {'tenant_id': '',  # tenant intentionally not set
+-                 'network_id': f_net_id,
+-                 'mac_address': attributes.ATTR_NOT_SPECIFIED,
+-                 'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
+-                 'admin_state_up': True,
+-                 'device_id': fip_id,
+-                 'device_owner': DEVICE_OWNER_FLOATINGIP,
+-                 'name': ''}})
++
++            port = {'tenant_id': '',  # tenant intentionally not set
++                    'network_id': f_net_id,
++                    'mac_address': attributes.ATTR_NOT_SPECIFIED,
++                    'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
++                    'admin_state_up': True,
++                    'device_id': fip_id,
++                    'device_owner': DEVICE_OWNER_FLOATINGIP,
++                    'name': ''}
++
++            if fip.get('floating_ip_address'):
++                port['fixed_ips'] = [
++                    {'ip_address': fip['floating_ip_address']}]
++
++            external_port = self._core_plugin.create_port(context.elevated(),
++                                                          {'port': port})
++
+             # Ensure IP addresses are allocated on external port
+             if not external_port['fixed_ips']:
+                 raise n_exc.ExternalIpAddressExhausted(net_id=f_net_id)
+diff --git a/neutron/extensions/l3.py b/neutron/extensions/l3.py
+index 1497d9f..e1106cd 100644
+--- a/neutron/extensions/l3.py
++++ b/neutron/extensions/l3.py
+@@ -120,9 +120,10 @@ RESOURCE_ATTRIBUTE_MAP = {
+                'validate': {'type:uuid': None},
+                'is_visible': True,
+                'primary_key': True},
+-        'floating_ip_address': {'allow_post': False, 'allow_put': False,
++        'floating_ip_address': {'allow_post': True, 'allow_put': False,
+                                 'validate': {'type:ip_address_or_none': None},
+-                                'is_visible': True},
++                                'is_visible': True, 'default': None,
++                                'enforce_policy': True},
+         'floating_network_id': {'allow_post': True, 'allow_put': False,
+                                 'validate': {'type:uuid': None},
+                                 'is_visible': True},
+diff --git a/neutron/tests/unit/test_l3_plugin.py b/neutron/tests/unit/test_l3_plugin.py
+index 6b82d17..b3bce90 100644
+--- a/neutron/tests/unit/test_l3_plugin.py
++++ b/neutron/tests/unit/test_l3_plugin.py
+@@ -419,13 +419,18 @@ class L3NatTestCaseMixin(object):
+                      {'network': {external_net.EXTERNAL: True}})
+ 
+     def _create_floatingip(self, fmt, network_id, port_id=None,
+-                           fixed_ip=None, set_context=False):
++                           fixed_ip=None, set_context=False,
++                           floating_ip=None):
+         data = {'floatingip': {'floating_network_id': network_id,
+                                'tenant_id': self._tenant_id}}
+         if port_id:
+             data['floatingip']['port_id'] = port_id
+             if fixed_ip:
+                 data['floatingip']['fixed_ip_address'] = fixed_ip
++
++        if floating_ip:
++            data['floatingip']['floating_ip_address'] = floating_ip
++
+         floatingip_req = self.new_create_request('floatingips', data, fmt)
+         if set_context and self._tenant_id:
+             # create a specific auth context for this request
+@@ -434,10 +439,11 @@ class L3NatTestCaseMixin(object):
+         return floatingip_req.get_response(self.ext_api)
+ 
+     def _make_floatingip(self, fmt, network_id, port_id=None,
+-                         fixed_ip=None, set_context=False):
++                         fixed_ip=None, set_context=False, floating_ip=None,
++                         http_status=exc.HTTPCreated.code):
+         res = self._create_floatingip(fmt, network_id, port_id,
+-                                      fixed_ip, set_context)
+-        self.assertEqual(res.status_int, exc.HTTPCreated.code)
++                                      fixed_ip, set_context, floating_ip)
++        self.assertEqual(res.status_int, http_status)
+         return self.deserialize(fmt, res)
+ 
+     def _validate_floating_ip(self, fip):
+@@ -1788,6 +1794,68 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
+             with self.subnet(network=net):
+                 self._make_floatingip(self.fmt, net_id)
+ 
++    def test_create_floatingip_with_specific_ip(self):
++        with self.subnet(cidr='10.0.0.0/24') as s:
++            network_id = s['subnet']['network_id']
++            self._set_net_external(network_id)
++            fp = self._make_floatingip(self.fmt, network_id,
++                                       floating_ip='10.0.0.10')
++            try:
++                self.assertEqual(fp['floatingip']['floating_ip_address'],
++                                 '10.0.0.10')
++            finally:
++                self._delete('floatingips', fp['floatingip']['id'])
++
++    def test_create_floatingip_with_specific_ip_out_of_allocation(self):
++        with self.subnet(cidr='10.0.0.0/24',
++                         allocation_pools=[
++                             {'start': '10.0.0.10', 'end': '10.0.0.20'}]
++                         ) as s:
++            network_id = s['subnet']['network_id']
++            self._set_net_external(network_id)
++            fp = self._make_floatingip(self.fmt, network_id,
++                                       floating_ip='10.0.0.30')
++            try:
++                self.assertEqual(fp['floatingip']['floating_ip_address'],
++                                 '10.0.0.30')
++            finally:
++                self._delete('floatingips', fp['floatingip']['id'])
++
++    def test_create_floatingip_with_specific_ip_non_admin(self):
++        ctx = context.Context('user_id', 'tenant_id')
++
++        with self.subnet(cidr='10.0.0.0/24') as s:
++            network_id = s['subnet']['network_id']
++            self._set_net_external(network_id)
++            self._make_floatingip(self.fmt, network_id,
++                                  set_context=ctx,
++                                  floating_ip='10.0.0.10',
++                                  http_status=exc.HTTPForbidden.code)
++
++    def test_create_floatingip_with_specific_ip_out_of_subnet(self):
++
++        with self.subnet(cidr='10.0.0.0/24') as s:
++            network_id = s['subnet']['network_id']
++            self._set_net_external(network_id)
++            self._make_floatingip(self.fmt, network_id,
++                                  floating_ip='10.0.1.10',
++                                  http_status=exc.HTTPBadRequest.code)
++
++    def test_create_floatingip_with_duplicated_specific_ip(self):
++
++        with self.subnet(cidr='10.0.0.0/24') as s:
++            network_id = s['subnet']['network_id']
++            self._set_net_external(network_id)
++            fp1 = self._make_floatingip(self.fmt, network_id,
++                                        floating_ip='10.0.0.10')
++
++            try:
++                self._make_floatingip(self.fmt, network_id,
++                                      floating_ip='10.0.0.10',
++                                      http_status=exc.HTTPConflict.code)
++            finally:
++                self._delete('floatingips', fp1['floatingip']['id'])
++
+ 
+ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
+ 
+-- 
+2.4.0
+
