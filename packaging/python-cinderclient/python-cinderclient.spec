@@ -1,6 +1,8 @@
+%global dist_eayunstack .eayunstack.1.0
+
 Name:             python-cinderclient
 Version:          1.1.1
-Release:          1%{?dist}
+Release:          2%{?dist_eayunstack}
 Summary:          Python API and CLI for OpenStack Cinder
 
 Group:            Development/Languages
@@ -10,6 +12,7 @@ Source0:          http://pypi.python.org/packages/source/p/%{name}/%{name}-%{ver
 
 Patch0001: 0001-Remove-runtime-dependency-on-python-pbr.patch
 Patch0002: 0002-Stop-pbr-from-installing-requirements-during-build.patch
+Patch0003: 0003-Fix-search_opts-error-with-backup-delete-command.patch
 
 BuildArch:        noarch
 
@@ -49,6 +52,7 @@ This package contains auto-generated documentation.
 
 %patch0001 -p1
 %patch0002 -p1
+%patch0003 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATCINDERCLIENTVERSION/%{version}/ cinderclient/__init__.py
@@ -93,6 +97,9 @@ rm -fr html/.doctrees html/.buildinfo
 %doc html
 
 %changelog
+* Mon May 11 2015 Zhao Chao <chao.zhao@eayun.com> 1.1.1-2.eayunstack.1.0
+- add 0003-Fix-search_opts-error-with-backup-delete-command.patch
+
 * Mon Oct 13 2014 Jakub Ruzicka <jruzicka@redhat.com> 1.1.1-1
 - Update to upstream 1.1.1
 - New -doc BuildRequires: python-oslo-sphinx

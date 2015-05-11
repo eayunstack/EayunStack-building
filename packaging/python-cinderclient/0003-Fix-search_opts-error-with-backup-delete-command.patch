@@ -1,0 +1,56 @@
+From 9d4105f67eee645fdd9f6dec959714a65e01924f Mon Sep 17 00:00:00 2001
+From: seungjin <seungjin77.han@samsung.com>
+Date: Thu, 20 Feb 2014 09:25:32 +0900
+Subject: [PATCH] Fix 'search_opts' error with backup delete command
+
+The following error message is yield when we try to
+backup volume which is not present.
+
+ERROR: list() got an unexpected keyword argument 'search_opts'
+
+This is from findall() method in the
+cinderclient.base.ManagerWithFind class.
+
+When cinderclient get a specific resource, it use the findall() method.
+
+The error will yields which list() in
+VolumeEncryptionTypeManager did not have.
+
+Change-Id: Iffe568c6d2de41b8e24658f3a54f2861e2f7db31
+Closes-Bug: #1282324
+Related-Bug: #1248519
+(cherry picked from commit 029a77645592093f8b46c2d7472d2536f0db78d3)
+---
+ cinderclient/v1/volume_backups.py | 2 +-
+ cinderclient/v2/volume_backups.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cinderclient/v1/volume_backups.py b/cinderclient/v1/volume_backups.py
+index 8e1f2e7..6c492e9 100644
+--- a/cinderclient/v1/volume_backups.py
++++ b/cinderclient/v1/volume_backups.py
+@@ -58,7 +58,7 @@ class VolumeBackupManager(base.ManagerWithFind):
+         """
+         return self._get("/backups/%s" % backup_id, "backup")
+ 
+-    def list(self, detailed=True):
++    def list(self, detailed=True, search_opts=None):
+         """Get a list of all volume backups.
+ 
+         :rtype: list of :class:`VolumeBackup`
+diff --git a/cinderclient/v2/volume_backups.py b/cinderclient/v2/volume_backups.py
+index ae232c2..a948b5e 100644
+--- a/cinderclient/v2/volume_backups.py
++++ b/cinderclient/v2/volume_backups.py
+@@ -58,7 +58,7 @@ class VolumeBackupManager(base.ManagerWithFind):
+         """
+         return self._get("/backups/%s" % backup_id, "backup")
+ 
+-    def list(self, detailed=True):
++    def list(self, detailed=True, search_opts=None):
+         """Get a list of all volume backups.
+ 
+         :rtype: list of :class:`VolumeBackup`
+-- 
+2.1.4
+
