@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	11%{?dist_eayunstack}
+Release:	12%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -993,6 +993,12 @@ exit 0
 
 
 %changelog
+* Mon May 11 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-12.eayunstack.1.0
+- Add libreswan dependency
+- Fix redmine #3556
+- Fix redmine #3651
+- Fix redmine #3659
+
 * Tue Nov 25 2014 Ihar Hrachyshka <ihrachys@redhat.com> 2014.2-11
 - CVE-2014-7821: Fix hostname regex pattern, rhbz#1165886, rhbz#1165887
 
