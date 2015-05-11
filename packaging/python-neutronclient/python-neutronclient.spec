@@ -2,7 +2,7 @@
 
 Name:       python-neutronclient
 Version:    2.3.9
-Release:    1%{?dist_eayunstack}
+Release:    2%{?dist_eayunstack}
 Summary:    Python API and CLI for OpenStack Neutron
 
 Group:      Development/Languages
@@ -70,6 +70,10 @@ rm -rf %{buildroot}%{python_sitelib}/neutronclient/tests
 %{_sysconfdir}/bash_completion.d
 
 %changelog
+* Mon May 11 2015 Xu Meihong <meihong.xu@eayun.com> 2.3.9-2.eayunstack.1.0
+- Fix redmine #3652
+- Fix redmine #3677
+
 * Mon Oct 13 2014 Jakub Ruzicka <jruzicka@redhat.com> 2.3.9-1
 - Update to upstream 2.3.9
 
