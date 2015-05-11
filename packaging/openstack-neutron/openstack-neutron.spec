@@ -45,6 +45,7 @@ Source40:	neutron-dist.conf
 Patch0001: 0001-remove-runtime-dependency-on-pbr.patch
 Patch0002: 0002-Drop-and-recreate-FK-if-adding-new-PK-to-routerl3bin.patch
 Patch0003: 0003-Fix-hostname-regex-pattern.patch
+Patch0004: 0004-Catch-exceptions-in-router-rescheduler.patch
 
 BuildArch:	noarch
 
@@ -525,6 +526,7 @@ IPSec.
 %patch0001 -p1
 %patch0002 -p1
 %patch0003 -p1
+%patch0004 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
