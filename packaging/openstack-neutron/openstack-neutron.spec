@@ -48,6 +48,9 @@ Patch0003: 0003-Fix-hostname-regex-pattern.patch
 Patch0004: 0004-Catch-exceptions-in-router-rescheduler.patch
 Patch0005: 0005-Allow-to-specify-IP-address-of-floating-ip.patch
 Patch0006: 0006-Allow-setting-a-tenant-router-s-external-IP.patch
+Patch0007: 0007-Fix-Pluto-pidfile-deleting.patch
+Patch0008: 0008-vpn-update-cmdline-options-and-config-for-ipsec.patch
+Patch0009: 0009-vpn-do-preparing-work-before-running-ipsec.patch
 
 BuildArch:	noarch
 
@@ -531,6 +534,9 @@ IPSec.
 %patch0004 -p1
 %patch0005 -p1
 %patch0006 -p1
+%patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
