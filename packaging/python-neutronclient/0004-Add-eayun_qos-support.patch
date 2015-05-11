@@ -1,0 +1,723 @@
+From 92326bc5c9c8522d797dfaf168bf381fc14d0a27 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Fri, 8 May 2015 01:00:39 +0800
+Subject: [PATCH] Add eayun_qos support
+
+Fixes: redmine #3677
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/eayun_qos.py | 545 ++++++++++++++++++++++++++++++++
+ neutronclient/shell.py                  |  18 ++
+ neutronclient/v2_0/client.py            |  93 ++++++
+ 3 files changed, 656 insertions(+)
+ create mode 100644 neutronclient/neutron/v2_0/eayun_qos.py
+
+diff --git a/neutronclient/neutron/v2_0/eayun_qos.py b/neutronclient/neutron/v2_0/eayun_qos.py
+new file mode 100644
+index 0000000..ee75eb1
+--- /dev/null
++++ b/neutronclient/neutron/v2_0/eayun_qos.py
+@@ -0,0 +1,545 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++import argparse
++import six
++
++from neutronclient.neutron import v2_0 as neutronV20
++from neutronclient.openstack.common.gettextutils import _
++
++
++class ListQos(neutronV20.ListCommand):
++    """List Qos."""
++
++    resource = "qos"
++    shadow_resource = "eayun_qos"
++    list_columns = ['id', 'name', 'description',
++                    'direction', 'target_type', 'target_id',
++                    'rate', 'burst', 'cburst', 'default_queue_id']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowQos(neutronV20.ShowCommand):
++    """Show information of a given qos."""
++
++    resource = "qos"
++    shadow_resource = "eayun_qos"
++    allow_names = True
++    ids_only = ['qos_queues', 'unattached_filters']
++
++    def format_output_data(self, data):
++        if self.resource in data:
++            for k, v in six.iteritems(data[self.resource]):
++                if k in self.ids_only and isinstance(v, list):
++                    data[self.resource][k] = [item['id'] for item in v]
++
++        super(ShowQos, self).format_output_data(data)
++
++
++class CreateQos(neutronV20.CreateCommand):
++    """Create a qos."""
++
++    resource = "qos"
++    shadow_resource = "eayun_qos"
++
++    ids_only = ['qos_queues', 'unattached_filters']
++
++    def format_output_data(self, data):
++        if self.resource in data:
++            for k, v in six.iteritems(data[self.resource]):
++                if k in self.ids_only and isinstance(v, list):
++                    data[self.resource][k] = [item['id'] for item in v]
++
++        super(CreateQos, self).format_output_data(data)
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            'direction', metavar='DIRECTION',
++            help=_('Direction of this qos: "ingress" or "egress".'))
++        parser.add_argument(
++            'rate', metavar='RATE',
++            help=_('Rate of this qos.'))
++        parser.add_argument(
++            'default_rate', metavar='DEFAULT_RATE',
++            help=_('Rate of default queue of this qos.'))
++        parser.add_argument(
++            '--name',
++            help=_('Name of this qos.'))
++        parser.add_argument(
++            '--description',
++            help=_('Description of this qos.'))
++        parser.add_argument(
++            '--target-type',
++            help=_('Target type of this qos: "router" or "port".'))
++        parser.add_argument(
++            '--target_type',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--target-id',
++            help=_('Target id of this qos: "router" or "port".'))
++        parser.add_argument(
++            '--target_id',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--burst',
++            help=_('Burst of this qos.'))
++        parser.add_argument(
++            '--cburst',
++            help=_('Cburst of this qos.'))
++        parser.add_argument(
++            '--default-burst',
++            help=_('Burst of default queue of this qos.'))
++        parser.add_argument(
++            '--default_burst',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--default-cburst',
++            help=_('Cburst of default queue of this qos.'))
++        parser.add_argument(
++            '--default_cburst',
++            help=argparse.SUPPRESS)
++
++    def args2body(self, parsed_args):
++        body = {
++            'qos': {
++                'direction': parsed_args.direction,
++                'rate': parsed_args.rate,
++                'default_rate': parsed_args.default_rate,
++            }
++        }
++        if parsed_args.name:
++            body['qos'].update({'name': parsed_args.name})
++        if parsed_args.description:
++            body['qos'].update({'description': parsed_args.description})
++        if parsed_args.target_type:
++            body['qos'].update({'target_type': parsed_args.target_type})
++        if parsed_args.target_id:
++            body['qos'].update({'target_id': parsed_args.target_id})
++        if parsed_args.burst:
++            body['qos'].update({'burst': parsed_args.burst})
++        if parsed_args.cburst:
++            body['qos'].update({'cburst': parsed_args.cburst})
++        if parsed_args.default_burst:
++            body['qos'].update({'default_burst': parsed_args.default_burst})
++        if parsed_args.default_cburst:
++            body['qos'].update({'default_cburst': parsed_args.default_cburst})
++        return body
++
++
++class UpdateQos(neutronV20.UpdateCommand):
++    """Update a given qos."""
++
++    resource = "qos"
++    shadow_resource = "eayun_qos"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--name',
++            help=_('Name of this qos.'))
++        parser.add_argument(
++            '--description',
++            help=_('Description of this qos.'))
++        parser.add_argument(
++            '--target-type',
++            help=_('Target type of this qos: "router" or "port".'))
++        parser.add_argument(
++            '--target_type',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--target-id',
++            help=_('Target id of this qos: "router" or "port".'))
++        parser.add_argument(
++            '--target_id',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--rate',
++            help=_('Rate of this qos.'))
++        parser.add_argument(
++            '--burst',
++            help=_('Burst of this qos.'))
++        parser.add_argument(
++            '--cburst',
++            help=_('Cburst of this qos.'))
++        parser.add_argument(
++            '--default-rate',
++            help=_('Rate of default queue of this qos.'))
++        parser.add_argument(
++            '--default_rate',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--default-burst',
++            help=_('Burst of default queue of this qos.'))
++        parser.add_argument(
++            '--default_burst',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--default-cburst',
++            help=_('Cburst of default queue of this qos.'))
++        parser.add_argument(
++            '--default_cburst',
++            help=argparse.SUPPRESS)
++
++    def args2body(self, parsed_args):
++        body = {'qos': {}}
++        if parsed_args.name:
++            body['qos'].update({'name': parsed_args.name})
++        if parsed_args.description:
++            body['qos'].update({'description': parsed_args.description})
++        if parsed_args.target_type:
++            body['qos'].update({'target_type': parsed_args.target_type})
++        if parsed_args.target_id:
++            body['qos'].update({'target_id': parsed_args.target_id})
++        if parsed_args.rate:
++            body['qos'].update({'rate': parsed_args.rate})
++        if parsed_args.burst:
++            body['qos'].update({'burst': parsed_args.burst})
++        if parsed_args.cburst:
++            body['qos'].update({'cburst': parsed_args.cburst})
++        if parsed_args.default_rate:
++            body['qos'].update({'default_rate': parsed_args.default_rate})
++        if parsed_args.default_burst:
++            body['qos'].update({'default_burst': parsed_args.default_burst})
++        if parsed_args.default_cburst:
++            body['qos'].update({'default_cburst': parsed_args.default_cburst})
++        return body
++
++
++class DeleteQos(neutronV20.DeleteCommand):
++    """Delete a given qos."""
++
++    resource = "qos"
++    shadow_resource = "eayun_qos"
++
++
++class UnbindQos(UpdateQos):
++    """Unbind a given qos from its target."""
++
++    def args2body(self, parsed_args):
++        return {'qos': {'target_type': None, 'target_id': None}}
++
++
++class ListQosQueue(neutronV20.ListCommand):
++    """List Qos queue."""
++
++    resource = "qos_queue"
++    shadow_resource = "eayun_qos_queue"
++    list_columns = ['id', 'qos_id', 'parent_id',
++                    'prio', 'rate', 'ceil', 'burst', 'cburst']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowQosQueue(neutronV20.ShowCommand):
++    """Show information of a given qos queue."""
++
++    resource = "qos_queue"
++    shadow_resource = "eayun_qos_queue"
++    allow_names = False
++    ids_only = ['subqueues', 'attached_filters']
++
++    def format_output_data(self, data):
++        if self.resource in data:
++            for k, v in six.iteritems(data[self.resource]):
++                if k in self.ids_only and isinstance(v, list):
++                    data[self.resource][k] = [item['id'] for item in v]
++
++        super(ShowQosQueue, self).format_output_data(data)
++
++
++class CreateQosQueue(neutronV20.CreateCommand):
++    """Create a qos queue."""
++
++    resource = "qos_queue"
++    shadow_resource = "eayun_qos_queue"
++    ids_only = ['subqueues', 'attached_filters']
++
++    def format_output_data(self, data):
++        if self.resource in data:
++            for k, v in six.iteritems(data[self.resource]):
++                if k in self.ids_only and isinstance(v, list):
++                    data[self.resource][k] = [item['id'] for item in v]
++
++        super(CreateQosQueue, self).format_output_data(data)
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            'qos', metavar='QOS',
++            help=_('Qos to which this qos queue belongs.'))
++        parser.add_argument(
++            'rate', metavar='RATE',
++            help=_('Rate of this qos queue.'))
++        parser.add_argument(
++            '--parent',
++            help=_('Parent qos queue of this qos queue.'))
++        parser.add_argument(
++            '--prio',
++            help=_('Prio of this qos queue.'))
++        parser.add_argument(
++            '--ceil',
++            help=_('Ceil of this qos.'))
++        parser.add_argument(
++            '--burst',
++            help=_('Burst of this qos.'))
++        parser.add_argument(
++            '--cburst',
++            help=_('Cburst of this qos.'))
++
++    def args2body(self, parsed_args):
++        body = {
++            'qos_queue': {
++                'qos_id': parsed_args.qos,
++                'rate': parsed_args.rate,
++            }
++        }
++        if parsed_args.parent:
++            body['qos_queue'].update({'parent_id': parsed_args.parent})
++        if parsed_args.prio:
++            body['qos_queue'].update({'prio': parsed_args.prio})
++        if parsed_args.ceil:
++            body['qos_queue'].update({'ceil': parsed_args.ceil})
++        if parsed_args.burst:
++            body['qos_queue'].update({'burst': parsed_args.burst})
++        if parsed_args.cburst:
++            body['qos_queue'].update({'cburst': parsed_args.cburst})
++        return body
++
++
++class UpdateQosQueue(neutronV20.UpdateCommand):
++    """Update a given qos queue."""
++
++    resource = "qos_queue"
++    shadow_resource = "eayun_qos_queue"
++    allow_names = False
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--prio',
++            help=_('Prio of this qos queue.'))
++        parser.add_argument(
++            '--rate',
++            help=_('Rate of this qos queue.'))
++        parser.add_argument(
++            '--ceil',
++            help=_('Ceil of this qos.'))
++        parser.add_argument(
++            '--burst',
++            help=_('Burst of this qos.'))
++        parser.add_argument(
++            '--cburst',
++            help=_('Cburst of this qos.'))
++
++    def args2body(self, parsed_args):
++        body = {'qos_queue': {}}
++        if parsed_args.prio:
++            body['qos_queue'].update({'prio': parsed_args.prio})
++        if parsed_args.rate:
++            body['qos_queue'].update({'rate': parsed_args.ceil})
++        if parsed_args.ceil:
++            body['qos_queue'].update({'ceil': parsed_args.ceil})
++        if parsed_args.burst:
++            body['qos_queue'].update({'burst': parsed_args.burst})
++        if parsed_args.cburst:
++            body['qos_queue'].update({'cburst': parsed_args.cburst})
++        return body
++
++
++class DeleteQosQueue(neutronV20.DeleteCommand):
++    """Delete a given qos queue."""
++
++    resource = "qos_queue"
++    shadow_resource = "eayun_qos_queue"
++    allow_names = False
++
++
++class ListQosFilter(neutronV20.ListCommand):
++    """List Qos filter."""
++
++    resource = "qos_filter"
++    shadow_resource = "eayun_qos_filter"
++    list_columns = ['id', 'qos_id', 'queue_id', 'prio',
++                    'protocol', 'src_port', 'dst_port',
++                    'src_addr', 'dst_addr', 'custom_match']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowQosFilter(neutronV20.ShowCommand):
++    """Show information of a given qos filter."""
++
++    resource = "qos_filter"
++    shadow_resource = "eayun_qos_filter"
++    allow_names = False
++
++
++class CreateQosFilter(neutronV20.CreateCommand):
++    """Create a qos filter."""
++
++    resource = "qos_filter"
++    shadow_resource = "eayun_qos_filter"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            'qos', metavar='QOS',
++            help=_('Qos to which this qos filter belongs.'))
++        parser.add_argument(
++            'prio', metavar="PRIO",
++            help=_('Prio of this qos filter.'))
++        parser.add_argument(
++            '--queue',
++            help=_('Qos queue to which this qos filter is attached.'))
++        parser.add_argument(
++            '--protocol',
++            help=_('Protocol this qos filter is to match.'))
++        parser.add_argument(
++            '--src-port',
++            help=_('Source port this qos filter is to match.'))
++        parser.add_argument(
++            '--src_port',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--dst-port',
++            help=_('Destination port this qos filter is to match.'))
++        parser.add_argument(
++            '--dst_port',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--src-addr',
++            help=_('Source address(es) this qos filter is to match.'))
++        parser.add_argument(
++            '--src_addr',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--dst-addr',
++            help=_('Destination address(es) this qos filter is to match.'))
++        parser.add_argument(
++            '--dst_addr',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--custom-match',
++            help=_('Custom match rule of this qos filter.'))
++        parser.add_argument(
++            '--custom_match',
++            help=argparse.SUPPRESS)
++
++    def args2body(self, parsed_args):
++        body = {
++            'qos_filter': {
++                'qos_id': parsed_args.qos,
++                'prio': parsed_args.prio,
++            }
++        }
++        if parsed_args.queue:
++            body['qos_filter'].update({'queue_id': parsed_args.queue})
++        if parsed_args.protocol:
++            body['qos_filter'].update({'protocol': parsed_args.protocol})
++        if parsed_args.src_port:
++            body['qos_filter'].update({'src_port': parsed_args.src_port})
++        if parsed_args.dst_port:
++            body['qos_filter'].update({'dst_port': parsed_args.dst_port})
++        if parsed_args.src_addr:
++            body['qos_filter'].update({'src_addr': parsed_args.src_addr})
++        if parsed_args.dst_addr:
++            body['qos_filter'].update({'dst_addr': parsed_args.dst_addr})
++        if parsed_args.custom_match:
++            body['qos_filter'].update(
++                {'custom_match': parsed_args.custom_match})
++        return body
++
++
++class UpdateQosFilter(neutronV20.UpdateCommand):
++    """Update a given qos filter."""
++
++    resource = "qos_filter"
++    shadow_resource = "eayun_qos_filter"
++    allow_names = False
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--queue',
++            help=_('Qos queue to which this qos filter is attached.'))
++        parser.add_argument(
++            '--prio',
++            help=_('Prio of this qos filter.'))
++        parser.add_argument(
++            '--protocol',
++            help=_('Protocol this qos filter is to match.'))
++        parser.add_argument(
++            '--src-port',
++            help=_('Source port this qos filter is to match.'))
++        parser.add_argument(
++            '--src_port',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--dst-port',
++            help=_('Destination port this qos filter is to match.'))
++        parser.add_argument(
++            '--dst_port',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--src-addr',
++            help=_('Source address(es) this qos filter is to match.'))
++        parser.add_argument(
++            '--src_addr',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--dst-addr',
++            help=_('Destination address(es) this qos filter is to match.'))
++        parser.add_argument(
++            '--dst_addr',
++            help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--custom-match',
++            help=_('Custom match rule of this qos filter.'))
++        parser.add_argument(
++            '--custom_match',
++            help=argparse.SUPPRESS)
++
++    def args2body(self, parsed_args):
++        body = {'qos_filter': {}}
++        if parsed_args.queue:
++            body['qos_filter'].update({'queue_id': parsed_args.queue})
++        if parsed_args.prio:
++            body['qos_filter'].update({'prio': parsed_args.prio})
++        if parsed_args.protocol:
++            body['qos_filter'].update({'protocol': parsed_args.protocol})
++        if parsed_args.src_port:
++            body['qos_filter'].update({'src_port': parsed_args.src_port})
++        if parsed_args.dst_port:
++            body['qos_filter'].update({'dst_port': parsed_args.dst_port})
++        if parsed_args.src_addr:
++            body['qos_filter'].update({'src_addr': parsed_args.src_addr})
++        if parsed_args.dst_addr:
++            body['qos_filter'].update({'dst_addr': parsed_args.dst_addr})
++        if parsed_args.custom_match:
++            body['qos_filter'].update(
++                {'custom_match': parsed_args.custom_match})
++        return body
++
++
++class DeleteQosFilter(neutronV20.DeleteCommand):
++    """Delete a given qos filter."""
++
++    resource = "qos_filter"
++    shadow_resource = "eayun_qos_filter"
++    allow_names = False
++
++
++class UnattachQosFilter(UpdateQosFilter):
++    """Unattach a given qos filter from queue."""
++
++    def args2body(self, parsed_args):
++        return {'qos_filter': {'queue_id': None}}
+diff --git a/neutronclient/shell.py b/neutronclient/shell.py
+index 51804e9..5a8150c 100644
+--- a/neutronclient/shell.py
++++ b/neutronclient/shell.py
+@@ -68,6 +68,7 @@ from neutronclient.neutron.v2_0.vpn import ikepolicy
+ from neutronclient.neutron.v2_0.vpn import ipsec_site_connection
+ from neutronclient.neutron.v2_0.vpn import ipsecpolicy
+ from neutronclient.neutron.v2_0.vpn import vpnservice
++from neutronclient.neutron.v2_0 import eayun_qos
+ from neutronclient.openstack.common.gettextutils import _
+ from neutronclient.openstack.common import strutils
+ from neutronclient.version import __version__
+@@ -295,6 +296,23 @@ COMMAND_V2 = {
+     'nec-packet-filter-create': packetfilter.CreatePacketFilter,
+     'nec-packet-filter-update': packetfilter.UpdatePacketFilter,
+     'nec-packet-filter-delete': packetfilter.DeletePacketFilter,
++    'eayun-qos-list': eayun_qos.ListQos,
++    'eayun-qos-show': eayun_qos.ShowQos,
++    'eayun-qos-create': eayun_qos.CreateQos,
++    'eayun-qos-update': eayun_qos.UpdateQos,
++    'eayun-qos-delete': eayun_qos.DeleteQos,
++    'eayun-qos-unbind': eayun_qos.UnbindQos,
++    'eayun-qos-queue-list': eayun_qos.ListQosQueue,
++    'eayun-qos-queue-show': eayun_qos.ShowQosQueue,
++    'eayun-qos-queue-create': eayun_qos.CreateQosQueue,
++    'eayun-qos-queue-update': eayun_qos.UpdateQosQueue,
++    'eayun-qos-queue-delete': eayun_qos.DeleteQosQueue,
++    'eayun-qos-filter-list': eayun_qos.ListQosFilter,
++    'eayun-qos-filter-show': eayun_qos.ShowQosFilter,
++    'eayun-qos-filter-create': eayun_qos.CreateQosFilter,
++    'eayun-qos-filter-update': eayun_qos.UpdateQosFilter,
++    'eayun-qos-filter-delete': eayun_qos.DeleteQosFilter,
++    'eayun-qos-filter-unattach': eayun_qos.UnattachQosFilter,
+ }
+ 
+ COMMANDS = {'2.0': COMMAND_V2}
+diff --git a/neutronclient/v2_0/client.py b/neutronclient/v2_0/client.py
+index fcce028..73aa7df 100644
+--- a/neutronclient/v2_0/client.py
++++ b/neutronclient/v2_0/client.py
+@@ -226,6 +226,12 @@ class Client(object):
+     firewall_path = "/fw/firewalls/%s"
+     net_partitions_path = "/net-partitions"
+     net_partition_path = "/net-partitions/%s"
++    eayun_qos_qoss_path = '/eayun_qos/qoss'
++    eayun_qos_qos_path = '/eayun_qos/qoss/%s'
++    eayun_qos_qos_queues_path = '/eayun_qos/qos-queues'
++    eayun_qos_qos_queue_path = '/eayun_qos/qos-queues/%s'
++    eayun_qos_qos_filters_path = '/eayun_qos/qos-filters'
++    eayun_qos_qos_filter_path = '/eayun_qos/qos-filters/%s'
+ 
+     # API has no way to report plurals, so we have to hard code them
+     EXTED_PLURALS = {'routers': 'router',
+@@ -251,6 +257,9 @@ class Client(object):
+                      'metering_label_rules': 'metering_label_rule',
+                      'net_partitions': 'net_partition',
+                      'packet_filters': 'packet_filter',
++                     'qoss': 'qos',
++                     'qos_queues': 'qos_queue',
++                     'qos_filters': 'qos_filter',
+                      }
+     # 8192 Is the default max URI len for eventlet.wsgi.server
+     MAX_URI_LEN = 8192
+@@ -1191,6 +1200,90 @@ class Client(object):
+         """Delete the specified packet filter."""
+         return self.delete(self.packet_filter_path % packet_filter_id)
+ 
++    @APIParamsCall
++    def list_eayun_qoss(self, retrieve_all=True, **_params):
++        """Fetches a list of all eayun qoss for a tenant."""
++        # Pass filters in "params" argument to do_request
++        return self.list('qoss', self.eayun_qos_qoss_path, retrieve_all,
++                         **_params)
++
++    @APIParamsCall
++    def show_eayun_qos(self, qos, **_params):
++        """Fetches information of a certain eayun qos."""
++        return self.get(self.eayun_qos_qos_path % (qos), params=_params)
++
++    @APIParamsCall
++    def create_eayun_qos(self, body=None):
++        """Creates a new eayun qos."""
++        return self.post(self.eayun_qos_qoss_path, body=body)
++
++    @APIParamsCall
++    def update_eayun_qos(self, qos, body=None):
++        """Updates an eayun qos."""
++        return self.put(self.eayun_qos_qos_path % (qos), body=body)
++
++    @APIParamsCall
++    def delete_eayun_qos(self, qos):
++        """Deletes the specified eayun qos."""
++        return self.delete(self.eayun_qos_qos_path % (qos))
++
++    @APIParamsCall
++    def list_eayun_qos_queues(self, retrieve_all=True, **_params):
++        """Fetches a list of all eayun qos queues for a tenant."""
++        # Pass filters in "params" argument to do_request
++        return self.list('qos_queues', self.eayun_qos_qos_queues_path,
++                         retrieve_all, **_params)
++
++    @APIParamsCall
++    def show_eayun_qos_queue(self, qos_queue, **_params):
++        """Fetches information of a certain eayun qos queue."""
++        return self.get(self.eayun_qos_qos_queue_path % (qos_queue),
++                        params=_params)
++
++    @APIParamsCall
++    def create_eayun_qos_queue(self, body=None):
++        """Creates a new eayun qos queue."""
++        return self.post(self.eayun_qos_qos_queues_path, body=body)
++
++    @APIParamsCall
++    def update_eayun_qos_queue(self, qos_queue, body=None):
++        """Updates an eayun qos queue."""
++        return self.put(self.eayun_qos_qos_queue_path % (qos_queue), body=body)
++
++    @APIParamsCall
++    def delete_eayun_qos_queue(self, qos_queue):
++        """Deletes the specified eayun qos queue."""
++        return self.delete(self.eayun_qos_qos_queue_path % (qos_queue))
++
++    @APIParamsCall
++    def list_eayun_qos_filters(self, retrieve_all=True, **_params):
++        """Fetches a list of all eayun qos filters for a tenant."""
++        # Pass filters in "params" argument to do_request
++        return self.list('qos_filters', self.eayun_qos_qos_filters_path,
++                         retrieve_all, **_params)
++
++    @APIParamsCall
++    def show_eayun_qos_filter(self, qos_filter, **_params):
++        """Fetches information of a certain eayun qos filter."""
++        return self.get(self.eayun_qos_qos_filter_path % (qos_filter),
++                        params=_params)
++
++    @APIParamsCall
++    def create_eayun_qos_filter(self, body=None):
++        """Creates a new eayun qos filter."""
++        return self.post(self.eayun_qos_qos_filters_path, body=body)
++
++    @APIParamsCall
++    def update_eayun_qos_filter(self, qos_filter, body=None):
++        """Updates an eayun qos filter."""
++        return self.put(self.eayun_qos_qos_filter_path % (qos_filter),
++                        body=body)
++
++    @APIParamsCall
++    def delete_eayun_qos_filter(self, qos_filter):
++        """Deletes the specified eayun qos filter."""
++        return self.delete(self.eayun_qos_qos_filter_path % (qos_filter))
++
+     def __init__(self, **kwargs):
+         """Initialize a new client for the Neutron v2.0 API."""
+         super(Client, self).__init__()
+-- 
+2.4.0
+

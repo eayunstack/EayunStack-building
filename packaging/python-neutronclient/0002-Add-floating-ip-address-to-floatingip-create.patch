@@ -1,0 +1,70 @@
+From ce31ae20c7a04e36d78c505980129e9b8fbfa9c3 Mon Sep 17 00:00:00 2001
+From: Yuuichi Fujioka <fujioka-yuuichi@zx.mxh.nes.nec.co.jp>
+Date: Mon, 22 Dec 2014 15:31:21 +0900
+Subject: [PATCH 1/2] Add floating-ip-address to floatingip-create
+
+a parameter is added to the API.
+this patch adds a parameter that is collesponding to the parameter.
+
+partial blueprint allow-specific-floating-ip-address
+
+Change-Id: I232568db11054b73a9a557cb669e570bcd362d6d
+(cherry picked from commit 5b1c45a3ecedd17ffe27767067611d45c22a0bc6)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/floatingip.py           |  6 ++++++
+ neutronclient/tests/unit/test_cli20_floatingips.py | 14 ++++++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/neutronclient/neutron/v2_0/floatingip.py b/neutronclient/neutron/v2_0/floatingip.py
+index e995bca..cd2c5d9 100644
+--- a/neutronclient/neutron/v2_0/floatingip.py
++++ b/neutronclient/neutron/v2_0/floatingip.py
+@@ -61,6 +61,9 @@ class CreateFloatingIP(neutronV20.CreateCommand):
+         parser.add_argument(
+             '--fixed_ip_address',
+             help=argparse.SUPPRESS)
++        parser.add_argument(
++            '--floating-ip-address',
++            help=_('IP address of the floating IP'))
+ 
+     def args2body(self, parsed_args):
+         _network_id = neutronV20.find_resourceid_by_name_or_id(
+@@ -73,6 +76,9 @@ class CreateFloatingIP(neutronV20.CreateCommand):
+         if parsed_args.fixed_ip_address:
+             body[self.resource].update({'fixed_ip_address':
+                                         parsed_args.fixed_ip_address})
++        if parsed_args.floating_ip_address:
++            body[self.resource].update({'floating_ip_address':
++                                        parsed_args.floating_ip_address})
+         return body
+ 
+ 
+diff --git a/neutronclient/tests/unit/test_cli20_floatingips.py b/neutronclient/tests/unit/test_cli20_floatingips.py
+index 3a98e2c..92f527a 100644
+--- a/neutronclient/tests/unit/test_cli20_floatingips.py
++++ b/neutronclient/tests/unit/test_cli20_floatingips.py
+@@ -71,6 +71,20 @@ class CLITestV20FloatingIpsJSON(test_cli20.CLITestV20Base):
+         self._test_create_resource(resource, cmd, name, myid, args,
+                                    position_names, position_values)
+ 
++    def test_create_floatingip_with_ip_address_of_floating_ip(self):
++        """Create floatingip: fip1 with a given IP address of floating IP."""
++        resource = 'floatingip'
++        cmd = fip.CreateFloatingIP(test_cli20.MyApp(sys.stdout), None)
++        name = 'fip1'
++        myid = 'myid'
++        addr = '10.0.0.99'
++
++        args = [name, '--floating-ip-address', addr]
++        position_values = [name, addr]
++        position_names = ['floating_network_id', 'floating_ip_address']
++        self._test_create_resource(resource, cmd, name, myid, args,
++                                   position_names, position_values)
++
+     def test_list_floatingips(self):
+         """list floatingips: -D."""
+         resources = 'floatingips'
+-- 
+2.4.0
+
