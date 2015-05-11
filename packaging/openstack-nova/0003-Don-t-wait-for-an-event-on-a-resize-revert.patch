@@ -1,0 +1,69 @@
+From b8f12095dc6d1e4eaf1ed812b3640cd0d6a34f04 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Thu, 7 May 2015 17:48:44 +0800
+Subject: [PATCH 3/4] Don't wait for an event on a resize-revert
+
+Since we never unplugged, the event ain't comin'.
+
+Sadly, the test that covers this was pretty wrong on multiple fronts,
+which this patch fixes up.
+
+Closes-Bug: #1450624
+Change-Id: Id515137747a4b76e9b7057c95f80c8ae74017519
+(cherry picked from commit 4814e9126ec19a1edfa9c696138c4b3fec71aa0d)
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+
+Conflicts:
+	nova/tests/unit/virt/libvirt/test_driver.py
+	nova/virt/libvirt/driver.py
+---
+ nova/tests/virt/libvirt/test_driver.py | 9 ++++++---
+ nova/virt/libvirt/driver.py            | 3 ++-
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index a76a085..ecd3b6c 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -11624,10 +11624,13 @@ class LibvirtDriverTestCase(test.TestCase):
+         def fake_plug_vifs(instance, network_info):
+             pass
+ 
+-        def fake_create_domain(xml, instance=None, launch_flags=0,
+-                               power_on=True):
++        def fake_create_domain(context, xml, instance, network_info,
++                               disk_info, block_device_info=None,
++                               power_on=None,
++                               vifs_already_plugged=None):
+             self.fake_create_domain_called = True
+             self.assertEqual(powered_on, power_on)
++            self.assertTrue(vifs_already_plugged)
+             return mock.MagicMock()
+ 
+         def fake_enable_hairpin(instance):
+@@ -11649,7 +11652,7 @@ class LibvirtDriverTestCase(test.TestCase):
+         self.stubs.Set(utils, 'execute', fake_execute)
+         fw = base_firewall.NoopFirewallDriver()
+         self.stubs.Set(self.libvirtconnection, 'firewall_driver', fw)
+-        self.stubs.Set(self.libvirtconnection, '_create_domain',
++        self.stubs.Set(self.libvirtconnection, '_create_domain_and_network',
+                        fake_create_domain)
+         self.stubs.Set(self.libvirtconnection, '_enable_hairpin',
+                        fake_enable_hairpin)
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index a2009a9..72c57d8 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -6060,7 +6060,8 @@ class LibvirtDriver(driver.ComputeDriver):
+         xml = self._get_guest_xml(context, instance, network_info, disk_info,
+                                   block_device_info=block_device_info)
+         self._create_domain_and_network(context, xml, instance, network_info,
+-                                        block_device_info, power_on)
++                                        block_device_info, power_on,
++                                        vifs_already_plugged=True)
+ 
+         if power_on:
+             timer = loopingcall.FixedIntervalLoopingCall(
+-- 
+1.8.3.1
+
