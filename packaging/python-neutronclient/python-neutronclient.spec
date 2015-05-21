@@ -2,7 +2,7 @@
 
 Name:       python-neutronclient
 Version:    2.3.9
-Release:    2%{?dist_eayunstack}
+Release:    3%{?dist_eayunstack}
 Summary:    Python API and CLI for OpenStack Neutron
 
 Group:      Development/Languages
@@ -14,6 +14,7 @@ Patch0001: 0001-Remove-runtime-dependency-on-python-pbr.patch
 Patch0002: 0002-Add-floating-ip-address-to-floatingip-create.patch
 Patch0003: 0003-Add-external-fixed-ip-to-router-gateway-set.patch
 Patch0004: 0004-Add-eayun_qos-support.patch
+Patch0005: 0005-fix-the-firewall-rule-arg-split-error.patch
 
 BuildArch:  noarch
 
@@ -41,6 +42,7 @@ Neutron's API.
 %patch0002 -p1
 %patch0003 -p1
 %patch0004 -p1
+%patch0005 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATNEUTRONCLIENTVERSION/%{version}/ neutronclient/version.py
@@ -70,6 +72,9 @@ rm -rf %{buildroot}%{python_sitelib}/neutronclient/tests
 %{_sysconfdir}/bash_completion.d
 
 %changelog
+* Thu May 21 2015 Xu Meihong <meihong.xu@eayun.com> 2.3.9-3.eayunstack.1.0
+- add 0005-fix-the-firewall-rule-arg-split-error.patch (redmine#3720)
+
 * Mon May 11 2015 Xu Meihong <meihong.xu@eayun.com> 2.3.9-2.eayunstack.1.0
 - Fix redmine #3652
 - Fix redmine #3677
