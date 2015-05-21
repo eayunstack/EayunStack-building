@@ -1,0 +1,24 @@
+From b48e4e41428643a07816d80553af6cc1dd554f08 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 20 May 2015 20:52:07 +0800
+Subject: [PATCH] vpnaas: add ipsec env rootwrap filter
+
+Fixes: redmine #3721
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ etc/neutron/rootwrap.d/vpnaas.filters | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/etc/neutron/rootwrap.d/vpnaas.filters b/etc/neutron/rootwrap.d/vpnaas.filters
+index 7848136..b399dbd 100644
+--- a/etc/neutron/rootwrap.d/vpnaas.filters
++++ b/etc/neutron/rootwrap.d/vpnaas.filters
+@@ -11,3 +11,4 @@
+ ip: IpFilter, ip, root
+ ip_exec: IpNetnsExecFilter, ip, root
+ openswan: CommandFilter, ipsec, root
++ipsec: EnvFilter, env, root, IPSEC_CONF=, ipsec
+-- 
+2.4.1
+
