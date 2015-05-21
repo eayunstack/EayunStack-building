@@ -1,0 +1,67 @@
+From 1b5dd3adb158ea0ff6985fd9ccb217804de60378 Mon Sep 17 00:00:00 2001
+From: Matt Riedemann <mriedem@us.ibm.com>
+Date: Thu, 16 Oct 2014 19:59:57 -0700
+Subject: [PATCH 6/7] libvirt: use six.text_type when setting text node value
+ in guest xml
+
+Trying to spawn an instance with a unicode name using the libvirt driver
+fails with a UnicodeDecodeError because the value is cast to str().
+
+The fix is to use six.text_type for the cast.
+
+Closes-Bug: #1382318
+
+Conflicts:
+        nova/virt/libvirt/config.py
+
+Change-Id: I4628b94459a3c1e757d388916f1268884cb02038
+(cherry picked from commit 73fcf4628089dd784889062e916b80d3fc9988a2)
+(cherry picked from commit 0bda022c621ea3a6f80920ad0f3542358afd0fa4)
+---
+ nova/tests/virt/libvirt/test_config.py | 7 +++++++
+ nova/virt/libvirt/config.py            | 4 +++-
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/nova/tests/virt/libvirt/test_config.py b/nova/tests/virt/libvirt/test_config.py
+index 2cedc9c..937edb1 100644
+--- a/nova/tests/virt/libvirt/test_config.py
++++ b/nova/tests/virt/libvirt/test_config.py
+@@ -50,6 +50,13 @@ class LibvirtConfigTest(LibvirtConfigBaseTest):
+         xml = etree.tostring(root)
+         self.assertXmlEqual(xml, "<demo><foo>bar</foo></demo>")
+ 
++    def test_config_text_unicode(self):
++        obj = config.LibvirtConfigObject(root_name='demo')
++        root = obj.format_dom()
++        root.append(obj._text_node('foo', u'\xF0\x9F\x92\xA9'))
++        self.assertXmlEqual('<demo><foo>&#240;&#159;&#146;&#169;</foo></demo>',
++                            etree.tostring(root))
++
+     def test_config_parse(self):
+         inxml = "<demo><foo/></demo>"
+         obj = config.LibvirtConfigObject(root_name="demo")
+diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
+index 29feb8c..7c02977 100644
+--- a/nova/virt/libvirt/config.py
++++ b/nova/virt/libvirt/config.py
+@@ -25,6 +25,8 @@ helpers for populating up config object instances.
+ 
+ import time
+ 
++import six
++
+ from nova import exception
+ from nova.openstack.common import log as logging
+ from nova.openstack.common import units
+@@ -59,7 +61,7 @@ class LibvirtConfigObject(object):
+ 
+     def _text_node(self, name, value, **kwargs):
+         child = self._new_node(name, **kwargs)
+-        child.text = str(value)
++        child.text = six.text_type(value)
+         return child
+ 
+     def format_dom(self):
+-- 
+1.8.3.1
+

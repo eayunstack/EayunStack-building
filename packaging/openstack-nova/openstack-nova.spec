@@ -7,7 +7,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          3%{?dist_eayunstack}
+Release:          4%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -48,6 +48,9 @@ Patch0001: 0001-remove-runtime-dep-on-python-pbr.patch
 Patch0002: 0002-Move-notification-point-to-a-better-place.patch
 Patch0003: 0003-Don-t-wait-for-an-event-on-a-resize-revert.patch
 Patch0004: 0004-Transform-IPAddress-to-string-when-creating-port.patch
+Patch0005: 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
+Patch0006: 0006-libvirt-use-six.text_type-when-setting-text-node-val.patch
+Patch0007: 0007-libvirt-safe_decode-domain.XMLDesc-0-for-i18n-loggin.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -454,6 +457,9 @@ This package contains documentation files for nova.
 %patch0002 -p1
 %patch0003 -p1
 %patch0004 -p1
+%patch0005 -p1
+%patch0006 -p1
+%patch0007 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -811,9 +817,16 @@ exit 0
 %endif
 
 %changelog
+
+* Thu May 21 2015 apporc <appleorchard2000@gmail.com> - 2014.2-4.eayunstack.1.0
+- add 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
+- add 0006-libvirt-use-six.text_type-when-setting-text-node-val.patch
+- add 0007-libvirt-safe_decode-domain.XMLDesc-0-for-i18n-loggin.patch
+
 * Mon May 11 2015 apporc <appleorchard2000@gmail.com> - 2014.2-3.eayunstack.1.0
 - add 0003-Don-t-wait-for-an-event-on-a-resize-revert.patch
 - add 0004-Transform-IPAddress-to-string-when-creating-port.patch
+
 
 * Fri Oct 24 2014 Pádraig Brady <pbrady@redhat.com> - 2014.2-2
 - Fix openstack-nova-serialproxy.service to call correct binary
