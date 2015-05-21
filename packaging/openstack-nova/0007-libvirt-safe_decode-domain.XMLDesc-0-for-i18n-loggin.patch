@@ -1,0 +1,92 @@
+From f40f2a76b461e0d0e73d7dcaebcabfa36d49d901 Mon Sep 17 00:00:00 2001
+From: Matt Riedemann <mriedem@us.ibm.com>
+Date: Sat, 1 Nov 2014 09:33:17 -0700
+Subject: [PATCH 7/7] libvirt: safe_decode domain.XMLDesc(0) for i18n logging
+
+domain.XMLDesc(0) can return a utf-8 encoded string which will cause a
+UnicodeDecodeError when substituting the variable in the _LE unicode
+translated Message object in oslo.i18n.
+
+This change simply decodes domain.XMLDesc(0) before passing it onto the
+logging method when used with a translated message.
+
+Changes in original commit code is required because in stable/juno branch
+library oslo.utils is not used, so original commit is changed to use
+utils from nova/openstack/common instead of oslo.utils library
+
+Closes-Bug: #1388386
+
+Conflicts:
+	nova/tests/virt/libvirt/test_driver.py
+	nova/virt/libvirt/driver.py
+
+Change-Id: Id56d6564cfb15cc479e664020ae6f1c82acacb09
+(cherry picked from commit e7c5896fa5db657750a361c44105624de0859d43)
+(cherry picked from commit eb58ed4f9a1c3a3e228cb7183d2dd8c1d74fd0c2)
+---
+ nova/tests/virt/libvirt/test_driver.py | 5 ++++-
+ nova/virt/libvirt/driver.py            | 7 +++++--
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index ecd3b6c..1dc85cd 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -59,6 +59,7 @@ from nova.openstack.common import jsonutils
+ from nova.openstack.common import lockutils
+ from nova.openstack.common import loopingcall
+ from nova.openstack.common import processutils
++from nova.openstack.common import strutils
+ from nova.openstack.common import timeutils
+ from nova.openstack.common import units
+ from nova.openstack.common import uuidutils
+@@ -8963,7 +8964,8 @@ Active:          8381604 kB
+         lookup_mock.assert_called_once_with(instance['name'])
+ 
+     @mock.patch.object(fake_libvirt_utils, 'get_instance_path')
+-    def test_create_domain(self, mock_get_inst_path):
++    @mock.patch.object(strutils, 'safe_decode')
++    def test_create_domain(self, mock_safe_decode, mock_get_inst_path):
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), True)
+         mock_domain = mock.MagicMock()
+         mock_instance = mock.MagicMock()
+@@ -8975,6 +8977,7 @@ Active:          8381604 kB
+         self.assertEqual(mock_domain, domain)
+         mock_get_inst_path.assertHasCalls([mock.call(mock_instance)])
+         mock_domain.createWithFlags.assertHasCalls([mock.call(0)])
++        self.assertEqual(2, mock_safe_decode.call_count)
+ 
+     @mock.patch('nova.virt.disk.api.clean_lxc_namespace')
+     @mock.patch('nova.virt.libvirt.driver.LibvirtDriver.get_info')
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 72c57d8..69d5bc4 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -77,6 +77,7 @@ from nova.openstack.common import jsonutils
+ from nova.openstack.common import log as logging
+ from nova.openstack.common import loopingcall
+ from nova.openstack.common import processutils
++from nova.openstack.common import strutils
+ from nova.openstack.common import timeutils
+ from nova.openstack.common import units
+ from nova.openstack.common import xmlutils
+@@ -4325,12 +4326,14 @@ class LibvirtDriver(driver.ComputeDriver):
+ 
+             if power_on:
+                 err = _LE('Error launching a defined domain with XML: %s') \
+-                          % domain.XMLDesc(0)
++                          % strutils.safe_decode(domain.XMLDesc(0),
++                                                 errors='ignore')
+                 domain.createWithFlags(launch_flags)
+ 
+             if not utils.is_neutron():
+                 err = _LE('Error enabling hairpin mode with XML: %s') \
+-                          % domain.XMLDesc(0)
++                          % strutils.safe_decode(domain.XMLDesc(0),
++                                                 errors='ignore')
+                 self._enable_hairpin(domain.XMLDesc(0))
+         except Exception:
+             with excutils.save_and_reraise_exception():
+-- 
+1.8.3.1
+
