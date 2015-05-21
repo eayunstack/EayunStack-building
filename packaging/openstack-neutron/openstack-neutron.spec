@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	12%{?dist_eayunstack}
+Release:	13%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -51,6 +51,7 @@ Patch0006: 0006-Allow-setting-a-tenant-router-s-external-IP.patch
 Patch0007: 0007-Fix-Pluto-pidfile-deleting.patch
 Patch0008: 0008-vpn-update-cmdline-options-and-config-for-ipsec.patch
 Patch0009: 0009-vpn-do-preparing-work-before-running-ipsec.patch
+Patch0010: 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch
 
 BuildArch:	noarch
 
@@ -537,6 +538,7 @@ IPSec.
 %patch0007 -p1
 %patch0008 -p1
 %patch0009 -p1
+%patch0010 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -993,6 +995,9 @@ exit 0
 
 
 %changelog
+* Thu May 21 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-13.eayunstack.1.0
+- add 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch (redmine#3721)
+
 * Mon May 11 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-12.eayunstack.1.0
 - Add libreswan dependency
 - Fix redmine #3556
