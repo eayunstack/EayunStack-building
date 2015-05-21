@@ -7,7 +7,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          3%{?dist_eayunstack}
+Release:          5%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -48,6 +48,7 @@ Patch0001: 0001-remove-runtime-dep-on-python-pbr.patch
 Patch0002: 0002-Move-notification-point-to-a-better-place.patch
 Patch0003: 0003-Don-t-wait-for-an-event-on-a-resize-revert.patch
 Patch0004: 0004-Transform-IPAddress-to-string-when-creating-port.patch
+Patch0005: 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -814,6 +815,7 @@ exit 0
 * Mon May 11 2015 apporc <appleorchard2000@gmail.com> - 2014.2-3.eayunstack.1.0
 - add 0003-Don-t-wait-for-an-event-on-a-resize-revert.patch
 - add 0004-Transform-IPAddress-to-string-when-creating-port.patch
+- add 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
 
 * Fri Oct 24 2014 Pádraig Brady <pbrady@redhat.com> - 2014.2-2
 - Fix openstack-nova-serialproxy.service to call correct binary
