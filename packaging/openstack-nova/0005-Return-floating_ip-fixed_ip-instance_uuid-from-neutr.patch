@@ -1,0 +1,73 @@
+From e95428076949c431e93a46f39e8e1a2bb30a636f Mon Sep 17 00:00:00 2001
+From: Matt Riedemann <mriedem@us.ibm.com>
+Date: Tue, 6 Jan 2015 09:11:24 -0800
+Subject: [PATCH 5/7] Return floating_ip['fixed_ip']['instance_uuid'] from
+ neutronv2 API
+
+The os-floating-ips extension translates the floating IP information
+from the network API for the response but is only checking fields based
+on what comes back from nova-network, which is using the FloatingIP
+object. The neutronv2 API returns a different set of keys for the
+instance/instance_uuid which the API extension doesn't handle and
+therefore doesn't show the associated instance id for a given floating
+IP.
+
+The network APIs should return consistent data formats so this change
+adds the expected key to fix the bug in the API extension (since the API
+extensions shouldn't have to know the implementation details of the
+network API, there are some extensions actually checking if it's the
+neutron API and parsing the result set based on that).
+
+This change will be used to backport the fix to the stable branches.
+
+The longer term fix is to convert the neutronv2 get_floating_ip* API
+methods to use nova objects which will be done as part of blueprint
+kilo-objects in a separate change.
+
+Conflicts:
+        nova/tests/unit/network/test_neutronv2.py
+
+NOTE(mriedem): The conflict is due to the test modules being
+moved in Kilo, otherwise the code is the same.
+
+Closes-Bug: #1380965
+
+Change-Id: I01df2096ced51eb9ebfd994cf8397f2fa094f6e3
+(cherry picked from commit 48c24dbb6bc1e55973dce2b8bc3e74105b0020ce)
+(cherry picked from commit d9bcfab1e9310d6fa6aa4d060bec59c741e12ca4)
+---
+ nova/network/neutronv2/api.py        | 3 +++
+ nova/tests/network/test_neutronv2.py | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/nova/network/neutronv2/api.py b/nova/network/neutronv2/api.py
+index 87512f9..4aca04d 100644
+--- a/nova/network/neutronv2/api.py
++++ b/nova/network/neutronv2/api.py
+@@ -1078,6 +1078,9 @@ class API(base_api.NetworkAPI):
+         if fip['port_id']:
+             instance_uuid = port_dict[fip['port_id']]['device_id']
+             result['instance'] = {'uuid': instance_uuid}
++            # TODO(mriedem): remove this workaround once the get_floating_ip*
++            # API methods are converted to use nova objects.
++            result['fixed_ip']['instance_uuid'] = instance_uuid
+         else:
+             result['instance'] = None
+         return result
+diff --git a/nova/tests/network/test_neutronv2.py b/nova/tests/network/test_neutronv2.py
+index 14a789d..21c7f0d 100644
+--- a/nova/tests/network/test_neutronv2.py
++++ b/nova/tests/network/test_neutronv2.py
+@@ -1863,6 +1863,9 @@ class TestNeutronv2(TestNeutronv2Base):
+                     'instance': ({'uuid': self.port_data2[idx]['device_id']}
+                                  if fip_data['port_id']
+                                  else None)}
++        if expected['instance'] is not None:
++            expected['fixed_ip']['instance_uuid'] = \
++                expected['instance']['uuid']
+         return expected
+ 
+     def _test_get_floating_ip(self, fip_data, idx=0, by_address=False):
+-- 
+1.8.3.1
+
