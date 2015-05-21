@@ -6,7 +6,7 @@
 
 Name:       python-django-horizon
 Version:    2014.2.1
-Release:    3%{?dist_eayunstack}
+Release:    4%{?dist_eayunstack}
 Summary:    Django application for talking to Openstack
 
 Group:      Development/Libraries
@@ -50,6 +50,7 @@ Patch0021: 0021-Change-branding.patch
 Patch0022: 0022-Add-missing-translation-for-the-downstream-theme-zh_.patch
 Patch0023: 0023-Horizon-login-page-contains-DOS-attack-mechanism.patch
 Patch0024: 0024-Pass-correct-project-ID-to-get-tenant_usages.patch
+Patch0025: 0025-LBaas-v1-Associate-Monitor-to-Pool-Fails.patch
 
 #
 # BuildArch needs to be located below patches in the spec file. Don't ask!
@@ -446,6 +447,9 @@ cp -a %{SOURCE5} %{buildroot}%{_sysconfdir}/logrotate.d/openstack-dashboard
 %{_datadir}/openstack-dashboard/openstack_dashboard/enabled/_99_customization.*
 
 %changelog
+* Thu May 21 2015 Xu Meihong <meihong.xu@eayun.com> - 2014.2.1-4.eayunstack.1.0
+- add 0025-LBaas-v1-Associate-Monitor-to-Pool-Fails.patch (redmine#3719)
+
 * Tue May 05 2015 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-3.eayunstack.1.0
 - add 0024-Pass-correct-project-ID-to-get-tenant_usages.patch.
 
