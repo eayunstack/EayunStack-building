@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	13%{?dist_eayunstack}
+Release:	14%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -52,6 +52,7 @@ Patch0007: 0007-Fix-Pluto-pidfile-deleting.patch
 Patch0008: 0008-vpn-update-cmdline-options-and-config-for-ipsec.patch
 Patch0009: 0009-vpn-do-preparing-work-before-running-ipsec.patch
 Patch0010: 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch
+Patch0011: 0011-Use-stop-method-on-MessageHandlingServer.patch
 
 BuildArch:	noarch
 
@@ -539,6 +540,7 @@ IPSec.
 %patch0008 -p1
 %patch0009 -p1
 %patch0010 -p1
+%patch0011 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -995,6 +997,10 @@ exit 0
 
 
 %changelog
+* Mon May 25 2015 Zhao Chao <chao.zhao@eayun.com> 2014.2-14.eayunstack.1.0
+- add 0011-Use-stop-method-on-MessageHandlingServer.patch
+- add out-of-tree-patches/neutron-server.service-workaournd-for-service-stop-r.patch
+
 * Thu May 21 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-13.eayunstack.1.0
 - add 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch (redmine#3721)
 

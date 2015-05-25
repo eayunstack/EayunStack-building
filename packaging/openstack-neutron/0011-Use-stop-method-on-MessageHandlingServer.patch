@@ -1,0 +1,33 @@
+From 8799f3dc31649db6128d22ec9b73e37f456b34ad Mon Sep 17 00:00:00 2001
+From: Jakub Libosvar <libosvar@redhat.com>
+Date: Wed, 29 Oct 2014 10:02:10 +0100
+Subject: [PATCH] Use stop() method on MessageHandlingServer
+
+MessageHandlingServer has no kill() method. In case neutron server using
+rpc workers and is stopped, wrong method is called.
+
+Change-Id: Id4a11f3dca070e684fb9e079139ac09792bc7aad
+Closes-Bug: 1387053
+(cherry picked from commit 42f4c8d0e693a7ef8b058111f5e1bf1ecc618620)
+(cherry picked from commit 66a91ddd601f5d2644af7bf82cd23cfe6dcd4322)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/service.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/service.py b/neutron/service.py
+index eb48687..1761bac 100644
+--- a/neutron/service.py
++++ b/neutron/service.py
+@@ -129,7 +129,7 @@ class RpcWorker(object):
+     def stop(self):
+         for server in self._servers:
+             if isinstance(server, rpc_server.MessageHandlingServer):
+-                server.kill()
++                server.stop()
+             self._servers = []
+ 
+ 
+-- 
+2.1.4
+
