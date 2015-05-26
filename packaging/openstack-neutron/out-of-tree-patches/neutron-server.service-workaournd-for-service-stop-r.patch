@@ -1,0 +1,28 @@
+From bf1bfb6c0323c8a103831e7b193fb64fcdd600c8 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Mon, 25 May 2015 13:54:00 +0800
+Subject: [PATCH] neutron-server.service: workaournd for service stop/restart.
+ 1. remove "KillMode" to use default kill behavior; 2. set TimeoutStopSec to
+ 30s.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ neutron-server.service | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron-server.service b/neutron-server.service
+index d4afea6..f29692d 100644
+--- a/neutron-server.service
++++ b/neutron-server.service
+@@ -8,7 +8,7 @@ User=neutron
+ ExecStart=/usr/bin/neutron-server --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini --log-file /var/log/neutron/server.log
+ PrivateTmp=true
+ NotifyAccess=all
+-KillMode=process
++TimeoutStopSec=30s
+ 
+ [Install]
+ WantedBy=multi-user.target
+-- 
+1.8.3.1
+
