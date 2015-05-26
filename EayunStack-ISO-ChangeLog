@@ -1,3 +1,47 @@
+* 2015年5月11日，19时02分48秒，赵超，<chao.zhao@eayun.com>
+- fuel-6.0.1-201505090044-updated-001.iso
+- 1. Redmine Bugs:
+-   * #3275 [Fuel] 备份生成文件名错误
+-   * #3415 fuel开始部署openstack之后，astute报告mango节点puppet hang
+-   * #3423 [fuel] fuel 的 DNS 服务器解析有问题
+-   * #3430 [tools] [fuel] paramiko 没有安装
+-   * #3431 [tools] [fuel] MySQLdb 没有安装
+-   * #3432 [fuel] 更新 fuel-library 中所使用的 neutron-l3-agent OCF 脚本的命令行启动参数
+-   * #3446 [nova] libvirt 的log应该打开
+-   * #3458 [OpenStack] 关闭一台 controller 节点后环境变慢
+-   * #3556 [neutron] neutron l3-agent HA 不可用
+-   * #3565 [OpenStack] 默认主题
+-   * #3566 [OpenStack][nova]使用固定ip创建虚拟机失败
+-   * #3591 [OpenStack] [nova] 虚拟机 revert migrate 失败
+-   * #3602 [eayun-tools] 提示 cinder.openstack.common 没有安装
+-   * #3605 [eayun-tools] 报错没有显示哪个节点
+-   * #3607 [eayun-tools] 不能检测到 cinder-api 的服务异常
+-   * #3608 [openstack]dashboard上新建项目使用默认配额时项目创建失败
+-   * #3611 [eayun-tools]eayunstack fuel backup -h输出信息中-n选项帮助信息需要修改
+-   * #3617 [fuel][ceph] ceph 没有记录正确的日志
+-   * #3622 [eayun-tools] eayunstack doctor 查看所有节点的某个服务
+-   * #3649 [OpenStack][python-cinderclient] cinder backup-show 无法显示 backup 的信息
+- 2. Redmine Features:
+-   * #3269 [fuel] fuel 部署 openstack 节点时正确配置 ceph 的网络
+-   * #3433 [fuel-plugin-neutron-fwaas] 为 neutron 的 FWaaS 扩展开发 fuel 插件
+-   * #3445 [fuel] fuel 的界面增加用户选择默认cinder后端
+-   * #3463 [fuel-plugin-neutron-lbaas] 为 neutron 的 LBaaS 扩展开发 fuel 插件
+-   * #3517 [fuel-plugin-neutron-vpnaas] 为 neutron 的 VPNaaS 扩展开发 fuel 插件
+-   * #3650 [neutron] 多个外网子网情况下允许指定路由和浮动 IP 地址
+-     - #3651 [neutron] neutron-server 添加指定路由和浮动 IP 地址功能
+-     - #3652 [neutron] neutron-client 添加指定路由和浮动 IP 地址功能
+-   * #3659 [neutron] 兼容 centos7 上的 VPNaaS 所使用的 libreswan
+-   * #3677 [neutron] 为 neutron client 添加支持限速功能的命令
+-   * #3678 [neutron] 为 neutron 添加限速功能支持
+- 3. 其它更新：
+-  a） fuel-library pull requests:
+-    * #23 use clone of ocf:heartbeat:rabbitmq-cluster for rabbitmq clustering.
+-    * #26 configuring cinder-backup with ceph backup, but make cinder-backup se...
+-  b） fuel-main pull requests:
+-    * #16 replay "Remove nsenter docker image" commit.
+-    * #17 change the git repos of fuel projects to eayunstack.
+-    * #18 workaround for cobbler to restart dnsmasq inside docker instance.
+
 * 2015年4月10日，19时30分00秒，赵超，<chao.zhao@eayun.com>
 - fuel-6.0.1-201504101930.iso
 - 1. 相对于 fuel 上游项目的主要改动是：
