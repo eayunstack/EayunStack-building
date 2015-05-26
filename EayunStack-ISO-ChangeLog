@@ -1,0 +1,63 @@
+* 2015年4月10日，19时30分00秒，赵超，<chao.zhao@eayun.com>
+- fuel-6.0.1-201504101930.iso
+- 1. 相对于 fuel 上游项目的主要改动是：
+-   a）安装介质的基础系统升级为 CentOS 7.0.1406；
+-   b）Fuel 管理节点以及其上的 Docker 实例的基础系统升级为 CentOS 7.0.1406；
+-   c）布署的 OpenStack 节点的基础系统升级为 CentOS 7.0.1406；
+-   d）布署的 OpenStack 控制节点组成的 HA 集群使用 Corosync 2.x。
+- 2. 基础软件包：
+-   a）CentOS 7.0.1406
+-   b）EPEL 7 x86_64
+-   c）RDO Juno for EL7
+-   d）oVirt 3.5 for EL7 （ qemu-kvm-rhev ）
+- 3. Fuel 相关软件包：
+-   Fuel 相关软件包在上述基础软件源中不存在或者版本不满足要求，所以自行构建，包括：
+-   * cirros-testvm-0.3.2.3.mira1
+-   * cirros-testvm-mellanox-0.3.2.1.mira3
+-   * cirros-testvmware-0.3.3.1.mira2
+-   * crmsh-2.2.0~rc2.1.el7.centos
+-   * daemonize-1.7.5.1.el7.centos
+-   * haproxy-1.5.3.3.mira3
+-   * MySQL-python-1.2.5.1.el7.centos
+-   * pushy-0.5.3.1
+-   * python-cliff-tablib-1.1.1.el7.centos
+-   * python-daemonize-2.3.1.1.el7.centos
+-   * python-fysom-1.1.2.1.el7.centos
+-   * python-muranoclient-0.5.5.fuel6.0
+-   * python-parallax-1.0.0a2.1.el7.centos
+-   * python-pypcap-1.1.15.1
+-   * python-tablib-0.9.11.1.el7.centos
+-   * python-testresources-0.2.7.6.el7.centos
+-   * python-webpy-0.37.1.el7.centos
+-   * python-wsgilog-0.3.1
+-   * python-wsgiref-0.1.2.6.el7.centos
+-   * python-yaql-0.2.4.1.el7.centos
+-   * ruby-extlib-0.9.13.5.el7.centos
+-   * rubygem-activesupport-3.0.10.1.el7.centos
+-   * rubygem-amq-client-1.0.4.1.el7.centos
+-   * rubygem-amqp-1.4.1.1.el7.centos
+-   * rubygem-amq-protocol-1.9.2.1
+-   * rubygem-cstruct-1.0.1.1.el7.centos
+-   * rubygem-eventmachine-1.0.3.4.el7.centos
+-   * rubygem-eventmachine-doc-1.0.3.4.el7.centos
+-   * rubygem-extlib-0.9.13.5.el7.centos
+-   * rubygem-extlib-doc-0.9.13.5.el7.centos
+-   * rubygem-i18n-0.7.0.1.el7.centos
+-   * rubygem-mcollective-client-2.4.1.1.el7.centos
+-   * rubygem-mixlib-cli-1.2.2.3.el7.centos
+-   * rubygem-mixlib-cli-doc-1.2.2.3.el7.centos
+-   * rubygem-mixlib-config-1.1.2.1.el7.centos
+-   * rubygem-mixlib-log-1.4.1.1.el7.centos
+-   * rubygem-netaddr-1.5.0.1.el7.centos
+-   * rubygem-ohai-6.14.0.1.el7.centos
+-   * rubygem-openstack-1.1.2.1.el7.centos
+-   * rubygem-Platform-0.4.0.1.el7.centos
+-   * rubygem-popen4-0.1.2.1.el7.centos
+-   * rubygem-raemon-0.3.0.1.el7.centos
+-   * rubygem-rethtool-0.0.3.2.mira1
+-   * rubygem-symboltable-1.0.2.1
+-   * rubygem-yajl-ruby-1.1.0.1.el7.centos
+-   * send2syslog-0.1.1.el7.centos
+-   * uwsgi-2.0.7.3.el7.centos
+-   * uwsgi-plugin-common-2.0.7.3.el7.centos
+-   * uwsgi-plugin-python-2.0.7.3.el7.centos
