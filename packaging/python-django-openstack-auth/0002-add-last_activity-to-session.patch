@@ -1,0 +1,40 @@
+From c788d18056edaff9c36c0303f806f3acac67cc3c Mon Sep 17 00:00:00 2001
+From: Matthias Runge <mrunge@redhat.com>
+Date: Thu, 18 Dec 2014 12:53:19 +0100
+Subject: [PATCH] add last_activity to session
+
+Actually, the fix for CVE-2014-8124 included a regression, resulting
+users had to log in a second time, after being logged out due to
+inactivity.
+
+Change-Id: If6a7f489058c80c969975dc0658e6f2ae979eca3
+Closes-Bug: 1403037
+(cherry picked from commit 336d7a531d8fb422e3b86a46b865339b3a321902)
+Signed-off-by: Dunrong Huang <dunrong.huang@eayun.com>
+---
+ openstack_auth/views.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/openstack_auth/views.py b/openstack_auth/views.py
+index 00aff6a..217f497 100644
+--- a/openstack_auth/views.py
++++ b/openstack_auth/views.py
+@@ -12,6 +12,7 @@
+ # limitations under the License.
+ 
+ import logging
++import time
+ 
+ import django
+ from django.conf import settings
+@@ -102,6 +103,7 @@ def login(request, template_name=None, extra_context=None, **kwargs):
+         region_name = regions.get(region)
+         request.session['region_endpoint'] = region
+         request.session['region_name'] = region_name
++        request.session['last_activity'] = int(time.time())
+     return res
+ 
+ 
+-- 
+2.1.4
+
