@@ -1,0 +1,134 @@
+* 2015年5月22日，16时14分06秒，赵超，<chao.zhao@eayun.com>
+- fuel-6.0.1-201505221614.iso
+- 1. Redmine Bugs:
+-   * #3669 [eayun-tools] eayunstack init 执行错误
+-   * #3692 [fue] fuel master 节点重启后 tftp 服务不可用
+-   * #3694 [fuel]OpenStack 节点重启之后 br-fw-admin 上没有 IP 地址
+-   * #3696 [tools] [fuel] 缺少 eayunstack_tools.main 包
+-   * #3697 [tools] 执行 eayunstack init 命令失败
+-   * #3705 [fuel] OpenStack 节点使用不同类型网卡时 OpenStack 集群布署失败
+-   * #3706 [OpenStack] [nova] 使用中文创建虚拟机出错
+-   * #3707 [neutron] lbaas vip 启动不成功
+-   * #3719 [horizon] LBaaS 无法为 pool 添加 monitor
+-   * #3720 [neutron-client] 创建防火墙策略时无法指定防火墙规则
+-   * #3721 [neutron] VPNaaS ipsec-site-connnection 启动失败
+-   * #3723 [fuel]非ha部署 rabbitmq 端口配置错误
+- 2. Redmine Features:
+-   * #3698 [tools]fuel节点部署时自动生成一个节点角色配置文件
+- 3. 其它更新：
+-   a）fuel-library pull requests:
+-     * #31 Refacotr ceph backend dependency logic.
+-     * #35 glance: python-ceph no longer exists, use python-ceph-compat instead.
+-     * #36 cobbler: pmanager add "-y" option to lvcreate command to
+-   b）fuel-main pull requests:
+-     * #19 docker: cobbler force kill and restart dnsmasq.
+-     * #22 bootstrap_admin_node: install eayunstack fuel plugins after fuel mast...
+-     * #23 Eayunstack 1.0 minor fixes for iso building
+
+* 2015年5月11日，19时02分48秒，赵超，<chao.zhao@eayun.com>
+- fuel-6.0.1-201505090044-updated-001.iso
+- 1. Redmine Bugs:
+-   * #3275 [Fuel] 备份生成文件名错误
+-   * #3415 fuel开始部署openstack之后，astute报告mango节点puppet hang
+-   * #3423 [fuel] fuel 的 DNS 服务器解析有问题
+-   * #3430 [tools] [fuel] paramiko 没有安装
+-   * #3431 [tools] [fuel] MySQLdb 没有安装
+-   * #3432 [fuel] 更新 fuel-library 中所使用的 neutron-l3-agent OCF 脚本的命令行启动参数
+-   * #3446 [nova] libvirt 的log应该打开
+-   * #3458 [OpenStack] 关闭一台 controller 节点后环境变慢
+-   * #3556 [neutron] neutron l3-agent HA 不可用
+-   * #3565 [OpenStack] 默认主题
+-   * #3566 [OpenStack][nova]使用固定ip创建虚拟机失败
+-   * #3591 [OpenStack] [nova] 虚拟机 revert migrate 失败
+-   * #3602 [eayun-tools] 提示 cinder.openstack.common 没有安装
+-   * #3605 [eayun-tools] 报错没有显示哪个节点
+-   * #3607 [eayun-tools] 不能检测到 cinder-api 的服务异常
+-   * #3608 [openstack]dashboard上新建项目使用默认配额时项目创建失败
+-   * #3611 [eayun-tools]eayunstack fuel backup -h输出信息中-n选项帮助信息需要修改
+-   * #3617 [fuel][ceph] ceph 没有记录正确的日志
+-   * #3622 [eayun-tools] eayunstack doctor 查看所有节点的某个服务
+-   * #3649 [OpenStack][python-cinderclient] cinder backup-show 无法显示 backup 的信息
+- 2. Redmine Features:
+-   * #3269 [fuel] fuel 部署 openstack 节点时正确配置 ceph 的网络
+-   * #3433 [fuel-plugin-neutron-fwaas] 为 neutron 的 FWaaS 扩展开发 fuel 插件
+-   * #3445 [fuel] fuel 的界面增加用户选择默认cinder后端
+-   * #3463 [fuel-plugin-neutron-lbaas] 为 neutron 的 LBaaS 扩展开发 fuel 插件
+-   * #3517 [fuel-plugin-neutron-vpnaas] 为 neutron 的 VPNaaS 扩展开发 fuel 插件
+-   * #3650 [neutron] 多个外网子网情况下允许指定路由和浮动 IP 地址
+-     - #3651 [neutron] neutron-server 添加指定路由和浮动 IP 地址功能
+-     - #3652 [neutron] neutron-client 添加指定路由和浮动 IP 地址功能
+-   * #3659 [neutron] 兼容 centos7 上的 VPNaaS 所使用的 libreswan
+-   * #3677 [neutron] 为 neutron client 添加支持限速功能的命令
+-   * #3678 [neutron] 为 neutron 添加限速功能支持
+- 3. 其它更新：
+-  a） fuel-library pull requests:
+-    * #23 use clone of ocf:heartbeat:rabbitmq-cluster for rabbitmq clustering.
+-    * #26 configuring cinder-backup with ceph backup, but make cinder-backup se...
+-  b） fuel-main pull requests:
+-    * #16 replay "Remove nsenter docker image" commit.
+-    * #17 change the git repos of fuel projects to eayunstack.
+-    * #18 workaround for cobbler to restart dnsmasq inside docker instance.
+
+* 2015年4月10日，19时30分00秒，赵超，<chao.zhao@eayun.com>
+- fuel-6.0.1-201504101930.iso
+- 1. 相对于 fuel 上游项目的主要改动是：
+-   a）安装介质的基础系统升级为 CentOS 7.0.1406；
+-   b）Fuel 管理节点以及其上的 Docker 实例的基础系统升级为 CentOS 7.0.1406；
+-   c）布署的 OpenStack 节点的基础系统升级为 CentOS 7.0.1406；
+-   d）布署的 OpenStack 控制节点组成的 HA 集群使用 Corosync 2.x。
+- 2. 基础软件包：
+-   a）CentOS 7.0.1406
+-   b）EPEL 7 x86_64
+-   c）RDO Juno for EL7
+-   d）oVirt 3.5 for EL7 （ qemu-kvm-rhev ）
+- 3. Fuel 相关软件包：
+-   Fuel 相关软件包在上述基础软件源中不存在或者版本不满足要求，所以自行构建，包括：
+-   * cirros-testvm-0.3.2.3.mira1
+-   * cirros-testvm-mellanox-0.3.2.1.mira3
+-   * cirros-testvmware-0.3.3.1.mira2
+-   * crmsh-2.2.0~rc2.1.el7.centos
+-   * daemonize-1.7.5.1.el7.centos
+-   * haproxy-1.5.3.3.mira3
+-   * MySQL-python-1.2.5.1.el7.centos
+-   * pushy-0.5.3.1
+-   * python-cliff-tablib-1.1.1.el7.centos
+-   * python-daemonize-2.3.1.1.el7.centos
+-   * python-fysom-1.1.2.1.el7.centos
+-   * python-muranoclient-0.5.5.fuel6.0
+-   * python-parallax-1.0.0a2.1.el7.centos
+-   * python-pypcap-1.1.15.1
+-   * python-tablib-0.9.11.1.el7.centos
+-   * python-testresources-0.2.7.6.el7.centos
+-   * python-webpy-0.37.1.el7.centos
+-   * python-wsgilog-0.3.1
+-   * python-wsgiref-0.1.2.6.el7.centos
+-   * python-yaql-0.2.4.1.el7.centos
+-   * ruby-extlib-0.9.13.5.el7.centos
+-   * rubygem-activesupport-3.0.10.1.el7.centos
+-   * rubygem-amq-client-1.0.4.1.el7.centos
+-   * rubygem-amqp-1.4.1.1.el7.centos
+-   * rubygem-amq-protocol-1.9.2.1
+-   * rubygem-cstruct-1.0.1.1.el7.centos
+-   * rubygem-eventmachine-1.0.3.4.el7.centos
+-   * rubygem-eventmachine-doc-1.0.3.4.el7.centos
+-   * rubygem-extlib-0.9.13.5.el7.centos
+-   * rubygem-extlib-doc-0.9.13.5.el7.centos
+-   * rubygem-i18n-0.7.0.1.el7.centos
+-   * rubygem-mcollective-client-2.4.1.1.el7.centos
+-   * rubygem-mixlib-cli-1.2.2.3.el7.centos
+-   * rubygem-mixlib-cli-doc-1.2.2.3.el7.centos
+-   * rubygem-mixlib-config-1.1.2.1.el7.centos
+-   * rubygem-mixlib-log-1.4.1.1.el7.centos
+-   * rubygem-netaddr-1.5.0.1.el7.centos
+-   * rubygem-ohai-6.14.0.1.el7.centos
+-   * rubygem-openstack-1.1.2.1.el7.centos
+-   * rubygem-Platform-0.4.0.1.el7.centos
+-   * rubygem-popen4-0.1.2.1.el7.centos
+-   * rubygem-raemon-0.3.0.1.el7.centos
+-   * rubygem-rethtool-0.0.3.2.mira1
+-   * rubygem-symboltable-1.0.2.1
+-   * rubygem-yajl-ruby-1.1.0.1.el7.centos
+-   * send2syslog-0.1.1.el7.centos
+-   * uwsgi-2.0.7.3.el7.centos
+-   * uwsgi-plugin-common-2.0.7.3.el7.centos
+-   * uwsgi-plugin-python-2.0.7.3.el7.centos
