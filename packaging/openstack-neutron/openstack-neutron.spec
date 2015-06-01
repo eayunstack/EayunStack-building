@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	14%{?dist_eayunstack}
+Release:	15%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -37,6 +37,7 @@ Source27:	neutron-ovs-cleanup.init
 Source28:	NetnsCleanup.ocf_ra
 Source29:	OVSCleanup.ocf_ra
 Source30:	NeutronScale.ocf_ra
+Source31:	neutron-qos-agent.service
 
 Source40:	neutron-dist.conf
 #
@@ -53,6 +54,7 @@ Patch0008: 0008-vpn-update-cmdline-options-and-config-for-ipsec.patch
 Patch0009: 0009-vpn-do-preparing-work-before-running-ipsec.patch
 Patch0010: 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch
 Patch0011: 0011-Use-stop-method-on-MessageHandlingServer.patch
+Patch0012: 0012-merge-neutron-qos-feature.patch
 
 BuildArch:	noarch
 
@@ -541,6 +543,7 @@ IPSec.
 %patch0009 -p1
 %patch0010 -p1
 %patch0011 -p1
+%patch0012 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -619,6 +622,7 @@ install -p -D -m 644 %{SOURCE22} %{buildroot}%{_unitdir}/neutron-metering-agent.
 install -p -D -m 644 %{SOURCE23} %{buildroot}%{_unitdir}/neutron-sriov-nic-agent.service
 install -p -D -m 644 %{SOURCE24} %{buildroot}%{_unitdir}/neutron-cisco-cfg-agent.service
 install -p -D -m 644 %{SOURCE25} %{buildroot}%{_unitdir}/neutron-netns-cleanup.service
+install -p -D -m 644 %{SOURCE31} %{buildroot}%{_unitdir}/neutron-qos-agent.service
 
 # Install scripts for pacemaker support
 install -p -D -m 755 %{SOURCE26} %{buildroot}%{_prefix}/lib/ocf/lib/neutron/neutron-netns-cleanup
@@ -761,6 +765,7 @@ exit 0
 %{_bindir}/neutron-netns-cleanup
 %{_bindir}/neutron-ns-metadata-proxy
 %{_bindir}/neutron-ovs-cleanup
+%{_bindir}/neutron-qos-agent
 %{_bindir}/neutron-rootwrap
 %{_bindir}/neutron-rootwrap-xen-dom0
 %{_bindir}/neutron-sanity-check
@@ -780,6 +785,7 @@ exit 0
 %{_unitdir}/neutron-server.service
 %{_unitdir}/neutron-netns-cleanup.service
 %{_unitdir}/neutron-ovs-cleanup.service
+%{_unitdir}/neutron-qos-agent.service
 %dir %{_sysconfdir}/neutron
 %{_sysconfdir}/neutron/release
 %attr(-, root, neutron) %{_datadir}/neutron/neutron-dist.conf
@@ -805,6 +811,7 @@ exit 0
 %{_datarootdir}/neutron/rootwrap/iptables-firewall.filters
 %{_datarootdir}/neutron/rootwrap/l3.filters
 %{_datarootdir}/neutron/rootwrap/lbaas-haproxy.filters
+%{_datarootdir}/neutron/rootwrap/qos.filters
 
 
 %files -n python-neutron
@@ -997,6 +1004,9 @@ exit 0
 
 
 %changelog
+* Mon Jun 01 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-15.eayunstack.1.0
+- merge neutron-qos feature (redmine#3678)
+
 * Mon May 25 2015 Zhao Chao <chao.zhao@eayun.com> 2014.2-14.eayunstack.1.0
 - add 0011-Use-stop-method-on-MessageHandlingServer.patch
 - add out-of-tree-patches/neutron-server.service-workaournd-for-service-stop-r.patch
