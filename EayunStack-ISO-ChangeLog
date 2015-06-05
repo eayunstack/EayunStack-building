@@ -1,3 +1,37 @@
+* 2015年6月04日，23时48分47秒，赵超，<chao.zhao@eayun.com>
+- EayunStack-1.0-201506042349.iso
+- 1. Redmine Bugs:
+-   * #3238 [cinder]eqlx存储最大连接数达到的情况下，cinder-volume 100% CPU卡死
+-   * #3668 [eayun-tools] eayunstack manage list 输出错误 json 信息
+-   * #3718 [tools]/.eayunstack/node-role文件内容为空时，报错
+-   * #3610 [eayun-tools] 在任意openstack节点无法列出所有openstack节点信息
+-   * #3699 [horizon] horizon界面登录超时重新登录需要登录两次才能成功
+-   * #3724 [fuel] eqlx 插件设置的 default_volume_type 没有生效
+-   * #3773 [tools]eayunstack doctor env -n ntp命令执行失败
+-   * #3775 [openstack]创建windows虚拟机失败
+- 2. Redmine Features:
+-   * #3678 [neutron] 为 neutron 添加限速功能支持
+- 3. 其它更新：
+-   a）neutron-qos:
+-     * commit ec4d72e39: fix attribute error in qos_db 
+-   b) fuel plugins pull requests:
+-     * fuel-plugin-neutron-lbaas, #3, fix typo
+-     * fuel-plugin-neutron-vpnaas, #2, fix typo
+-     * (new) fuel-plugin-neutron-qos, #1, new plugin for neutron-qos
+-   c) packages update:
+-     * neutron pull requests:
+-       * #7 merge neutron-qos feature
+-   d) fuel-web pull requests:
+-     * #7 nailgun: allocate all space to root vg if it's the only vg in...
+-     * #8 fixtures: remove ubuntu release.
+-   e) fuel-main pull requests:
+-     * #24 iso: add EayunStack Building logic, iso name and labels.
+-     * #25 add makefile and rules to build fuel plugins.
+-     * #26 iso/ks: disable ctrl-alt-del.
+-   f) fuel-library pull requests:
+-     * #39 Eayunstack 1.0 fix corosync 2 support for adding controller
+-     * #40 cobbler kickstart: disable ctrl-alt-del.
+
 * 2015年5月22日，16时14分06秒，赵超，<chao.zhao@eayun.com>
 - fuel-6.0.1-201505221614.iso
 - 1. Redmine Bugs:
