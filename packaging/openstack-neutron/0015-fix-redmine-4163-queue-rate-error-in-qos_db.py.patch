@@ -1,0 +1,47 @@
+From 4cd7d595e1ec5eff218ccb9f4d53bdc3e42a6eb2 Mon Sep 17 00:00:00 2001
+From: chenyanfun <kakashi_chenyan@163.com>
+Date: Fri, 26 Jun 2015 16:12:04 +0800
+Subject: [PATCH 15/15] fix redmine#4163 queue-rate error in qos_db.py
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index d58d2b8..23fee91 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -377,7 +377,6 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+         qos_queue = qos_queue['qos_queue']
+ 
+         qos_db = self._get_qos(context, qos_queue['qos_id'])
+-        self._check_qos_rate(qos_db, qos_queue['rate'])
+         if qos_queue['parent_id'] is not None:
+             parent_queue_db = self._get_qos_queue(context,
+                                                   qos_queue['parent_id'])
+@@ -385,6 +384,8 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                 raise ext_qos.QosParentQueueInUse(parent_id=parent_queue_db.id)
+             self._check_queue_in_qos(qos_db.id, parent_queue_db)
+             self._check_qos_queue_rate(parent_queue_db, qos_queue['rate'])
++        else:
++            self._check_qos_rate(qos_db, qos_queue['rate'])
+         tenant_id = self._get_tenant_id_for_create(context, qos_queue)
+         qos_queue_id = qos_queue.get('id') or uuidutils.generate_uuid()
+         with context.session.begin(subtransactions=True):
+@@ -409,10 +410,11 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                     qos_queue_id=id)
+             new_rate = qos_queue.get('rate', qos_queue_db.rate)
+             rate_delta = new_rate - qos_queue_db.rate
+-            self._check_qos_rate(qos_queue_db.qos, rate_delta)
+             if qos_queue_db.parent_queue:
+                 self._check_qos_queue_rate(qos_queue_db.parent_queue,
+                                            rate_delta)
++            else:
++                self._check_qos_rate(qos_queue_db.qos, rate_delta)
+             if qos_queue_db.subqueues:
+                 new_rate = qos_queue.get('rate', qos_queue_db.rate)
+                 self._check_qos_queue_rate(qos_queue_db, 0, new_rate)
+-- 
+2.4.4
+
