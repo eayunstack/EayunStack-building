@@ -94,7 +94,7 @@ install -p -D -m 644 man/glance.1 %{buildroot}%{_mandir}/man1/glance.1
 
 
 %changelog
-* Thu Jun 30 2015 Zhe Ma <zhe.ma@eayun.com> - 2014.2.1-4.eayunstack.1.0
+* Thu Jun 30 2015 Zhe Ma <zhe.ma@eayun.com> - 1:0.15.0-2.eayunstack.1.0
 - add 0002-Fix-Requests-breaking-download-progress-bar.patch (redmine#4331)
 
 * Tue Jan 13 2015 Jakub Ruzicka <jruzicka@redhat.com> 1:0.15.0-1
