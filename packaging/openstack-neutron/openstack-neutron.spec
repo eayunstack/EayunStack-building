@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	16%{?dist_eayunstack}
+Release:	17%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -56,8 +56,7 @@ Patch0010: 0010-vpnaas-add-ipsec-env-rootwrap-filter.patch
 Patch0011: 0011-Use-stop-method-on-MessageHandlingServer.patch
 Patch0012: 0012-merge-neutron-qos-feature.patch
 Patch0013: 0013-different-qos-can-have-filters-with-the-same-prio.patch
-Patch0014: 0014-Revert-Fix-direction-problem-when-target_type-is-por.patch
-Patch0015: 0015-fix-redmine-4163-queue-rate-error-in-qos_db.py.patch
+Patch0014: 0014-fix-redmine-4163-queue-rate-error-in-qos_db.py.patch
 
 BuildArch:	noarch
 
@@ -549,7 +548,6 @@ IPSec.
 %patch0012 -p1
 %patch0013 -p1
 %patch0014 -p1
-%patch0015 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1010,6 +1008,9 @@ exit 0
 
 
 %changelog
+* Tue Jun 30 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-17.eayunstack.1.0
+- remove Revert-Fix-direction-problem-when-target_type-is-por.patch
+
 * Mon Jun 29 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-16.eayunstack.1.0
 - add 0013-different-qos-can-have-filters-with-the-same-prio.patch (redmine#4003)
 - add 0014-Revert-Fix-direction-problem-when-target_type-is-por.patch (redmine#4205)
