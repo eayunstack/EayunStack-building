@@ -1,3 +1,18 @@
+* 2015年6月30日，15时31分51秒，赵超，<chao.zhao@eayun.com>
+- EayunStack-1.0-201506292154-update-001.iso
+- 1. Redmine Bugs:
+-   * #4003 [OpenStack] [neutron] eayun-qos插件中不同队列中的filter的优先级不能重复
+-   * #4161 [OpenStack] 控制台访问出现 504 错误
+-   * #4163 [OpenStack][neutron]eayun-qos插件中子队列不能共享父队列带宽
+-   * #4205 [neutron] qos 中目标为端口时限制的方向与需求相反
+-   * #4314 [eayun-tools] eayunstack doctor 查看 cpu 信息时出错
+-   * #4331 [OpenStack] [glance] 下载镜像出错
+- 2. 其它更新：
+-   a）fuel-web pull requests:
+-     * #9 nailgun: set glance cache max size with rbd backend.
+-   b）fuel-library pull requests:
+-     * #41 openstack::glance: add crontab entries for cache pruner and cache cle...
+
 * 2015年6月04日，23时48分47秒，赵超，<chao.zhao@eayun.com>
 - EayunStack-1.0-201506042349.iso
 - 1. Redmine Bugs:
