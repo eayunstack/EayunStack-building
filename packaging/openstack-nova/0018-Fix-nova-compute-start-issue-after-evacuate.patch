@@ -1,0 +1,93 @@
+From 6ca8f31c77442a660844df47878f9efb3b1f31bd Mon Sep 17 00:00:00 2001
+From: Fei Long Wang <flwang@catalyst.net.nz>
+Date: Sat, 25 Oct 2014 10:05:57 +1300
+Subject: [PATCH 18/30] Fix nova-compute start issue after evacuate
+
+After evacuated successfully, and restarting the failed
+host to get it back, Nova will call init_host() and then
+call method _destroy_evacuated_instances(). In method
+_destroy_evacuated_instances(), nova will check again if
+the storage is shared or not to decide if the storage
+should be destroyed. Now nova is using temp file to check
+if it's shared file system, but it's wrong for RBD case.
+So Nova will attempt to delete the shared block storage,
+which will fail since it's used by the new instance. This
+patch fixes this issue and adds test cases for that.
+
+Closes-Bug: 1385484
+
+Change-Id: I71bb818f3c2930b3a2ddf1817dfd4bb61fae7e98
+(cherry picked from commit 296d92bd44d1b8eb161f94f70cba5db4d17f8f65)
+---
+ nova/tests/virt/libvirt/test_driver.py | 27 +++++++++++++++++++++++++++
+ nova/virt/libvirt/driver.py            | 16 ++++++++++++++++
+ 2 files changed, 43 insertions(+)
+
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index aa5f607..c781421 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -10168,6 +10168,33 @@ Active:          8381604 kB
+                           lambda x: x,
+                           lambda x: x)
+ 
++    @mock.patch('os.path.exists', return_value=True)
++    @mock.patch('tempfile.mkstemp')
++    @mock.patch('os.close', return_value=None)
++    def test_check_instance_shared_storage_local_raw(self,
++                                                 mock_close,
++                                                 mock_mkstemp,
++                                                 mock_exists):
++        instance_uuid = str(uuid.uuid4())
++        self.flags(images_type='raw', group='libvirt')
++        self.flags(instances_path='/tmp')
++        mock_mkstemp.return_value = (-1,
++                                     '/tmp/{0}/file'.format(instance_uuid))
++        driver = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = fake_instance.fake_instance_obj(self.context)
++        temp_file = driver.check_instance_shared_storage_local(self.context,
++                                                               instance)
++        self.assertEqual('/tmp/{0}/file'.format(instance_uuid),
++                         temp_file['filename'])
++
++    def test_check_instance_shared_storage_local_rbd(self):
++        self.flags(images_type='rbd', group='libvirt')
++        driver = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = fake_instance.fake_instance_obj(self.context)
++        self.assertIsNone(driver.
++                          check_instance_shared_storage_local(self.context,
++                                                              instance))
++
+ 
+ class HostStateTestCase(test.TestCase):
+ 
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index ea92849..cc6ed79 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -4938,6 +4938,22 @@ class LibvirtDriver(driver.ComputeDriver):
+         return stats
+ 
+     def check_instance_shared_storage_local(self, context, instance):
++        """Check if instance files located on shared storage.
++
++        This runs check on the destination host, and then calls
++        back to the source host to check the results.
++
++        :param context: security context
++        :param instance: nova.db.sqlalchemy.models.Instance
++        :returns
++            :tempfile: A dict containing the tempfile info on the destination
++                       host
++            :None: 1. If the instance path is not existing.
++                   2. If the image backend is shared block storage type.
++        """
++        if self.image_backend.backend().is_shared_block_storage():
++            return None
++
+         dirpath = libvirt_utils.get_instance_path(instance)
+ 
+         if not os.path.exists(dirpath):
+-- 
+2.4.3
+

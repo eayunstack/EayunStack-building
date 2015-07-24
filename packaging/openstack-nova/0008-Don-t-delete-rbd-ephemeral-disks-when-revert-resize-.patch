@@ -1,0 +1,33 @@
+From 731e9200ed91a6122b3b71e7ac01be9bbc54b2fa Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Tue, 2 Jun 2015 18:06:10 +0800
+Subject: [PATCH 08/30] Don't delete rbd ephemeral disks when revert-resize
+ instances.
+
+if images_type is rbd, don't destroy it when revert-resize.
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/compute/manager.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index b387d0a..20e678e 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -3489,8 +3489,11 @@ class ComputeManager(manager.Manager):
+             block_device_info = self._get_instance_block_device_info(
+                                 context, instance, bdms=bdms)
+ 
++            # NOTE(apporc): ephemeral rbd root disk should not be deleted when
++            # migrating, and by now it is not taken care of when resizing.
++            destroy_disks = (CONF.libvirt.images_type != 'rbd')
+             self.driver.destroy(context, instance, network_info,
+-                                block_device_info)
++                                block_device_info, destroy_disks)
+ 
+             self._terminate_volume_connections(context, instance, bdms)
+ 
+-- 
+2.4.3
+

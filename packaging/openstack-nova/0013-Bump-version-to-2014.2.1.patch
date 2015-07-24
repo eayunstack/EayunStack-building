@@ -1,0 +1,27 @@
+From 7ccc46f2af8f9959bc161cf2f690423c521b1bf6 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Mon, 6 Jul 2015 16:44:09 +0800
+Subject: [PATCH 13/30] Bump version to 2014.2.1
+
+Branch version needs to be updated to let unitest pass.
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ setup.cfg | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/setup.cfg b/setup.cfg
+index 652e9a9..1ee2d0d 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -1,6 +1,6 @@
+ [metadata]
+ name = nova
+-version = 2014.2
++version = 2014.2.1
+ summary = Cloud computing fabric controller
+ description-file =
+     README.rst
+-- 
+2.4.3
+
