@@ -1,0 +1,50 @@
+From ac12a5d41736dbcfb199572cd72c7a9187fe26c2 Mon Sep 17 00:00:00 2001
+From: Ask Solem <ask@celeryproject.org>
+Date: Wed, 14 Aug 2013 13:31:17 +0100
+Subject: [PATCH 7/7] Fix for #193 for transports that supports error classes
+
+(cherry picked from commit eb506c6e6ee27ba54405cddad14695351cfa7f57)
+
+ Conflicts:
+	kombu/connection.py
+---
+ kombu/connection.py | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/kombu/connection.py b/kombu/connection.py
+index 04032a5..2d500bb 100644
+--- a/kombu/connection.py
++++ b/kombu/connection.py
+@@ -448,11 +448,18 @@ class Connection(object):
+         """
+         def _ensured(*args, **kwargs):
+             got_connection = 0
++            conn_errors = self.recoverable_connection_errors
++            chan_errors = self.recoverable_channel_errors
++            has_modern_errors = self.transport.recoverable_connection_errors
+             for retries in count(0):  # for infinity
+                 try:
+                     return fun(*args, **kwargs)
+-                except self.recoverable_connection_errors, exc:
+-                    if got_connection:
++                except conn_errors as exc:
++                    if got_connection and not has_modern_errors:
++                        # transport can not distinguish between
++                        # recoverable/irrecoverable errors, so we propagate
++                        # the error if it persists after a new connection was
++                        # successfully established.
+                         raise
+                     if max_retries is not None and retries > max_retries:
+                         raise
+@@ -474,7 +481,7 @@ class Connection(object):
+                     if on_revive:
+                         on_revive(new_channel)
+                     got_connection += 1
+-                except self.recoverable_channel_errors, exc:
++                except chan_errors as exc:
+                     if max_retries is not None and retries > max_retries:
+                         raise
+                     self._debug('ensure channel error: %r', exc, exc_info=1)
+-- 
+1.9.3
+

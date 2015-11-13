@@ -1,0 +1,51 @@
+From 75032eace5ea46284fb661c245d8298ee02cee8d Mon Sep 17 00:00:00 2001
+From: Ask Solem <ask@celeryproject.org>
+Date: Tue, 13 Nov 2012 12:41:01 +0000
+Subject: [PATCH 4/7] Use py-amqp's new recoverable/irrecoverable exception
+ classes
+
+(cherry picked from commit be52139244b4d0e1c6ffae5ec4871aadf6066d36)
+---
+ kombu/connection.py       | 4 ++++
+ kombu/transport/pyamqp.py | 3 +++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/kombu/connection.py b/kombu/connection.py
+index a7a6b15..04032a5 100644
+--- a/kombu/connection.py
++++ b/kombu/connection.py
+@@ -800,6 +800,8 @@ class Connection(object):
+ 
+     @cached_property
+     def recoverable_connection_errors(self):
++        """List of connection related exceptions that can be recovered from,
++        but where the connection must be closed and re-established first."""
+         try:
+             return self.transport.recoverable_connection_errors
+         except AttributeError:
+@@ -811,6 +813,8 @@ class Connection(object):
+ 
+     @cached_property
+     def recoverable_channel_errors(self):
++        """List of channel related exceptions that can be automatically
++        recovered from without re-establishing the connection."""
+         try:
+             return self.transport.recoverable_channel_errors
+         except AttributeError:
+diff --git a/kombu/transport/pyamqp.py b/kombu/transport/pyamqp.py
+index 8b066e7..63dea88 100644
+--- a/kombu/transport/pyamqp.py
++++ b/kombu/transport/pyamqp.py
+@@ -73,6 +73,9 @@ class Transport(base.Transport):
+         (StdConnectionError, ) + amqp.Connection.connection_errors
+     )
+     channel_errors = (StdChannelError, ) + amqp.Connection.channel_errors
++    recoverable_connection_errors = \
++        amqp.Connection.recoverable_connection_errors
++    recoverable_channel_errors = amqp.Connection.recoverable_channel_errors
+ 
+     nb_keep_draining = True
+     driver_name = 'py-amqp'
+-- 
+1.9.3
+
