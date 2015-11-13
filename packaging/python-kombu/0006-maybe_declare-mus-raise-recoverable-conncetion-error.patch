@@ -1,0 +1,40 @@
+From 0d60f87648da71d3431f858450e20705affd7f5e Mon Sep 17 00:00:00 2001
+From: Ask Solem <ask@celeryproject.org>
+Date: Thu, 16 Jan 2014 14:57:24 +0000
+Subject: [PATCH 6/7] maybe_declare mus raise recoverable conncetion error, and
+ not channel error
+
+(cherry picked from commit bfcc6570b815bac37f10e3d2ca14c5fdf32075e6)
+
+Conflicts:
+    kombu/common.py
+---
+ kombu/common.py | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/kombu/common.py b/kombu/common.py
+index 577071f..01a23e6 100644
+--- a/kombu/common.py
++++ b/kombu/common.py
+@@ -20,7 +20,7 @@ from itertools import count
+ 
+ from . import serialization
+ from .entity import Exchange, Queue
+-from .exceptions import StdChannelError
++from amqp import RecoverableConnectionError
+ from .log import get_logger
+ from .messaging import Consumer as _Consumer
+ from .utils import uuid
+@@ -93,8 +93,7 @@ def maybe_declare(entity, channel=None, retry=False, **retry_policy):
+ def _maybe_declare(entity):
+     channel = entity.channel
+     if not channel.connection:
+-        raise StdChannelError("channel disconnected")
+-
++        raise RecoverableConnectionError('channel disconnected')
+     if entity.can_cache_declaration:
+         declared = channel.connection.client.declared_entities
+         ident = hash(entity)
+-- 
+1.9.3
+

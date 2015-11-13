@@ -1,0 +1,49 @@
+From 7ada5a70a56e4ab6f52e13b68f58cd287d9155e3 Mon Sep 17 00:00:00 2001
+From: James Saryerwinnie <js@jamesls.com>
+Date: Tue, 19 Mar 2013 14:50:16 -0700
+Subject: [PATCH 1/7] Don't longpoll fanout queues
+
+Conflicts:
+	kombu/transport/SQS.py
+---
+ kombu/transport/SQS.py | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/kombu/transport/SQS.py b/kombu/transport/SQS.py
+index a70fb0f..7473e93 100644
+--- a/kombu/transport/SQS.py
++++ b/kombu/transport/SQS.py
+@@ -150,6 +150,7 @@ class Channel(virtual.Channel):
+         queues = self.sqs.get_all_queues(prefix=self.queue_name_prefix)
+         for queue in queues:
+             self._queue_cache[queue.name] = queue
++        self._fanout_queues = set()
+ 
+     def basic_consume(self, queue, no_ack, *args, **kwargs):
+         if no_ack:
+@@ -180,6 +181,13 @@ class Channel(virtual.Channel):
+             )
+             return q
+ 
++    def queue_bind(self, queue, exchange=None, routing_key='',
++                   arguments=None, **kwargs):
++        super(Channel, self).queue_bind(queue, exchange, routing_key,
++                                        arguments, **kwargs)
++        if self.typeof(exchange).type == 'fanout':
++            self._fanout_queues.add(queue)
++
+     def _queue_bind(self, *args):
+         """Bind ``queue`` to ``exchange`` with routing key.
+ 
+@@ -239,7 +247,7 @@ class Channel(virtual.Channel):
+     def _get(self, queue):
+         """Try to retrieve a single message off ``queue``."""
+         q = self._new_queue(queue)
+-        if W_LONG_POLLING:
++        if W_LONG_POLLING and queue not in self._fanout_queues:
+             rs = q.get_messages(1, wait_time_seconds=self.wait_time_seconds)
+         else:  # boto < 2.8
+             rs = q.get_messages(1)
+-- 
+1.9.3
+
