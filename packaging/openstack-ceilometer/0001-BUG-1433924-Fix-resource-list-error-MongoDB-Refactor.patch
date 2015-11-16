@@ -1,0 +1,546 @@
+From 9c41a3610170417407f150fff6f44ab6a002367e Mon Sep 17 00:00:00 2001
+From: fabian4 <cybing4@gmail.com>
+Date: Wed, 11 Nov 2015 10:00:31 +0800
+Subject: [PATCH] BUG #1433924 Fix resource list error,[MongoDB] Refactor
+ indexes for meter and resources
+
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ ceilometer/alarm/storage/impl_db2.py               |   2 +-
+ ceilometer/alarm/storage/impl_mongodb.py           |   2 +-
+ ceilometer/storage/__init__.py                     |   4 +
+ ceilometer/storage/impl_db2.py                     |   8 +-
+ ceilometer/storage/impl_mongodb.py                 | 102 +++++++--------
+ ceilometer/storage/mongo/utils.py                  | 145 ++++++++++++++++++---
+ ceilometer/tests/storage/test_storage_scenarios.py | 110 ++++++++++++++++
+ 7 files changed, 294 insertions(+), 79 deletions(-)
+
+diff --git a/ceilometer/alarm/storage/impl_db2.py b/ceilometer/alarm/storage/impl_db2.py
+index 9ca37f2..92db547 100644
+--- a/ceilometer/alarm/storage/impl_db2.py
++++ b/ceilometer/alarm/storage/impl_db2.py
+@@ -73,5 +73,5 @@ class Connection(pymongo_base.Connection):
+         # not been implemented. However calling this method is important for
+         # removal of all the empty dbs created during the test runs since
+         # test run is against mongodb on Jenkins
+-        self.conn.drop_database(self.db)
++        self.conn.drop_database(self.db.name)
+         self.conn.close()
+diff --git a/ceilometer/alarm/storage/impl_mongodb.py b/ceilometer/alarm/storage/impl_mongodb.py
+index 19fff00..60c0ca4 100644
+--- a/ceilometer/alarm/storage/impl_mongodb.py
++++ b/ceilometer/alarm/storage/impl_mongodb.py
+@@ -63,6 +63,6 @@ class Connection(pymongo_base.Connection):
+         self.upgrade()
+ 
+     def clear(self):
+-        self.conn.drop_database(self.db)
++        self.conn.drop_database(self.db.name)
+         # Connection will be reopened automatically if needed
+         self.conn.close()
+diff --git a/ceilometer/storage/__init__.py b/ceilometer/storage/__init__.py
+index 36d91cc..5432366 100644
+--- a/ceilometer/storage/__init__.py
++++ b/ceilometer/storage/__init__.py
+@@ -53,6 +53,10 @@ STORAGE_OPTS = [
+                default=None,
+                help='The connection string used to connect to the alarm '
+                'database. (if unset, connection is used)'),
++    cfg.StrOpt('mongodb_replica_set',
++               default='',
++               help="The connection string used to connect to mongo database,"
++               "if mongodb replica set was chosen."),
+ ]
+ 
+ cfg.CONF.register_opts(STORAGE_OPTS, group='database')
+diff --git a/ceilometer/storage/impl_db2.py b/ceilometer/storage/impl_db2.py
+index 4326162..05f23be 100644
+--- a/ceilometer/storage/impl_db2.py
++++ b/ceilometer/storage/impl_db2.py
+@@ -168,12 +168,12 @@ class Connection(pymongo_base.Connection):
+                                   'no_key': meter_id,
+                                   'timestamp': timestamp})
+ 
+-            self.db.resource.ensure_index([
++            self.db.resource.create_index([
+                 ('user_id', pymongo.ASCENDING),
+                 ('project_id', pymongo.ASCENDING),
+                 ('source', pymongo.ASCENDING)], name='resource_idx')
+ 
+-            self.db.meter.ensure_index([
++            self.db.meter.create_index([
+                 ('resource_id', pymongo.ASCENDING),
+                 ('user_id', pymongo.ASCENDING),
+                 ('project_id', pymongo.ASCENDING),
+@@ -181,7 +181,7 @@ class Connection(pymongo_base.Connection):
+                 ('timestamp', pymongo.ASCENDING),
+                 ('source', pymongo.ASCENDING)], name='meter_idx')
+ 
+-            self.db.meter.ensure_index([('timestamp',
++            self.db.meter.create_index([('timestamp',
+                                          pymongo.DESCENDING)],
+                                        name='timestamp_idx')
+ 
+@@ -200,7 +200,7 @@ class Connection(pymongo_base.Connection):
+         # not been implemented. However calling this method is important for
+         # removal of all the empty dbs created during the test runs since
+         # test run is against mongodb on Jenkins
+-        self.conn.drop_database(self.db)
++        self.conn.drop_database(self.db.name)
+         self.conn.close()
+ 
+     def record_metering_data(self, data):
+diff --git a/ceilometer/storage/impl_mongodb.py b/ceilometer/storage/impl_mongodb.py
+index b9ce7a9..9c7f591 100644
+--- a/ceilometer/storage/impl_mongodb.py
++++ b/ceilometer/storage/impl_mongodb.py
+@@ -88,13 +88,6 @@ class Connection(pymongo_base.Connection):
+                                        AVAILABLE_CAPABILITIES)
+     CONNECTION_POOL = pymongo_utils.ConnectionPool()
+ 
+-    REDUCE_GROUP_CLEAN = bson.code.Code("""
+-    function ( curr, result ) {
+-        if (result.resources.indexOf(curr.resource_id) < 0)
+-            result.resources.push(curr.resource_id);
+-    }
+-    """)
+-
+     STANDARD_AGGREGATES = dict(
+         emit_initial=dict(
+             sum='',
+@@ -409,6 +402,30 @@ class Connection(pymongo_base.Connection):
+         # needed.
+         self.upgrade()
+ 
++    @staticmethod
++    def update_ttl(ttl_index_name, index_field, coll):
++        """Update or ensure time_to_live indexes.
++        :param ttl_index_name: name of the index we want to update or ensure.
++        :param index_field: field with the index that we need to update.
++        :param coll: collection which indexes need to be updated.
++        """
++        ttl = cfg.CONF.database.time_to_live
++        indexes = coll.index_information()
++        if ttl <= 0:
++            if ttl_index_name in indexes:
++                coll.drop_index(ttl_index_name)
++            return
++
++        if ttl_index_name in indexes:
++            return coll.database.command(
++                'collMod', coll.name,
++                index={'keyPattern': {index_field: pymongo.ASCENDING},
++                       'expireAfterSeconds': ttl})
++
++        coll.create_index([(index_field, pymongo.ASCENDING)],
++                          expireAfterSeconds=ttl,
++                          name=ttl_index_name)
++
+     def upgrade(self):
+         # Establish indexes
+         #
+@@ -420,57 +437,42 @@ class Connection(pymongo_base.Connection):
+         name_qualifier = dict(user_id='', project_id='project_')
+         background = dict(user_id=False, project_id=True)
+         for primary in ['user_id', 'project_id']:
+-            name = 'resource_%sidx' % name_qualifier[primary]
+-            self.db.resource.ensure_index([
+-                (primary, pymongo.ASCENDING),
+-                ('source', pymongo.ASCENDING),
+-            ], name=name, background=background[primary])
+ 
+             name = 'meter_%sidx' % name_qualifier[primary]
+-            self.db.meter.ensure_index([
++            self.db.meter.create_index([
+                 ('resource_id', pymongo.ASCENDING),
+                 (primary, pymongo.ASCENDING),
+                 ('counter_name', pymongo.ASCENDING),
+                 ('timestamp', pymongo.ASCENDING),
+-                ('source', pymongo.ASCENDING),
+             ], name=name, background=background[primary])
+ 
+-        self.db.resource.ensure_index([('last_sample_timestamp',
+-                                        pymongo.DESCENDING)],
+-                                      name='last_sample_timestamp_idx',
+-                                      sparse=True)
+-        self.db.meter.ensure_index([('timestamp', pymongo.DESCENDING)],
++        self.db.meter.create_index([('timestamp', pymongo.DESCENDING)],
+                                    name='timestamp_idx')
++
++        # NOTE(ityaptin) This index covers get_resource requests sorting
++        # and MongoDB uses part of this compound index for different
++        # queries based on any of user_id, project_id, last_sample_timestamp
++        # fields
++        self.db.resource.create_index([('user_id', pymongo.DESCENDING),
++                                      ('project_id', pymongo.DESCENDING),
++                                      ('last_sample_timestamp',
++                                      pymongo.DESCENDING)],
++                                      name='resource_user_project_timestamp',)
++
++        self.db.resource.create_index([('last_sample_timestamp',
++                                      pymongo.DESCENDING)],
++                                      name='last_sample_timestamp_idx')
+         # remove API v1 related table
+         self.db.user.drop()
+         self.db.project.drop()
+ 
+-        indexes = self.db.meter.index_information()
+-
+-        ttl = cfg.CONF.database.time_to_live
+-
+-        if ttl <= 0:
+-            if 'meter_ttl' in indexes:
+-                self.db.meter.drop_index('meter_ttl')
+-            return
+-
+-        if 'meter_ttl' in indexes:
+-            # NOTE(sileht): manually check expireAfterSeconds because
+-            # ensure_index doesn't update index options if the index already
+-            # exists
+-            if ttl == indexes['meter_ttl'].get('expireAfterSeconds', -1):
+-                return
+-
+-            self.db.meter.drop_index('meter_ttl')
+-
+-        self.db.meter.create_index(
+-            [('timestamp', pymongo.ASCENDING)],
+-            expireAfterSeconds=ttl,
+-            name='meter_ttl'
+-        )
++        # update or ensure time_to_live index
++        self.update_ttl('meter_ttl', 'timestamp', self.db.meter)
++        self.update_ttl('resource_ttl', 'last_sample_timestamp',
++                        self.db.resource)
+ 
+     def clear(self):
+-        self.conn.drop_database(self.db)
++        self.conn.drop_database(self.db.name)
+         # Connection will be reopened automatically if needed
+         self.conn.close()
+ 
+@@ -538,19 +540,11 @@ class Connection(pymongo_base.Connection):
+     def clear_expired_metering_data(self, ttl):
+         """Clear expired data from the backend storage system.
+ 
+-        Clearing occurs according to the time-to-live.
+-        :param ttl: Number of seconds to keep records for.
++        Clearing occurs with native MongoDB time-to-live feature.
+         """
+-        results = self.db.meter.group(
+-            key={},
+-            condition={},
+-            reduce=self.REDUCE_GROUP_CLEAN,
+-            initial={
+-                'resources': [],
+-            }
+-        )[0]
+ 
+-        self.db.resource.remove({'_id': {'$nin': results['resources']}})
++        LOG.debug(_("Clearing expired metering data is based on native "
++                    "MongoDB time to live feature and going in background."))
+ 
+     @staticmethod
+     def _get_marker(db_collection, marker_pairs):
+diff --git a/ceilometer/storage/mongo/utils.py b/ceilometer/storage/mongo/utils.py
+index 5aa8832..d86db76 100644
+--- a/ceilometer/storage/mongo/utils.py
++++ b/ceilometer/storage/mongo/utils.py
+@@ -24,12 +24,15 @@ import time
+ from oslo.config import cfg
+ from oslo.utils import netutils
+ import pymongo
++import pymongo.errors
+ import six
+ import weakref
+ 
+ from ceilometer.openstack.common.gettextutils import _
+ from ceilometer.openstack.common import log
+ 
++ERROR_INDEX_WITH_DIFFERENT_SPEC_ALREADY_EXISTS = 86
++
+ LOG = log.getLogger(__name__)
+ 
+ cfg.CONF.import_opt('max_retries', 'oslo.db.options', group="database")
+@@ -179,26 +182,20 @@ class ConnectionPool(object):
+ 
+     @staticmethod
+     def _mongo_connect(url):
+-        max_retries = cfg.CONF.database.max_retries
+-        retry_interval = cfg.CONF.database.retry_interval
+-        attempts = 0
+-        while True:
+-            try:
+-                client = pymongo.MongoClient(url, safe=True)
+-            except pymongo.errors.ConnectionFailure as e:
+-                if 0 <= max_retries <= attempts:
+-                    LOG.error(_('Unable to connect to the database after '
+-                                '%(retries)d retries. Giving up.') %
+-                              {'retries': max_retries})
+-                    raise
+-                LOG.warn(_('Unable to connect to the database server: '
+-                           '%(errmsg)s. Trying again in %(retry_interval)d '
+-                           'seconds.') %
+-                         {'errmsg': e, 'retry_interval': retry_interval})
+-                attempts += 1
+-                time.sleep(retry_interval)
++        try:
++            if cfg.CONF.database.mongodb_replica_set:
++                client = MongoProxy(
++                    pymongo.MongoReplicaSetClient(
++                        url,
++                        replicaSet=cfg.CONF.database.mongodb_replica_set))
+             else:
+-                return client
++                client = MongoProxy(
++                    pymongo.MongoClient(url, safe=True))
++            return client
++        except pymongo.errors.ConnectionFailure as e:
++            LOG.warn(_('Unable to connect to the database server: '
++                       '%(errmsg)s.') % {'errmsg': e})
++            raise
+ 
+ 
+ class QueryTransformer(object):
+@@ -321,3 +318,113 @@ class QueryTransformer(object):
+             return self._handle_not_op(negated_tree)
+ 
+         return self._handle_simple_op(operator_node, nodes)
++
++
++def safe_mongo_call(call):
++    def closure(*args, **kwargs):
++        max_retries = cfg.CONF.database.max_retries
++        retry_interval = cfg.CONF.database.retry_interval
++        attempts = 0
++        while True:
++            try:
++                return call(*args, **kwargs)
++            except pymongo.errors.AutoReconnect as err:
++                if 0 <= max_retries <= attempts:
++                    LOG.error(_('Unable to reconnect to the primary mongodb '
++                                'after %(retries)d retries. Giving up.') %
++                              {'retries': max_retries})
++                    raise
++                LOG.warn(_('Unable to reconnect to the primary mongodb: '
++                           '%(errmsg)s. Trying again in %(retry_interval)d '
++                           'seconds.') %
++                         {'errmsg': err, 'retry_interval': retry_interval})
++                attempts += 1
++                time.sleep(retry_interval)
++    return closure
++
++
++class MongoConn(object):
++    def __init__(self, method):
++        self.method = method
++
++    @safe_mongo_call
++    def __call__(self, *args, **kwargs):
++        return self.method(*args, **kwargs)
++
++MONGO_METHODS = set([typ for typ in dir(pymongo.collection.Collection)
++                     if not typ.startswith('_')])
++MONGO_METHODS.update(set([typ for typ in dir(pymongo.MongoClient)
++                          if not typ.startswith('_')]))
++MONGO_METHODS.update(set([typ for typ in dir(pymongo)
++                          if not typ.startswith('_')]))
++
++
++class MongoProxy(object):
++    def __init__(self, conn):
++        self.conn = conn
++
++    def __getitem__(self, item):
++        """Create and return proxy around the method in the connection.
++
++        :param item: name of the connection
++        """
++        return MongoProxy(self.conn[item])
++
++    def find(self, *args, **kwargs):
++        # We need this modifying method to return a CursorProxy object so that
++        # we can handle the Cursor next function to catch the AutoReconnect
++        # exception.
++        return CursorProxy(self.conn.find(*args, **kwargs))
++
++    def create_index(self, keys, name=None, *args, **kwargs):
++        try:
++            self.conn.create_index(keys, name=name, *args, **kwargs)
++        except pymongo.errors.OperationFailure as e:
++            if e.code is ERROR_INDEX_WITH_DIFFERENT_SPEC_ALREADY_EXISTS:
++                LOG.info(_("Index %s will be recreate.") % name)
++                self._recreate_index(keys, name, *args, **kwargs)
++
++    @safe_mongo_call
++    def _recreate_index(self, keys, name, *args, **kwargs):
++        self.conn.drop_index(name)
++        self.conn.create_index(keys, name=name, *args, **kwargs)
++
++    def __getattr__(self, item):
++        """Wrap MongoDB connection.
++
++        If item is the name of an executable method, for example find or
++        insert, wrap this method in the MongoConn.
++        Else wrap getting attribute with MongoProxy.
++        """
++        if item in ('name', 'database'):
++            return getattr(self.conn, item)
++        if item in MONGO_METHODS:
++            return MongoConn(getattr(self.conn, item))
++        return MongoProxy(getattr(self.conn, item))
++
++    def __call__(self, *args, **kwargs):
++        return self.conn(*args, **kwargs)
++
++
++class CursorProxy(pymongo.cursor.Cursor):
++    def __init__(self, cursor):
++        self.cursor = cursor
++
++    def __getitem__(self, item):
++        return self.cursor[item]
++
++    @safe_mongo_call
++    def next(self):
++        """Wrap Cursor next method.
++
++        This method will be executed before each Cursor next method call.
++        """
++        try:
++            save_cursor = self.cursor.clone()
++            return self.cursor.next()
++        except pymongo.errors.AutoReconnect:
++            self.cursor = save_cursor
++            raise
++
++    def __getattr__(self, item):
++        return getattr(self.cursor, item)
+diff --git a/ceilometer/tests/storage/test_storage_scenarios.py b/ceilometer/tests/storage/test_storage_scenarios.py
+index 5318e99..ca33f01 100644
+--- a/ceilometer/tests/storage/test_storage_scenarios.py
++++ b/ceilometer/tests/storage/test_storage_scenarios.py
+@@ -23,7 +23,9 @@ import datetime
+ import operator
+ 
+ import mock
++from oslo.config import cfg
+ from oslo.utils import timeutils
++import pymongo
+ 
+ import ceilometer
+ from ceilometer.alarm.storage import models as alarm_models
+@@ -3099,3 +3101,111 @@ class BigIntegerTest(tests_db.TestBase,
+         msg = utils.meter_message_from_counter(
+             s, self.CONF.publisher.metering_secret)
+         self.conn.record_metering_data(msg)
++
++
++class MongoAutoReconnectTest(DBTestBase,
++                             tests_db.MixinTestsWithBackendScenarios):
++    cfg.CONF.set_override('retry_interval', 1, group='database')
++
++    @tests_db.run_with('mongodb')
++    def test_mongo_client(self):
++        if cfg.CONF.database.mongodb_replica_set:
++            self.assertIsInstance(self.conn.conn.conn,
++                                  pymongo.MongoReplicaSetClient)
++        else:
++            self.assertIsInstance(self.conn.conn.conn,
++                                  pymongo.MongoClient)
++
++    @staticmethod
++    def create_side_effect(method, test_exception):
++        def side_effect(*args, **kwargs):
++            if test_exception.pop():
++                raise pymongo.errors.AutoReconnect
++            else:
++                return method(*args, **kwargs)
++        return side_effect
++
++    @tests_db.run_with('mongodb')
++    def test_mongo_cursor_next(self):
++        expected_first_sample_timestamp = datetime.datetime(2012, 7, 2, 10, 39)
++        raise_exc = [False, True]
++        method = self.conn.db.resource.find().cursor.next
++        with mock.patch('pymongo.cursor.Cursor.next',
++                        mock.Mock()) as mock_next:
++            mock_next.side_effect = self.create_side_effect(method, raise_exc)
++            resource = self.conn.db.resource.find().next()
++            self.assertEqual(expected_first_sample_timestamp,
++                             resource['first_sample_timestamp'])
++
++    @tests_db.run_with('mongodb')
++    def test_mongo_insert(self):
++        raise_exc = [False, True]
++        method = self.conn.db.meter.insert
++
++        with mock.patch('pymongo.collection.Collection.insert',
++                        mock.Mock(return_value=method)) as mock_insert:
++            mock_insert.side_effect = self.create_side_effect(method,
++                                                              raise_exc)
++            mock_insert.__name__ = 'insert'
++            self.create_and_store_sample(
++                timestamp=datetime.datetime(2014, 10, 15, 14, 39),
++                source='test-proxy')
++            meters = list(self.conn.db.meter.find())
++            self.assertEqual(12, len(meters))
++
++    @tests_db.run_with('mongodb')
++    def test_mongo_find_and_modify(self):
++        raise_exc = [False, True]
++        method = self.conn.db.resource.find_and_modify
++
++        with mock.patch('pymongo.collection.Collection.find_and_modify',
++                        mock.Mock()) as mock_fam:
++            mock_fam.side_effect = self.create_side_effect(method, raise_exc)
++            mock_fam.__name__ = 'find_and_modify'
++            self.create_and_store_sample(
++                timestamp=datetime.datetime(2014, 10, 15, 14, 39),
++                source='test-proxy')
++            data = self.conn.db.resource.find(
++                {'last_sample_timestamp':
++                 datetime.datetime(2014, 10, 15, 14, 39)})[0]['source']
++            self.assertEqual('test-proxy', data)
++
++    @tests_db.run_with('mongodb')
++    def test_mongo_update(self):
++        raise_exc = [False, True]
++        method = self.conn.db.resource.update
++
++        with mock.patch('pymongo.collection.Collection.update',
++                        mock.Mock()) as mock_update:
++            mock_update.side_effect = self.create_side_effect(method,
++                                                              raise_exc)
++            mock_update.__name__ = 'update'
++            self.create_and_store_sample(
++                timestamp=datetime.datetime(2014, 10, 15, 17, 39),
++                source='test-proxy-update')
++            data = self.conn.db.resource.find(
++                {'last_sample_timestamp':
++                 datetime.datetime(2014, 10, 15, 17, 39)})[0]['source']
++            self.assertEqual('test-proxy-update', data)
++
++
++@tests_db.run_with('mongodb')
++class MongoTimeToLiveTest(DBTestBase, tests_db.MixinTestsWithBackendScenarios):
++
++    def test_ensure_index(self):
++        cfg.CONF.set_override('time_to_live', 5, group='database')
++        self.conn.upgrade()
++        self.assertEqual(5, self.conn.db.resource.index_information()
++                         ['resource_ttl']['expireAfterSeconds'])
++        self.assertEqual(5, self.conn.db.meter.index_information()
++                         ['meter_ttl']['expireAfterSeconds'])
++
++    def test_modification_of_index(self):
++        cfg.CONF.set_override('time_to_live', 5, group='database')
++        self.conn.upgrade()
++        cfg.CONF.set_override('time_to_live', 15, group='database')
++        self.conn.upgrade()
++        self.assertEqual(15, self.conn.db.resource.index_information()
++                         ['resource_ttl']['expireAfterSeconds'])
++        self.assertEqual(15, self.conn.db.meter.index_information()
++                         ['meter_ttl']['expireAfterSeconds'])
+-- 
+2.1.0
+
