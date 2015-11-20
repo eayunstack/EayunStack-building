@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          3%{?dist_eayunstack}
+Release:          4%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -27,6 +27,7 @@ Patch0002: 0002-Revert-Switch-over-to-oslosphinx.patch
 Patch0003: 0003-Fix-eqlx-endless-loop-when-server-closes-the-connect.patch
 Patch0004: 0004-Fix-the-eqlx-driver-to-retry-on-ssh-timeout.patch
 Patch0005: 0005-Fixes-the-EQL-driver-CI-tests-AttributeError.patch
+Patch0006: 0006-output-log-to-cinder-all-log-file.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -288,6 +289,9 @@ exit 0
 %endif
 
 %changelog
+* Fri Nov 20 2015 Ma Zhe <zhe.ma@eayun.com> - 2014.2.1-4.eayunstack.1.0
+- add 0006-output-log-to-cinder-all-log-file.patch
+
 * Thu May 07 2015 Dunrong Huang <dunrong.huang@eayun.com> - 2014.2.1-3.eayunstack.1.0
 - add 0003-Fix-eqlx-endless-loop-when-server-closes-the-connect.patch
 - add 0004-Fix-the-eqlx-driver-to-retry-on-ssh-timeout.patch
