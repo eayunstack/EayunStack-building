@@ -1,0 +1,33 @@
+From 7c5d8c888dca9863955007a86e225a3069b5d6b5 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Mon, 27 Jul 2015 18:54:25 +0800
+Subject: [PATCH 15/30] fix redmint #4544
+
+By default there is no libvirt module on controllers node, we
+should catch the error. Services on controllers don't really
+use this host module, so we can just ignore the ImportError.
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/virt/libvirt/host.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
+index 6a4d6eb..e6c8aad 100644
+--- a/nova/virt/libvirt/host.py
++++ b/nova/virt/libvirt/host.py
+@@ -30,7 +30,10 @@ the other libvirt related classes
+ from oslo.utils import importutils
+ from nova.openstack.common import log as logging
+ 
+-libvirt = importutils.import_module('libvirt')
++try:
++    libvirt = importutils.import_module('libvirt')
++except ImportError:
++    libvirt = None
+ 
+ LOG = logging.getLogger(__name__)
+ 
+-- 
+2.4.3
+

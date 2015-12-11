@@ -1,0 +1,52 @@
+From 9bfd198c1c1c737c5be207381d0ece309e011e3e Mon Sep 17 00:00:00 2001
+From: "Daniel P. Berrange" <berrange@redhat.com>
+Date: Wed, 28 Jan 2015 17:46:55 +0000
+Subject: [PATCH 09/30] libvirt: remove pointless loop after live migration
+ finishes
+
+The libvirt 'migrateToURI' API(s) all block the caller until the
+live migration operation has completed. As such, the timer call
+used to check if live migration has completed is entirely pointless.
+It appears this is code left over from the very first impl of live
+migration in Nova, when Nova would simply shell out to the 'virsh'
+command instead of using the libvirt APIs. Even back then though
+it looks like it was redundant, since the command being spawned
+would also block until live migration was finished.
+
+Related-bug: #1414065
+Change-Id: Ib3906ef8564a986f7c0e980774e4ed76b3f93a38
+(cherry picked from commit 584a44f0157e84ce0100da6ee4f7b94bbb4088e3)
+---
+ nova/virt/libvirt/driver.py | 16 ++--------------
+ 1 file changed, 2 insertions(+), 14 deletions(-)
+
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 69d5bc4..8cce70e 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -5401,20 +5401,8 @@ class LibvirtDriver(driver.ComputeDriver):
+                           instance=instance)
+                 recover_method(context, instance, dest, block_migration)
+ 
+-        # Waiting for completion of live_migration.
+-        timer = loopingcall.FixedIntervalLoopingCall(f=None)
+-
+-        def wait_for_live_migration():
+-            """waiting for live migration completion."""
+-            try:
+-                self.get_info(instance)['state']
+-            except exception.InstanceNotFound:
+-                timer.stop()
+-                post_method(context, instance, dest, block_migration,
+-                            migrate_data)
+-
+-        timer.f = wait_for_live_migration
+-        timer.start(interval=0.5).wait()
++        post_method(context, instance, dest, block_migration,
++                    migrate_data)
+ 
+     def _fetch_instance_kernel_ramdisk(self, context, instance):
+         """Download kernel and ramdisk for instance in instance directory."""
+-- 
+2.4.3
+

@@ -1,0 +1,281 @@
+From 020d2a19740d36a0f019cc13c7721ccd6989af6a Mon Sep 17 00:00:00 2001
+From: He Jie Xu <hejie.xu@intel.com>
+Date: Thu, 21 Aug 2014 15:27:11 +0800
+Subject: [PATCH 16/30] Add setup/cleanup_instance_network_on_host api for
+ neutron/nova-network
+
+When reschedule/unshelve/evacuate/rebuild instance, the instance
+is moved from one host to another. The network should be updated
+for the instance. And there are similar APIs
+migrate_instance_start/stop, those two APIs should be used for
+migration case as the name. So adds new APIs used to update
+network resource when instance is moved.
+
+This patch implements the new APIs both for neutron and
+nova-network.
+
+Change-Id: I513e0a08b32aa7f38c480488b398cd97d8cdc471
+Related-bug: #1327124
+(cherry picked from commit 7368d9f6e9e94819b199d0f2cc1ac69706870586)
+
+ Conflicts:
+	nova/network/neutronv2/api.py
+	nova/tests/unit/network/test_api.py
+	nova/tests/unit/network/test_neutronv2.py
+---
+ nova/network/api.py                  | 12 +++++++
+ nova/network/base_api.py             | 18 ++++++++++
+ nova/network/neutronv2/api.py        | 43 ++++++++++++++---------
+ nova/tests/network/test_api.py       | 18 ++++++++++
+ nova/tests/network/test_neutronv2.py | 66 +++++++++++++++++++++++++++++-------
+ 5 files changed, 128 insertions(+), 29 deletions(-)
+
+diff --git a/nova/network/api.py b/nova/network/api.py
+index 5bffda6..fe68166 100644
+--- a/nova/network/api.py
++++ b/nova/network/api.py
+@@ -557,3 +557,15 @@ class API(base_api.NetworkAPI):
+             args['host'] = migration['dest_compute']
+ 
+         self.network_rpcapi.migrate_instance_finish(context, **args)
++
++    def setup_instance_network_on_host(self, context, instance, host):
++        """Setup network for specified instance on host."""
++        self.migrate_instance_finish(context, instance,
++                                     {'source_compute': None,
++                                      'dest_compute': host})
++
++    def cleanup_instance_network_on_host(self, context, instance, host):
++        """Cleanup network for specified instance on host."""
++        self.migrate_instance_start(context, instance,
++                                    {'source_compute': host,
++                                     'dest_compute': None})
+diff --git a/nova/network/base_api.py b/nova/network/base_api.py
+index f43820b..beeaa48 100644
+--- a/nova/network/base_api.py
++++ b/nova/network/base_api.py
+@@ -316,3 +316,21 @@ class NetworkAPI(base.Base):
+     def migrate_instance_finish(self, context, instance, migration):
+         """Finish migrating the network of an instance."""
+         raise NotImplementedError()
++
++    def setup_instance_network_on_host(self, context, instance, host):
++        """Setup network for specified instance on host.
++
++        :param context: The request context.
++        :param instance: nova.objects.instance.Instance object.
++        :param host: The host which network should be setup for instance.
++        """
++        raise NotImplementedError()
++
++    def cleanup_instance_network_on_host(self, context, instance, host):
++        """Cleanup network for specified instance on host.
++
++        :param context: The request context.
++        :param instance: nova.objects.instance.Instance object.
++        :param host: The host which network should be cleanup for instance.
++        """
++        raise NotImplementedError()
+diff --git a/nova/network/neutronv2/api.py b/nova/network/neutronv2/api.py
+index 4aca04d..86b3b4c 100644
+--- a/nova/network/neutronv2/api.py
++++ b/nova/network/neutronv2/api.py
+@@ -1239,22 +1239,8 @@ class API(base_api.NetworkAPI):
+ 
+     def migrate_instance_finish(self, context, instance, migration):
+         """Finish migrating the network of an instance."""
+-        if not self._has_port_binding_extension(context, refresh_cache=True):
+-            return
+-        neutron = neutronv2.get_client(context, admin=True)
+-        search_opts = {'device_id': instance['uuid'],
+-                       'tenant_id': instance['project_id']}
+-        data = neutron.list_ports(**search_opts)
+-        ports = data['ports']
+-        for p in ports:
+-            port_req_body = {'port': {'binding:host_id':
+-                                      migration['dest_compute']}}
+-            try:
+-                neutron.update_port(p['id'], port_req_body)
+-            except Exception:
+-                with excutils.save_and_reraise_exception():
+-                    msg = _LE("Unable to update host of port %s")
+-                    LOG.exception(msg, p['id'])
++        self._update_port_binding_for_instance(context, instance,
++                                               migration['dest_compute'])
+ 
+     def add_network_to_project(self, context, project_id, network_uuid=None):
+         """Force add a network to the project."""
+@@ -1490,6 +1476,31 @@ class API(base_api.NetworkAPI):
+         """Create a private DNS domain with optional nova project."""
+         raise NotImplementedError()
+ 
++    def setup_instance_network_on_host(self, context, instance, host):
++        """Setup network for specified instance on host."""
++        self._update_port_binding_for_instance(context, instance, host)
++
++    def cleanup_instance_network_on_host(self, context, instance, host):
++        """Cleanup network for specified instance on host."""
++        pass
++
++    def _update_port_binding_for_instance(self, context, instance, host):
++        if not self._has_port_binding_extension(context, refresh_cache=True):
++            return
++        neutron = neutronv2.get_client(context, admin=True)
++        search_opts = {'device_id': instance['uuid'],
++                       'tenant_id': instance['project_id']}
++        data = neutron.list_ports(**search_opts)
++        ports = data['ports']
++        for p in ports:
++            try:
++                neutron.update_port(p['id'],
++                                    {'port': {'binding:host_id': host}})
++            except Exception:
++                with excutils.save_and_reraise_exception():
++                    msg = _LE("Unable to update host of port %s")
++                    LOG.exception(msg, p['id'])
++
+ 
+ def _ensure_requested_network_ordering(accessor, unordered, preferred):
+     """Sort a list with respect to the preferred network ordering."""
+diff --git a/nova/tests/network/test_api.py b/nova/tests/network/test_api.py
+index 3e819fc..7cc3191 100644
+--- a/nova/tests/network/test_api.py
++++ b/nova/tests/network/test_api.py
+@@ -524,6 +524,24 @@ class ApiTestCase(test.TestCase):
+         mock_get_by_floating.assert_called_once_with(self.context,
+                                                      mock.sentinel.floating)
+ 
++    @mock.patch('nova.network.api.API.migrate_instance_start')
++    def test_cleanup_instance_network_on_host(self, fake_migrate_start):
++        instance = fake_instance.fake_instance_obj(self.context)
++        self.network_api.cleanup_instance_network_on_host(
++            self.context, instance, 'fake_compute_source')
++        fake_migrate_start.assert_called_once_with(
++            self.context, instance,
++            {'source_compute': 'fake_compute_source', 'dest_compute': None})
++
++    @mock.patch('nova.network.api.API.migrate_instance_finish')
++    def test_setup_instance_network_on_host(self, fake_migrate_finish):
++        instance = fake_instance.fake_instance_obj(self.context)
++        self.network_api.setup_instance_network_on_host(
++            self.context, instance, 'fake_compute_source')
++        fake_migrate_finish.assert_called_once_with(
++            self.context, instance,
++            {'source_compute': None, 'dest_compute': 'fake_compute_source'})
++
+ 
+ @mock.patch('nova.network.api.API')
+ @mock.patch('nova.db.instance_info_cache_update')
+diff --git a/nova/tests/network/test_neutronv2.py b/nova/tests/network/test_neutronv2.py
+index 9528f90..00d1795 100644
+--- a/nova/tests/network/test_neutronv2.py
++++ b/nova/tests/network/test_neutronv2.py
+@@ -2997,16 +2997,19 @@ class TestNeutronv2Portbinding(TestNeutronv2Base):
+ 
+         self.assertEqual(port_req_body['port']['binding:profile'], profile)
+ 
+-    def test_migrate_instance_finish_binding_false(self):
++    def _test_update_port_binding_false(self, func_name, *args):
+         api = neutronapi.API()
++        func = getattr(api, func_name)
+         self.mox.StubOutWithMock(api, '_has_port_binding_extension')
+         api._has_port_binding_extension(mox.IgnoreArg(),
+                                         refresh_cache=True).AndReturn(False)
+         self.mox.ReplayAll()
+-        api.migrate_instance_finish(self.context, None, None)
++        func(*args)
+ 
+-    def test_migrate_instance_finish_binding_true(self):
++    def _test_update_port_binding_true(self, expected_bind_host,
++                                       func_name, *args):
+         api = neutronapi.API()
++        func = getattr(api, func_name)
+         self.mox.StubOutWithMock(api, '_has_port_binding_extension')
+         api._has_port_binding_extension(mox.IgnoreArg(),
+                                         refresh_cache=True).AndReturn(True)
+@@ -3016,17 +3019,17 @@ class TestNeutronv2Portbinding(TestNeutronv2Base):
+                        'tenant_id': self.instance['project_id']}
+         ports = {'ports': [{'id': 'test1'}]}
+         self.moxed_client.list_ports(**search_opts).AndReturn(ports)
+-        migration = {'source_compute': self.instance.get('host'),
+-                     'dest_compute': 'dest_host', }
+         port_req_body = {'port':
+-                         {'binding:host_id': migration['dest_compute']}}
++                         {'binding:host_id': expected_bind_host}}
+         self.moxed_client.update_port('test1',
+                                       port_req_body).AndReturn(None)
+         self.mox.ReplayAll()
+-        api.migrate_instance_finish(self.context, self.instance, migration)
++        func(*args)
+ 
+-    def test_migrate_instance_finish_binding_true_exception(self):
++    def _test_update_port_true_exception(self, expected_bind_host,
++                                         func_name, *args):
+         api = neutronapi.API()
++        func = getattr(api, func_name)
+         self.mox.StubOutWithMock(api, '_has_port_binding_extension')
+         api._has_port_binding_extension(mox.IgnoreArg(),
+                                         refresh_cache=True).AndReturn(True)
+@@ -3036,17 +3039,54 @@ class TestNeutronv2Portbinding(TestNeutronv2Base):
+                        'tenant_id': self.instance['project_id']}
+         ports = {'ports': [{'id': 'test1'}]}
+         self.moxed_client.list_ports(**search_opts).AndReturn(ports)
+-        migration = {'source_compute': self.instance.get('host'),
+-                     'dest_compute': 'dest_host', }
+         port_req_body = {'port':
+-                         {'binding:host_id': migration['dest_compute']}}
++                         {'binding:host_id': expected_bind_host}}
+         self.moxed_client.update_port('test1',
+                                       port_req_body).AndRaise(
+             Exception("fail to update port"))
+         self.mox.ReplayAll()
+         self.assertRaises(NEUTRON_CLIENT_EXCEPTION,
+-                          api.migrate_instance_finish,
+-                          self.context, self.instance, migration)
++                          func,
++                          *args)
++
++    def test_migrate_instance_finish_binding_false(self):
++        self._test_update_port_binding_false('migrate_instance_finish',
++                                             self.context, None,
++                                             {'dest_compute': 'fake'})
++
++    def test_migrate_instance_finish_binding_true(self):
++        migration = {'source_compute': self.instance.get('host'),
++                     'dest_compute': 'dest_host'}
++        self._test_update_port_binding_true('dest_host',
++                                            'migrate_instance_finish',
++                                            self.context, self.instance,
++                                            migration)
++
++    def test_migrate_instance_finish_binding_true_exception(self):
++        migration = {'source_compute': self.instance.get('host'),
++                     'dest_compute': 'dest_host'}
++        self._test_update_port_true_exception('dest_host',
++                                              'migrate_instance_finish',
++                                              self.context,
++                                              self.instance,
++                                              migration)
++
++    def test_setup_instance_network_on_host_false(self):
++        self._test_update_port_binding_false(
++            'setup_instance_network_on_host', self.context, None,
++            'fake_host')
++
++    def test_setup_instance_network_on_host_true(self):
++        self._test_update_port_binding_true('fake_host',
++                                            'setup_instance_network_on_host',
++                                            self.context,
++                                            self.instance,
++                                            'fake_host')
++
++    def test_setup_instance_network_on_host_exception(self):
++        self._test_update_port_true_exception(
++            'fake_host', 'setup_instance_network_on_host',
++            self.context, self.instance, 'fake_host')
+ 
+     def test_associate_not_implemented(self):
+         api = neutronapi.API()
+-- 
+2.4.3
+

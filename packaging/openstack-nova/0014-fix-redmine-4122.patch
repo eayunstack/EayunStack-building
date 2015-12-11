@@ -1,0 +1,28 @@
+From 23aa95b39014bbf90944b67166c2813f632fb92e Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Tue, 7 Jul 2015 16:54:18 +0800
+Subject: [PATCH 14/30] fix redmine #4122
+
+non-ascii flavor name breaks nova.
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/compute/flavors.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/nova/compute/flavors.py b/nova/compute/flavors.py
+index 604defa..af0b839 100644
+--- a/nova/compute/flavors.py
++++ b/nova/compute/flavors.py
+@@ -71,7 +71,7 @@ def _int_or_none(val):
+ 
+ system_metadata_flavor_props = {
+     'id': int,
+-    'name': str,
++    'name': unicode,
+     'memory_mb': int,
+     'vcpus': int,
+     'root_gb': int,
+-- 
+2.4.3
+

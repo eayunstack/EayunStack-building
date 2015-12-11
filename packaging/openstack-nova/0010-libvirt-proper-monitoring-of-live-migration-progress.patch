@@ -1,0 +1,1219 @@
+From 1ec06df50ce736d0841a98cb0df47537ce12f747 Mon Sep 17 00:00:00 2001
+From: "Daniel P. Berrange" <berrange@redhat.com>
+Date: Thu, 29 Jan 2015 14:33:32 +0000
+Subject: [PATCH 10/30] libvirt: proper monitoring of live migration progress
+
+The current live migration code simply invokes migrateToURI
+and waits for it to finish, or raise an exception. It considers
+all exceptions to mean the live migration aborted and the VM is
+still running on the source host. This is totally bogus, as there
+are a number of reasons why an error could be raised from the
+migrateToURI call. There are at least 5 different scenarios for
+what the VM might be doing on source + dest host upon error.
+The migration might even still be going on, even if after the
+error has occurred.
+
+A more reliable way to deal with this is to actively query
+libvirt for the domain job status. This gives an indication
+of whether the job is completed, failed or cancelled. Even
+with that though, there is a need for a few heuristics to
+distinguish some of the possible error scenarios.
+
+This change to do active monitoring of the live migration process
+also opens the door for being able to tune live migration on the
+fly to adjust max downtime or bandwidth to improve chances of
+getting convergence, or to automatically abort it after too much
+time has elapsed instead of letting it carry on until the end of
+the universe. This change merely records memory transfer progress
+and leaves tuning improvements to a later date.
+
+Closes-bug: #1414065
+Change-Id: I6fcbfa31a79c7808c861bb3a84b56bd096882004
+(cherry picked from commit 7dd6a4a19311136c02d89cd2afd97236b0f4cc27)
+
+Conflicts:
+	nova/tests/virt/libvirt/fakelibvirt.py
+	nova/tests/virt/libvirt/test_driver.py
+	nova/tests/virt/libvirt/test_host.py
+	nova/virt/libvirt/driver.py
+	nova/virt/libvirt/host.py
+
+NOTE(apporc), conflicts are mainly because of:
+1. commit 89cd6a0c493e26b5a9e017c99d731464292abbaf, all tests have
+been moved to nova/tests/unit.
+2. commit 4b9bec3a1c819e7006af6bfa1de6928bde91b2c7, mock libvirt
+class refactor.
+3. commit 069ad9a5b4b2cc9b49b21b09b0667909886961cf, new 'Host'
+class as a cap of libvirt connection.
+---
+ nova/tests/virt/libvirt/fakelibvirt.py |  14 ++
+ nova/tests/virt/libvirt/test_driver.py | 298 +++++++++++++++++++++++----------
+ nova/tests/virt/libvirt/test_host.py   | 227 +++++++++++++++++++++++++
+ nova/virt/libvirt/driver.py            | 245 +++++++++++++++++++++++++--
+ nova/virt/libvirt/host.py              | 150 +++++++++++++++++
+ 5 files changed, 834 insertions(+), 100 deletions(-)
+ create mode 100644 nova/tests/virt/libvirt/test_host.py
+ create mode 100644 nova/virt/libvirt/host.py
+
+diff --git a/nova/tests/virt/libvirt/fakelibvirt.py b/nova/tests/virt/libvirt/fakelibvirt.py
+index 31ccbbc..99c8a00 100644
+--- a/nova/tests/virt/libvirt/fakelibvirt.py
++++ b/nova/tests/virt/libvirt/fakelibvirt.py
+@@ -162,6 +162,14 @@ VIR_CONNECT_LIST_DOMAINS_ACTIVE = 1
+ VIR_CONNECT_LIST_DOMAINS_INACTIVE = 2
+ 
+ 
++VIR_DOMAIN_JOB_NONE = 0
++VIR_DOMAIN_JOB_BOUNDED = 1
++VIR_DOMAIN_JOB_UNBOUNDED = 2
++VIR_DOMAIN_JOB_COMPLETED = 3
++VIR_DOMAIN_JOB_FAILED = 4
++VIR_DOMAIN_JOB_CANCELLED = 5
++
++
+ def _parse_disk_info(element):
+     disk_info = {}
+     disk_info['type'] = element.get('type', 'file')
+@@ -603,6 +611,12 @@ class Domain(object):
+     def blockJobInfo(self, disk, flags):
+         return {}
+ 
++    def jobInfo(self):
++        return []
++
++    def jobStats(self, flags=0):
++        return {}
++
+ 
+ class DomainSnapshot(object):
+     def __init__(self, name, domain):
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index 1dc85cd..aa5f607 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -90,6 +90,7 @@ from nova.virt.libvirt import config as vconfig
+ from nova.virt.libvirt import driver as libvirt_driver
+ from nova.virt.libvirt import firewall
+ from nova.virt.libvirt import imagebackend
++from nova.virt.libvirt import host
+ from nova.virt.libvirt import rbd_utils
+ from nova.virt.libvirt import utils as libvirt_utils
+ from nova.virt import netutils
+@@ -175,7 +176,8 @@ class FakeVirDomainSnapshot(object):
+ 
+ class FakeVirtDomain(object):
+ 
+-    def __init__(self, fake_xml=None, uuidstr=None, id=None, name=None):
++    def __init__(self, fake_xml=None, uuidstr=None, id=None, name=None,
++                 running=False):
+         if uuidstr is None:
+             uuidstr = str(uuid.uuid4())
+         self.uuidstr = uuidstr
+@@ -193,6 +195,8 @@ class FakeVirtDomain(object):
+                     </devices>
+                 </domain>
+             """
++        self._state = running and libvirt.VIR_DOMAIN_RUNNING or\
++                libvirt.VIR_DOMAIN_SHUTOFF
+ 
+     def name(self):
+         if self.domname is None:
+@@ -208,13 +212,13 @@ class FakeVirtDomain(object):
+                 None, None]
+ 
+     def create(self):
+-        pass
++        self.createWithFlags(0)
+ 
+     def managedSave(self, *args):
+         pass
+ 
+     def createWithFlags(self, launch_flags):
+-        pass
++        self._state = libvirt.VIR_DOMAIN_RUNNING
+ 
+     def XMLDesc(self, *args):
+         return self._fake_dom_xml
+@@ -244,7 +248,13 @@ class FakeVirtDomain(object):
+         pass
+ 
+     def resume(self):
+-        pass
++        self._state = libvirt.VIR_DOMAIN_RUNNING
++
++    def isActive(self):
++        return int(self._state == libvirt.VIR_DOMAIN_RUNNING)
++
++    def destroy(self):
++        self._state = libvirt.VIR_DOMAIN_SHUTOFF
+ 
+ 
+ class CacheConcurrencyTestCase(test.NoDBTestCase):
+@@ -5474,15 +5484,6 @@ class LibvirtConnTestCase(test.TestCase):
+                              None,
+                              _bandwidth).AndRaise(libvirt.libvirtError("ERR"))
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref['name']:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-        self.mox.StubOutWithMock(self.compute, "_rollback_live_migration")
+-        self.compute._rollback_live_migration(self.context, instance_ref,
+-                                              'dest', False)
+-
+         # start test
+         migrate_data = {'pre_live_migration_result':
+                 {'graphics_listen_addrs':
+@@ -5490,10 +5491,9 @@ class LibvirtConnTestCase(test.TestCase):
+         self.mox.ReplayAll()
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.assertRaises(libvirt.libvirtError,
+-                      conn._live_migration,
+-                      self.context, instance_ref, 'dest', False,
+-                      self.compute._rollback_live_migration,
+-                      migrate_data=migrate_data)
++                      conn._live_migration_operation,
++                      self.context, instance_ref, 'dest',
++                      False, migrate_data, vdmock)
+ 
+         db.instance_destroy(self.context, instance_ref['uuid'])
+ 
+@@ -5516,15 +5516,6 @@ class LibvirtConnTestCase(test.TestCase):
+                             None,
+                             _bandwidth).AndRaise(libvirt.libvirtError("ERR"))
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref['name']:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-        self.mox.StubOutWithMock(self.compute, "_rollback_live_migration")
+-        self.compute._rollback_live_migration(self.context, instance_ref,
+-                                              'dest', False)
+-
+         # start test
+         migrate_data = {'pre_live_migration_result':
+                 {'graphics_listen_addrs':
+@@ -5532,10 +5523,9 @@ class LibvirtConnTestCase(test.TestCase):
+         self.mox.ReplayAll()
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.assertRaises(libvirt.libvirtError,
+-                      conn._live_migration,
+-                      self.context, instance_ref, 'dest', False,
+-                      self.compute._rollback_live_migration,
+-                      migrate_data=migrate_data)
++                      conn._live_migration_operation,
++                      self.context, instance_ref, 'dest',
++                      False, migrate_data, vdmock)
+ 
+         db.instance_destroy(self.context, instance_ref['uuid'])
+ 
+@@ -5557,24 +5547,14 @@ class LibvirtConnTestCase(test.TestCase):
+                             None,
+                             _bandwidth).AndRaise(libvirt.libvirtError("ERR"))
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref['name']:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-        self.mox.StubOutWithMock(self.compute, "_rollback_live_migration")
+-        self.compute._rollback_live_migration(self.context, instance_ref,
+-                                              'dest', False)
+-
+         # start test
+         migrate_data = {}
+         self.mox.ReplayAll()
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.assertRaises(libvirt.libvirtError,
+-                      conn._live_migration,
+-                      self.context, instance_ref, 'dest', False,
+-                      self.compute._rollback_live_migration,
+-                      migrate_data=migrate_data)
++                      conn._live_migration_operation,
++                      self.context, instance_ref, 'dest',
++                      False, migrate_data, vdmock)
+ 
+         db.instance_destroy(self.context, instance_ref['uuid'])
+ 
+@@ -5593,15 +5573,6 @@ class LibvirtConnTestCase(test.TestCase):
+         vdmock = self.mox.CreateMock(libvirt.virDomain)
+         self.mox.StubOutWithMock(vdmock, "migrateToURI")
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref['name']:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-        self.mox.StubOutWithMock(self.compute, "_rollback_live_migration")
+-        self.compute._rollback_live_migration(self.context, instance_ref,
+-                                              'dest', False)
+-
+         # start test
+         migrate_data = {'pre_live_migration_result':
+                 {'graphics_listen_addrs':
+@@ -5609,10 +5580,9 @@ class LibvirtConnTestCase(test.TestCase):
+         self.mox.ReplayAll()
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.assertRaises(exception.MigrationError,
+-                      conn._live_migration,
+-                      self.context, instance_ref, 'dest', False,
+-                      self.compute._rollback_live_migration,
+-                      migrate_data=migrate_data)
++                      conn._live_migration_operation,
++                      self.context, instance_ref, 'dest',
++                      False, migrate_data, vdmock)
+ 
+         db.instance_destroy(self.context, instance_ref['uuid'])
+ 
+@@ -5648,15 +5618,6 @@ class LibvirtConnTestCase(test.TestCase):
+                                  _bandwidth).AndRaise(
+                                          libvirt.libvirtError('ERR'))
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref['name']:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-        self.mox.StubOutWithMock(self.compute, "_rollback_live_migration")
+-        self.compute._rollback_live_migration(self.context, instance_ref,
+-                                              'dest', False)
+-
+         # start test
+         migrate_data = {'pre_live_migration_result':
+                 {'graphics_listen_addrs':
+@@ -5664,10 +5625,9 @@ class LibvirtConnTestCase(test.TestCase):
+         self.mox.ReplayAll()
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.assertRaises(libvirt.libvirtError,
+-                      conn._live_migration,
+-                      self.context, instance_ref, 'dest', False,
+-                      self.compute._rollback_live_migration,
+-                      migrate_data=migrate_data)
++                      conn._live_migration_operation,
++                      self.context, instance_ref, 'dest',
++                      False, migrate_data, vdmock)
+ 
+         instance_ref = db.instance_get(self.context, instance_ref['id'])
+         self.assertEqual(vm_states.ACTIVE, instance_ref['vm_state'])
+@@ -5705,15 +5665,6 @@ class LibvirtConnTestCase(test.TestCase):
+                             mox.IgnoreArg(), None,
+                             _bandwidth).AndRaise(test.TestingException('oops'))
+ 
+-        def fake_lookup(instance_name):
+-            if instance_name == instance_ref.name:
+-                return vdmock
+-
+-        self.create_fake_libvirt_mock(lookupByName=fake_lookup)
+-
+-        def fake_recover_method(context, instance, dest, block_migration):
+-            pass
+-
+         graphics_listen_addrs = {'vnc': '0.0.0.0', 'spice': '127.0.0.1'}
+         migrate_data = {'pre_live_migration_result':
+                 {'graphics_listen_addrs': graphics_listen_addrs}}
+@@ -5725,10 +5676,10 @@ class LibvirtConnTestCase(test.TestCase):
+         self.mox.ReplayAll()
+ 
+         # start test
+-        self.assertRaises(test.TestingException, conn._live_migration,
+-                          self.context, instance_ref, 'dest', post_method=None,
+-                          recover_method=fake_recover_method,
+-                          migrate_data=migrate_data)
++        self.assertRaises(test.TestingException,
++                          conn._live_migration_operation,
++                          self.context, instance_ref, 'dest',
++                          False, migrate_data, vdmock)
+ 
+     def test_rollback_live_migration_at_destination(self):
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+@@ -5738,6 +5689,185 @@ class LibvirtConnTestCase(test.TestCase):
+             mock_destroy.assert_called_once_with("context",
+                     "instance", [], None, True, None)
+ 
++    @mock.patch.object(time, "sleep",
++                       side_effect=lambda x: eventlet.sleep(0))
++    @mock.patch.object(host.DomainJobInfo, "for_domain")
++    def _test_live_migration_monitoring(self,
++                                        job_info_records,
++                                        expect_success,
++                                        mock_job_info,
++                                        mock_sleep):
++        drvr = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = self.create_instance_obj(self.context)
++        dom = FakeVirtDomain("<domain/>", running=True)
++        finish_event = eventlet.event.Event()
++
++        def fake_job_info(hostself):
++            while True:
++                self.assertTrue(len(job_info_records) > 0)
++                rec = job_info_records.pop()
++                if type(rec) == str:
++                    if rec == "thread-finish":
++                        finish_event.send()
++                    elif rec == "domain-stop":
++                        dom.destroy()
++                else:
++                    return rec
++            return rec
++
++        mock_job_info.side_effect = fake_job_info
++
++        def fake_post_method(self, *args, **kwargs):
++            fake_post_method.called = True
++
++        def fake_recover_method(self, *args, **kwargs):
++            fake_recover_method.called = True
++
++        fake_post_method.called = False
++        fake_recover_method.called = False
++
++        drvr._live_migration_monitor(self.context, instance,
++                                     "somehostname",
++                                     fake_post_method,
++                                     fake_recover_method,
++                                     False,
++                                     {},
++                                     dom,
++                                     finish_event)
++
++        self.assertEqual(fake_post_method.called, expect_success)
++        self.assertEqual(fake_recover_method.called, not expect_success)
++
++    def test_live_migration_monitor_success(self):
++        # A normal sequence where see all the normal job states
++        domain_info_records = [
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            "thread-finish",
++            "domain-stop",
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_COMPLETED),
++        ]
++
++        self._test_live_migration_monitoring(domain_info_records, True)
++
++    def test_live_migration_monitor_success_race(self):
++        # A normalish sequence but we're too slow to see the
++        # completed job state
++        domain_info_records = [
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            "thread-finish",
++            "domain-stop",
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++        ]
++
++        self._test_live_migration_monitoring(domain_info_records, True)
++
++    def test_live_migration_monitor_failed(self):
++        # A failed sequence where we see all the expected events
++        domain_info_records = [
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            "thread-finish",
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_FAILED),
++        ]
++
++        self._test_live_migration_monitoring(domain_info_records, False)
++
++    def test_live_migration_monitor_failed_race(self):
++        # A failed sequence where we are too slow to see the
++        # failed event
++        domain_info_records = [
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            "thread-finish",
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++        ]
++
++        self._test_live_migration_monitoring(domain_info_records, False)
++
++    def test_live_migration_monitor_cancelled(self):
++        # A cancelled sequence where we see all the events
++        domain_info_records = [
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_NONE),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_UNBOUNDED),
++            "thread-finish",
++            "domain-stop",
++            host.DomainJobInfo(
++                type=libvirt.VIR_DOMAIN_JOB_CANCELLED),
++        ]
++
++        self._test_live_migration_monitoring(domain_info_records, False)
++
++    @mock.patch.object(greenthread, "spawn")
++    @mock.patch.object(libvirt_driver.LibvirtDriver, "_live_migration_monitor")
++    @mock.patch.object(libvirt_driver.LibvirtDriver, "_lookup_by_name")
++    def test_live_migration_main(self, mock_dom,
++                                 mock_monitor, mock_thread):
++        drvr = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = self.create_instance_obj(self.context)
++        dom = FakeVirtDomain("<domain/>", running=True)
++        migrate_data = {}
++
++        mock_dom.return_value = dom
++
++        def fake_post():
++            pass
++
++        def fake_recover():
++            pass
++
++        drvr._live_migration(self.context, instance, "fakehost",
++                             fake_post, fake_recover, False,
++                             migrate_data)
++
++        class AnyEventletEvent(object):
++            def __eq__(self, other):
++                return type(other) == eventlet.event.Event
++
++        mock_thread.assert_called_once_with(
++            drvr._live_migration_operation,
++            self.context, instance, "fakehost", False,
++            migrate_data, dom)
++        mock_monitor.assert_called_once_with(
++            self.context, instance, "fakehost",
++            fake_post, fake_recover, False,
++            migrate_data, dom, AnyEventletEvent())
++
+     def _do_test_create_images_and_backing(self, disk_type):
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+         self.mox.StubOutWithMock(conn, '_fetch_instance_kernel_ramdisk')
+@@ -11628,7 +11758,7 @@ class LibvirtDriverTestCase(test.TestCase):
+             pass
+ 
+         def fake_create_domain(context, xml, instance, network_info,
+-                               disk_info, block_device_info=None,
++                               block_device_info=None,
+                                power_on=None,
+                                vifs_already_plugged=None):
+             self.fake_create_domain_called = True
+@@ -11702,7 +11832,7 @@ class LibvirtDriverTestCase(test.TestCase):
+         self.stubs.Set(self.libvirtconnection, '_get_guest_xml',
+                        lambda *a, **k: None)
+         self.stubs.Set(self.libvirtconnection, '_create_domain_and_network',
+-                       lambda *a: None)
++                       lambda *a, **k: None)
+         self.stubs.Set(loopingcall, 'FixedIntervalLoopingCall',
+                        lambda *a, **k: FakeLoopingCall())
+ 
+diff --git a/nova/tests/virt/libvirt/test_host.py b/nova/tests/virt/libvirt/test_host.py
+new file mode 100644
+index 0000000..1a1de6d
+--- /dev/null
++++ b/nova/tests/virt/libvirt/test_host.py
+@@ -0,0 +1,227 @@
++#    Copyright 2010 OpenStack Foundation
++#    Copyright 2012 University Of Minho
++#    Copyright 2014 Red Hat, Inc
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import mock
++from nova import test
++from nova.virt.libvirt import host
++from nova.tests.virt.libvirt import fakelibvirt
++from nova.virt.libvirt import driver as libvirt_driver
++
++try:
++    import libvirt
++except ImportError:
++    libvirt = fakelibvirt
++host.libvirt = libvirt
++libvirt_driver.libvirt = libvirt
++
++
++class FakeVirtDomain(object):
++
++    def __init__(self):
++        pass
++
++    def jobInfo(self):
++        return []
++
++    def jobStats(self, flags=0):
++        return {}
++
++
++class DomainJobInfoTestCase(test.NoDBTestCase):
++
++    def setUp(self):
++        super(DomainJobInfoTestCase, self).setUp()
++
++        self.dom = FakeVirtDomain()
++        host.DomainJobInfo._have_job_stats = True
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_stats(self, mock_stats, mock_info):
++        mock_stats.return_value = {
++            "type": libvirt.VIR_DOMAIN_JOB_UNBOUNDED,
++            "memory_total": 75,
++            "memory_processed": 50,
++            "memory_remaining": 33,
++            "some_new_libvirt_stat_we_dont_know_about": 83
++        }
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_UNBOUNDED, info.type)
++        self.assertEqual(75, info.memory_total)
++        self.assertEqual(50, info.memory_processed)
++        self.assertEqual(33, info.memory_remaining)
++        self.assertEqual(0, info.disk_total)
++        self.assertEqual(0, info.disk_processed)
++        self.assertEqual(0, info.disk_remaining)
++
++        mock_stats.assert_called_once_with()
++        self.assertFalse(mock_info.called)
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_info_no_support(self, mock_stats, mock_info):
++        mock_stats.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "virDomainGetJobStats not implemented",
++            libvirt.VIR_ERR_NO_SUPPORT)
++
++        mock_info.return_value = [
++            libvirt.VIR_DOMAIN_JOB_UNBOUNDED,
++            100, 99, 10, 11, 12, 75, 50, 33, 1, 2, 3]
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_UNBOUNDED, info.type)
++        self.assertEqual(100, info.time_elapsed)
++        self.assertEqual(99, info.time_remaining)
++        self.assertEqual(10, info.data_total)
++        self.assertEqual(11, info.data_processed)
++        self.assertEqual(12, info.data_remaining)
++        self.assertEqual(75, info.memory_total)
++        self.assertEqual(50, info.memory_processed)
++        self.assertEqual(33, info.memory_remaining)
++        self.assertEqual(1, info.disk_total)
++        self.assertEqual(2, info.disk_processed)
++        self.assertEqual(3, info.disk_remaining)
++
++        mock_stats.assert_called_once_with()
++        mock_info.assert_called_once_with()
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_info_attr_error(self, mock_stats, mock_info):
++        mock_stats.side_effect = AttributeError("No such API")
++
++        mock_info.return_value = [
++            libvirt.VIR_DOMAIN_JOB_UNBOUNDED,
++            100, 99, 10, 11, 12, 75, 50, 33, 1, 2, 3]
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_UNBOUNDED, info.type)
++        self.assertEqual(100, info.time_elapsed)
++        self.assertEqual(99, info.time_remaining)
++        self.assertEqual(10, info.data_total)
++        self.assertEqual(11, info.data_processed)
++        self.assertEqual(12, info.data_remaining)
++        self.assertEqual(75, info.memory_total)
++        self.assertEqual(50, info.memory_processed)
++        self.assertEqual(33, info.memory_remaining)
++        self.assertEqual(1, info.disk_total)
++        self.assertEqual(2, info.disk_processed)
++        self.assertEqual(3, info.disk_remaining)
++
++        mock_stats.assert_called_once_with()
++        mock_info.assert_called_once_with()
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_stats_no_domain(self, mock_stats, mock_info):
++        mock_stats.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "No such domain with UUID blah",
++            libvirt.VIR_ERR_NO_DOMAIN)
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_COMPLETED, info.type)
++        self.assertEqual(0, info.time_elapsed)
++        self.assertEqual(0, info.time_remaining)
++        self.assertEqual(0, info.memory_total)
++        self.assertEqual(0, info.memory_processed)
++        self.assertEqual(0, info.memory_remaining)
++
++        mock_stats.assert_called_once_with()
++        self.assertFalse(mock_info.called)
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_info_no_domain(self, mock_stats, mock_info):
++        mock_stats.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "virDomainGetJobStats not implemented",
++            libvirt.VIR_ERR_NO_SUPPORT)
++
++        mock_info.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "No such domain with UUID blah",
++            libvirt.VIR_ERR_NO_DOMAIN)
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_COMPLETED, info.type)
++        self.assertEqual(0, info.time_elapsed)
++        self.assertEqual(0, info.time_remaining)
++        self.assertEqual(0, info.memory_total)
++        self.assertEqual(0, info.memory_processed)
++        self.assertEqual(0, info.memory_remaining)
++
++        mock_stats.assert_called_once_with()
++        mock_info.assert_called_once_with()
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_stats_operation_invalid(self, mock_stats, mock_info):
++        mock_stats.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "Domain is not running",
++            libvirt.VIR_ERR_OPERATION_INVALID)
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_COMPLETED, info.type)
++        self.assertEqual(0, info.time_elapsed)
++        self.assertEqual(0, info.time_remaining)
++        self.assertEqual(0, info.memory_total)
++        self.assertEqual(0, info.memory_processed)
++        self.assertEqual(0, info.memory_remaining)
++
++        mock_stats.assert_called_once_with()
++        self.assertFalse(mock_info.called)
++
++    @mock.patch.object(FakeVirtDomain, "jobInfo")
++    @mock.patch.object(FakeVirtDomain, "jobStats")
++    def test_job_info_operation_invalid(self, mock_stats, mock_info):
++        mock_stats.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "virDomainGetJobStats not implemented",
++            libvirt.VIR_ERR_NO_SUPPORT)
++
++        mock_info.side_effect = fakelibvirt.make_libvirtError(
++            libvirt.libvirtError,
++            "Domain is not running",
++            libvirt.VIR_ERR_OPERATION_INVALID)
++
++        info = host.DomainJobInfo.for_domain(self.dom)
++
++        self.assertIsInstance(info, host.DomainJobInfo)
++        self.assertEqual(libvirt.VIR_DOMAIN_JOB_COMPLETED, info.type)
++        self.assertEqual(0, info.time_elapsed)
++        self.assertEqual(0, info.time_remaining)
++        self.assertEqual(0, info.memory_total)
++        self.assertEqual(0, info.memory_processed)
++        self.assertEqual(0, info.memory_remaining)
++
++        mock_stats.assert_called_once_with()
++        mock_info.assert_called_once_with()
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 8cce70e..ea92849 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -102,6 +102,7 @@ from nova.virt.libvirt import dmcrypt
+ from nova.virt.libvirt import firewall as libvirt_firewall
+ from nova.virt.libvirt import imagebackend
+ from nova.virt.libvirt import imagecache
++from nova.virt.libvirt import host
+ from nova.virt.libvirt import lvm
+ from nova.virt.libvirt import rbd_utils
+ from nova.virt.libvirt import utils as libvirt_utils
+@@ -5312,27 +5313,23 @@ class LibvirtDriver(driver.ComputeDriver):
+                            ' continue to listen on the current'
+                            ' addresses.'))
+ 
+-    def _live_migration(self, context, instance, dest, post_method,
+-                        recover_method, block_migration=False,
+-                        migrate_data=None):
+-        """Do live migration.
++    def _live_migration_operation(self, context, instance, dest,
++                                  block_migration, migrate_data, dom):
++        """Invoke the live migration operation
+ 
+         :param context: security context
+         :param instance:
+             nova.db.sqlalchemy.models.Instance object
+             instance object that is migrated.
+         :param dest: destination host
+-        :param post_method:
+-            post operation method.
+-            expected nova.compute.manager._post_live_migration.
+-        :param recover_method:
+-            recovery method when any exception occurs.
+-            expected nova.compute.manager._rollback_live_migration.
+         :param block_migration: if true, do block migration.
+         :param migrate_data: implementation specific params
++        :param dom: the libvirt domain object
++
++        This method is intended to be run in a background thread and will
++        block that thread until the migration is finished or failed.
+         """
+ 
+-        # Do live migration.
+         try:
+             if block_migration:
+                 flaglist = CONF.libvirt.block_migration_flag.split(',')
+@@ -5341,8 +5338,6 @@ class LibvirtDriver(driver.ComputeDriver):
+             flagvals = [getattr(libvirt, x.strip()) for x in flaglist]
+             logical_sum = reduce(lambda x, y: x | y, flagvals)
+ 
+-            dom = self._lookup_by_name(instance["name"])
+-
+             pre_live_migrate_data = (migrate_data or {}).get(
+                                         'pre_live_migration_result', {})
+             listen_addrs = pre_live_migrate_data.get('graphics_listen_addrs')
+@@ -5394,15 +5389,233 @@ class LibvirtDriver(driver.ComputeDriver):
+                             CONF.libvirt.live_migration_bandwidth)
+                     else:
+                         raise
+-
+         except Exception as e:
+             with excutils.save_and_reraise_exception():
+                 LOG.error(_LE("Live Migration failure: %s"), e,
+                           instance=instance)
++
++        # If 'migrateToURI' fails we don't know what state the
++        # VM instances on each host are in. Possibilities include
++        #
++        #  1. src==running, dst==none
++        #
++        #     Migration failed & rolled back, or never started
++        #
++        #  2. src==running, dst==paused
++        #
++        #     Migration started but is still ongoing
++        #
++        #  3. src==paused,  dst==paused
++        #
++        #     Migration data transfer completed, but switchover
++        #     is still ongoing, or failed
++        #
++        #  4. src==paused,  dst==running
++        #
++        #     Migration data transfer completed, switchover
++        #     happened but cleanup on source failed
++        #
++        #  5. src==none,    dst==running
++        #
++        #     Migration fully succeeded.
++        #
++        # Libvirt will aim to complete any migration operation
++        # or roll it back. So even if the migrateToURI call has
++        # returned an error, if the migration was not finished
++        # libvirt should clean up.
++        #
++        # So we take the error raise here with a pinch of salt
++        # and rely on the domain job info status to figure out
++        # what really happened to the VM, which is a much more
++        # reliable indicator.
++        #
++        # In particular we need to try very hard to ensure that
++        # Nova does not "forget" about the guest. ie leaving it
++        # running on a different host to the one recorded in
++        # the database, as that would be a serious resource leak
++
++        LOG.debug("Migration operation thread has finished",
++                  instance=instance)
++
++    def _live_migration_monitor(self, context, instance, dest, post_method,
++                                recover_method, block_migration,
++                                migrate_data, dom, finish_event):
++        n = 0
++        while True:
++            info = host.DomainJobInfo.for_domain(dom)
++
++            if info.type == libvirt.VIR_DOMAIN_JOB_NONE:
++                # Annoyingly this could indicate many possible
++                # states, so we must fix the mess:
++                #
++                #   1. Migration has not yet begun
++                #   2. Migration has stopped due to failure
++                #   3. Migration has stopped due to completion
++                #
++                # We can detect option 1 by seeing if thread is still
++                # running. We can distinguish 2 vs 3 by seeing if the
++                # VM still exists & running on the current host
++                #
++                if not finish_event.ready():
++                    LOG.debug("Operation thread is still running",
++                              instance=instance)
++                    # Leave type untouched
++                else:
++                    try:
++                        if dom.isActive():
++                            LOG.debug("VM running on src, migration failed",
++                                      instance=instance)
++                            info.type = libvirt.VIR_DOMAIN_JOB_FAILED
++                        else:
++                            LOG.debug("VM is shutoff, migration finished",
++                                      instance=instance)
++                            info.type = libvirt.VIR_DOMAIN_JOB_COMPLETED
++                    except libvirt.libvirtError as ex:
++                        LOG.debug("Error checking domain status %(ex)s",
++                                  ex, instance=instance)
++                        if ex.get_error_code() == libvirt.VIR_ERR_NO_DOMAIN:
++                            LOG.debug("VM is missing, migration finished",
++                                      instance=instance)
++                            info.type = libvirt.VIR_DOMAIN_JOB_COMPLETED
++                        else:
++                            LOG.info(_LI("Error %(ex)s, migration failed"),
++                                     instance=instance)
++                            info.type = libvirt.VIR_DOMAIN_JOB_FAILED
++
++                if info.type != libvirt.VIR_DOMAIN_JOB_NONE:
++                    LOG.debug("Fixed incorrect job type to be %d",
++                              info.type, instance=instance)
++
++            if info.type == libvirt.VIR_DOMAIN_JOB_NONE:
++                # Migration is not yet started
++                LOG.debug("Migration not running yet",
++                          instance=instance)
++            elif info.type == libvirt.VIR_DOMAIN_JOB_UNBOUNDED:
++                # We loop every 500ms, so don't log on every
++                # iteration to avoid spamming logs for long
++                # running migrations. Just once every 5 secs
++                # is sufficient for developers to debug problems.
++                # We log once every 30 seconds at info to help
++                # admins see slow running migration operations
++                # when debug logs are off.
++                if (n % 10) == 0:
++                    # Ignoring memory_processed, as due to repeated
++                    # dirtying of data, this can be way larger than
++                    # memory_total. Best to just look at what's
++                    # remaining to copy and ignore what's done already
++                    #
++                    # TODO(berrange) perhaps we could include disk
++                    # transfer stats in the progress too, but it
++                    # might make memory info more obscure as large
++                    # disk sizes might dwarf memory size
++                    progress = 0
++                    if info.memory_total != 0:
++                        progress = round(info.memory_remaining *
++                                          100 / info.memory_total)
++                    instance.progress = 100 - progress
++                    instance.save()
++
++                    lg = LOG.debug
++                    if (n % 60) == 0:
++                        lg = LOG.info
++
++                    lg(_LI("Migration running for %(secs)d secs, "
++                           "memory %(progress)d%% remaining; "
++                           "(bytes processed=%(processed)d, "
++                           "remaining=%(remaining)d, "
++                           "total=%(total)d)"),
++                       {"secs": n / 2, "progress": progress,
++                        "processed": info.memory_processed,
++                        "remaining": info.memory_remaining,
++                        "total": info.memory_total}, instance=instance)
++
++                # Migration is still running
++                #
++                # This is where we'd wire up calls to change live
++                # migration status. eg change max downtime, cancel
++                # the operation, change max bandwidth
++                n = n + 1
++            elif info.type == libvirt.VIR_DOMAIN_JOB_COMPLETED:
++                # Migration is all done
++                LOG.info(_LI("Migration operation has completed"),
++                         instance=instance)
++                post_method(context, instance, dest, block_migration,
++                            migrate_data)
++                break
++            elif info.type == libvirt.VIR_DOMAIN_JOB_FAILED:
++                # Migration did not succeed
++                LOG.error(_LE("Migration operation has aborted"),
++                          instance=instance)
+                 recover_method(context, instance, dest, block_migration)
++                break
++            elif info.type == libvirt.VIR_DOMAIN_JOB_CANCELLED:
++                # Migration was stopped by admin
++                LOG.warn(_LW("Migration operation was cancelled"),
++                         instance=instance)
++                recover_method(context, instance, dest, block_migration)
++                break
++            else:
++                LOG.warn(_LW("Unexpected migration job type: %d"),
++                         info.type, instance=instance)
++
++            time.sleep(0.5)
++
++    def _live_migration(self, context, instance, dest, post_method,
++                        recover_method, block_migration,
++                        migrate_data):
++        """Do live migration.
++
++        :param context: security context
++        :param instance:
++            nova.db.sqlalchemy.models.Instance object
++            instance object that is migrated.
++        :param dest: destination host
++        :param post_method:
++            post operation method.
++            expected nova.compute.manager._post_live_migration.
++        :param recover_method:
++            recovery method when any exception occurs.
++            expected nova.compute.manager._rollback_live_migration.
++        :param block_migration: if true, do block migration.
++        :param migrate_data: implementation specific params
++
++        This fires off a new thread to run the blocking migration
++        operation, and then this thread monitors the progress of
++        migration and controls its operation
++        """
++
++        dom = self._lookup_by_name(instance["name"])
++
++        opthread = greenthread.spawn(self._live_migration_operation,
++                                     context, instance, dest,
++                                     block_migration,
++                                     migrate_data, dom)
++
++        finish_event = eventlet.event.Event()
++
++        def thread_finished(thread, event):
++            LOG.debug("Migration operation thread notification",
++                      instance=instance)
++            event.send()
++        opthread.link(thread_finished, finish_event)
++
++        # Let eventlet schedule the new thread right away
++        time.sleep(0)
+ 
+-        post_method(context, instance, dest, block_migration,
+-                    migrate_data)
++        try:
++            LOG.debug("Starting monitoring of live migration",
++                      instance=instance)
++            self._live_migration_monitor(context, instance, dest,
++                                         post_method, recover_method,
++                                         block_migration, migrate_data,
++                                         dom, finish_event)
++        except Exception as ex:
++            LOG.warn(_LW("Error monitoring migration: %(ex)s"),
++                     {"ex": ex}, instance=instance)
++            raise
++        finally:
++            LOG.debug("Live migration monitoring is all done",
++                      instance=instance)
+ 
+     def _fetch_instance_kernel_ramdisk(self, context, instance):
+         """Download kernel and ramdisk for instance in instance directory."""
+diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
+new file mode 100644
+index 0000000..6a4d6eb
+--- /dev/null
++++ b/nova/virt/libvirt/host.py
+@@ -0,0 +1,150 @@
++# Copyright 2010 United States Government as represented by the
++# Administrator of the National Aeronautics and Space Administration.
++# All Rights Reserved.
++# Copyright (c) 2010 Citrix Systems, Inc.
++# Copyright (c) 2011 Piston Cloud Computing, Inc
++# Copyright (c) 2012 University Of Minho
++# (c) Copyright 2013 Hewlett-Packard Development Company, L.P.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++"""
++Manages information about the host OS and hypervisor.
++
++This class encapsulates a connection to the libvirt
++daemon and provides certain higher level APIs around
++the raw libvirt API. These APIs are then used by all
++the other libvirt related classes
++"""
++
++from oslo.utils import importutils
++from nova.openstack.common import log as logging
++
++libvirt = importutils.import_module('libvirt')
++
++LOG = logging.getLogger(__name__)
++
++
++class DomainJobInfo(object):
++    """Information about libvirt background jobs
++
++    This class encapsulates information about libvirt
++    background jobs. It provides a mapping from either
++    the old virDomainGetJobInfo API which returned a
++    fixed list of fields, or the modern virDomainGetJobStats
++    which returns an extendable dict of fields.
++    """
++
++    _have_job_stats = True
++
++    def __init__(self, **kwargs):
++
++        self.type = kwargs.get("type", libvirt.VIR_DOMAIN_JOB_NONE)
++        self.time_elapsed = kwargs.get("time_elapsed", 0)
++        self.time_remaining = kwargs.get("time_remaining", 0)
++        self.downtime = kwargs.get("downtime", 0)
++        self.setup_time = kwargs.get("setup_time", 0)
++        self.data_total = kwargs.get("data_total", 0)
++        self.data_processed = kwargs.get("data_processed", 0)
++        self.data_remaining = kwargs.get("data_remaining", 0)
++        self.memory_total = kwargs.get("memory_total", 0)
++        self.memory_processed = kwargs.get("memory_processed", 0)
++        self.memory_remaining = kwargs.get("memory_remaining", 0)
++        self.memory_constant = kwargs.get("memory_constant", 0)
++        self.memory_normal = kwargs.get("memory_normal", 0)
++        self.memory_normal_bytes = kwargs.get("memory_normal_bytes", 0)
++        self.memory_bps = kwargs.get("memory_bps", 0)
++        self.disk_total = kwargs.get("disk_total", 0)
++        self.disk_processed = kwargs.get("disk_processed", 0)
++        self.disk_remaining = kwargs.get("disk_remaining", 0)
++        self.disk_bps = kwargs.get("disk_bps", 0)
++        self.comp_cache = kwargs.get("compression_cache", 0)
++        self.comp_bytes = kwargs.get("compression_bytes", 0)
++        self.comp_pages = kwargs.get("compression_pages", 0)
++        self.comp_cache_misses = kwargs.get("compression_cache_misses", 0)
++        self.comp_overflow = kwargs.get("compression_overflow", 0)
++
++    @classmethod
++    def _get_job_stats_compat(cls, dom):
++        # Make the old virDomainGetJobInfo method look similar to the
++        # modern virDomainGetJobStats method
++        try:
++            info = dom.jobInfo()
++        except libvirt.libvirtError as ex:
++            # When migration of a transient guest completes, the guest
++            # goes away so we'll see NO_DOMAIN error code
++            #
++            # When migration of a persistent guest completes, the guest
++            # merely shuts off, but libvirt unhelpfully raises an
++            # OPERATION_INVALID error code
++            #
++            # Lets pretend both of these mean success
++            if ex.get_error_code() in (libvirt.VIR_ERR_NO_DOMAIN,
++                                       libvirt.VIR_ERR_OPERATION_INVALID):
++                LOG.debug("Domain has shutdown/gone away: %s", ex)
++                return cls(type=libvirt.VIR_DOMAIN_JOB_COMPLETED)
++            else:
++                LOG.debug("Failed to get job info: %s", ex)
++                raise
++
++        return cls(
++            type=info[0],
++            time_elapsed=info[1],
++            time_remaining=info[2],
++            data_total=info[3],
++            data_processed=info[4],
++            data_remaining=info[5],
++            memory_total=info[6],
++            memory_processed=info[7],
++            memory_remaining=info[8],
++            disk_total=info[9],
++            disk_processed=info[10],
++            disk_remaining=info[11])
++
++    @classmethod
++    def for_domain(cls, dom):
++        '''Get job info for the domain
++
++        Query the libvirt job info for the domain (ie progress
++        of migration, or snapshot operation)
++
++        Returns: a DomainJobInfo instance
++        '''
++
++        if cls._have_job_stats:
++            try:
++                stats = dom.jobStats()
++                return cls(**stats)
++            except libvirt.libvirtError as ex:
++                if ex.get_error_code() == libvirt.VIR_ERR_NO_SUPPORT:
++                    # Remote libvirt doesn't support new API
++                    LOG.debug("Missing remote virDomainGetJobStats: %s", ex)
++                    cls._have_job_stats = False
++                    return cls._get_job_stats_compat(dom)
++                elif ex.get_error_code() in (
++                        libvirt.VIR_ERR_NO_DOMAIN,
++                        libvirt.VIR_ERR_OPERATION_INVALID):
++                    # Transient guest finished migration, so it has gone
++                    # away completely
++                    LOG.debug("Domain has shutdown/gone away: %s", ex)
++                    return cls(type=libvirt.VIR_DOMAIN_JOB_COMPLETED)
++                else:
++                    LOG.debug("Failed to get job stats: %s", ex)
++                    raise
++            except AttributeError as ex:
++                # Local python binding doesn't support new API
++                LOG.debug("Missing local virDomainGetJobStats: %s", ex)
++                cls._have_job_stats = False
++                return cls._get_job_stats_compat(dom)
++        else:
++            return cls._get_job_stats_compat(dom)
+-- 
+2.4.3
+

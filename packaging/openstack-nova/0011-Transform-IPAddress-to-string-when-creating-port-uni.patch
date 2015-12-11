@@ -1,0 +1,40 @@
+From 40265c920f4f380911417ff6f12960fa22e02b67 Mon Sep 17 00:00:00 2001
+From: zhiyuan_cai <luckyvega.g@gmail.com>
+Date: Fri, 23 Jan 2015 18:21:17 +0800
+Subject: [PATCH 11/30] Transform IPAddress to string when creating port
+ (unittest)
+
+If ip address is provided when running nova boot, nova compute
+will invoke neutron client to create a port. However, the ip
+address parameter is an IPAddress object so neutron client will
+fail to send the request to neutron server. Transform IPAddress
+object to string to address this issue.
+
+Change-Id: I858cca475748795aa2532f32bfe0f1443b30966f
+Closes-Bug: #1408529
+(cherry picked from commit aae858a246e20b1bf55004517b5d9ab28968190a)
+
+Conflicts:
+	nova/tests/unit/network/test_neutronv2.py
+---
+ nova/tests/network/test_neutronv2.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/nova/tests/network/test_neutronv2.py b/nova/tests/network/test_neutronv2.py
+index 21c7f0d..9528f90 100644
+--- a/nova/tests/network/test_neutronv2.py
++++ b/nova/tests/network/test_neutronv2.py
+@@ -494,8 +494,8 @@ class TestNeutronv2Base(test.TestCase):
+             else:
+                 request.address = fixed_ips.get(request.network_id)
+                 if request.address:
+-                    port_req_body['port']['fixed_ips'] = [{'ip_address':
+-                                                           request.address}]
++                    port_req_body['port']['fixed_ips'] = [
++                        {'ip_address': str(request.address)}]
+                 port_req_body['port']['network_id'] = request.network_id
+                 port_req_body['port']['admin_state_up'] = True
+                 port_req_body['port']['tenant_id'] = \
+-- 
+2.4.3
+

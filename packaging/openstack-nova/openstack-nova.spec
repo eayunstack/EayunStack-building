@@ -1,13 +1,14 @@
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 %global with_trans %{!?_without_trans:1}%{?_without_trans:0}
+%global _default_patch_fuzz 2
 
 %global release_name juno
 %global milestone rc2
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.1.0.1
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          4%{?dist_eayunstack}
+Release:          5%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -51,6 +52,17 @@ Patch0004: 0004-Transform-IPAddress-to-string-when-creating-port.patch
 Patch0005: 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
 Patch0006: 0006-libvirt-use-six.text_type-when-setting-text-node-val.patch
 Patch0007: 0007-libvirt-safe_decode-domain.XMLDesc-0-for-i18n-loggin.patch
+Patch0008: 0008-Don-t-delete-rbd-ephemeral-disks-when-revert-resize-.patch
+Patch0009: 0009-libvirt-remove-pointless-loop-after-live-migration-f.patch
+Patch0010: 0010-libvirt-proper-monitoring-of-live-migration-progress.patch
+Patch0011: 0011-Transform-IPAddress-to-string-when-creating-port-uni.patch
+Patch0012: 0012-Updated-requirements-from-stable-juno.patch
+Patch0013: 0013-Bump-version-to-2014.2.1.patch
+Patch0014: 0014-fix-redmine-4122.patch
+Patch0015: 0015-fix-redmint-4544.patch
+Patch0016: 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
+Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -460,6 +472,17 @@ This package contains documentation files for nova.
 %patch0005 -p1
 %patch0006 -p1
 %patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
+%patch0010 -p1
+%patch0011 -p1
+%patch0012 -p1
+%patch0013 -p1
+%patch0014 -p1
+%patch0015 -p1
+%patch0016 -p1
+%patch0017 -p1
+%patch0018 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -817,6 +840,20 @@ exit 0
 %endif
 
 %changelog
+
+
+* Thu Dec 10 2015 apporc <appleorchard2000@gmail.com> - 2014.2-5.eayunstack.1.0
+- 0008-Don-t-delete-rbd-ephemeral-disks-when-revert-resize-.patch
+- 0009-libvirt-remove-pointless-loop-after-live-migration-f.patch
+- 0010-libvirt-proper-monitoring-of-live-migration-progress.patch
+- 0011-Transform-IPAddress-to-string-when-creating-port-uni.patch
+- 0012-Updated-requirements-from-stable-juno.patch
+- 0013-Bump-version-to-2014.2.1.patch
+- 0014-fix-redmine-4122.patch
+- 0015-fix-redmint-4544.patch
+- 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+- 0017-Update-network-resource-when-rescheduling-instance.patch
+- 0018-Fix-nova-compute-start-issue-after-evacuate.patch
 
 * Thu May 21 2015 apporc <appleorchard2000@gmail.com> - 2014.2-4.eayunstack.1.0
 - add 0005-Return-floating_ip-fixed_ip-instance_uuid-from-neutr.patch
