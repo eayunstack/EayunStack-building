@@ -2,11 +2,11 @@
 
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.1.0.1
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          3%{?dist_eayunstack}
+Release:          4%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -27,6 +27,11 @@ Patch0002: 0002-Revert-Switch-over-to-oslosphinx.patch
 Patch0003: 0003-Fix-eqlx-endless-loop-when-server-closes-the-connect.patch
 Patch0004: 0004-Fix-the-eqlx-driver-to-retry-on-ssh-timeout.patch
 Patch0005: 0005-Fixes-the-EQL-driver-CI-tests-AttributeError.patch
+Patch0006: 0006-Volume-type-access-extension.patch
+Patch0007: 0007-private-type-fix-db-scripts.patch
+Patch0008: 0008-usd-is_uuid_like-from-oslo_utils.patch
+Patch0009: 0009-fix-None-object-issue.patch
+Patch0010: 0010-Choose-volume-type-belong-to-project.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -147,7 +152,18 @@ This package contains documentation files for cinder.
 %endif
 
 %prep
-%autosetup -n cinder-%{version} -S git
+%setup -q -n cinder-%{version}
+
+%patch0001 -p1
+%patch0002 -p1
+%patch0003 -p1
+%patch0004 -p1
+%patch0005 -p1
+%patch0006 -p1
+%patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
+%patch0010 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -288,6 +304,13 @@ exit 0
 %endif
 
 %changelog
+* Fri Dec 11 2015 Dunrong Huang <dunrong.huang@eayun.com> - 2014.2.1-4.eayunstack.1.0.1
+- add Patch0006: 0006-Volume-type-access-extension.patch
+- add Patch0007: 0007-private-type-fix-db-scripts.patch
+- add Patch0008: 0008-usd-is_uuid_like-from-oslo_utils.patch
+- add Patch0009: 0009-fix-None-object-issue.patch
+- add Patch0010: 0010-Choose-volume-type-belong-to-project.patch
+
 * Thu May 07 2015 Dunrong Huang <dunrong.huang@eayun.com> - 2014.2.1-3.eayunstack.1.0
 - add 0003-Fix-eqlx-endless-loop-when-server-closes-the-connect.patch
 - add 0004-Fix-the-eqlx-driver-to-retry-on-ssh-timeout.patch

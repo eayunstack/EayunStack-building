@@ -1,0 +1,94 @@
+From 101f65cc2b7300ec61d1bc3895dcd5fb4b8c30f0 Mon Sep 17 00:00:00 2001
+From: Dunrong Huang <dunrong.huang@eayun.com>
+Date: Tue, 7 Jul 2015 14:36:25 +0800
+Subject: [PATCH 5/5] Choose volume type belong to project
+
+when create volume, if volume type from request is None, we should
+pass a appropriate volume_type to cinder_scheduler.
+
+Signed-off-by: Dunrong Huang <dunrong.huang@eayun.com>
+---
+ cinder/api/v2/volumes.py      |  9 +++++++++
+ cinder/db/api.py              |  5 +++++
+ cinder/db/sqlalchemy/api.py   | 12 ++++++++++++
+ cinder/volume/volume_types.py |  5 +++++
+ 4 files changed, 31 insertions(+)
+
+diff --git a/cinder/api/v2/volumes.py b/cinder/api/v2/volumes.py
+index 7e84180..eda006d 100644
+--- a/cinder/api/v2/volumes.py
++++ b/cinder/api/v2/volumes.py
+@@ -304,6 +304,15 @@ class VolumeController(wsgi.Controller):
+                 msg = _("Volume type not found.")
+                 raise exc.HTTPNotFound(explanation=msg)
+ 
++        else:
++            # If project has its own private volume types, pick one and pass
++            # to cinder-scheduler
++            if not volume_types.get_default_volume_type():
++                types = volume_types.get_volume_type_by_project_id(
++                    context, context.project_id)
++                if types:
++                    kwargs['volume_type'] = types.itervalues().next()
++
+         kwargs['metadata'] = volume.get('metadata', None)
+ 
+         snapshot_id = volume.get('snapshot_id')
+diff --git a/cinder/db/api.py b/cinder/db/api.py
+index 36c66b8..5765fb7 100644
+--- a/cinder/db/api.py
++++ b/cinder/db/api.py
+@@ -416,6 +416,11 @@ def volume_types_get_by_name_or_id(context, volume_type_list):
+     return IMPL.volume_types_get_by_name_or_id(context, volume_type_list)
+ 
+ 
++def volume_type_get_by_project_id(context, project_id):
++    """Get all volume type access of a volume type."""
++    return IMPL.volume_type_get_by_project_id(context, project_id)
++
++
+ def volume_type_qos_associations_get(context, qos_specs_id, inactive=False):
+     """Get volume types that are associated with specific qos specs."""
+     return IMPL.volume_type_qos_associations_get(context,
+diff --git a/cinder/db/sqlalchemy/api.py b/cinder/db/sqlalchemy/api.py
+index 5158c07..89b763f 100644
+--- a/cinder/db/sqlalchemy/api.py
++++ b/cinder/db/sqlalchemy/api.py
+@@ -2044,6 +2044,18 @@ def volume_types_get_by_name_or_id(context, volume_type_list):
+     return req_volume_types
+ 
+ 
++@require_context
++def volume_type_get_by_project_id(context, project_id):
++    volume_types = volume_type_get_all(context)
++    rows = _volume_type_access_query(context)\
++        .filter_by(project_id=project_id)\
++        .all()
++    volume_type_ids = [volume_type['volume_type_id'] for volume_type in rows]
++    results = {key: value for key, value in volume_types.iteritems()
++               if value['id'] in volume_type_ids}
++    return results
++
++
+ @require_admin_context
+ def volume_type_qos_associations_get(context, qos_specs_id, inactive=False):
+     read_deleted = "yes" if inactive else "no"
+diff --git a/cinder/volume/volume_types.py b/cinder/volume/volume_types.py
+index d5982d0..c52ff12 100644
+--- a/cinder/volume/volume_types.py
++++ b/cinder/volume/volume_types.py
+@@ -174,6 +174,11 @@ def remove_volume_type_access(context, volume_type_id, project_id):
+     return db.volume_type_access_remove(context, volume_type_id, project_id)
+ 
+ 
++def get_volume_type_by_project_id(context, project_id):
++    """Get volume types by project_id."""
++    return db.volume_type_get_by_project_id(context, project_id)
++
++
+ def is_encrypted(context, volume_type_id):
+     if volume_type_id is None:
+         return False
+-- 
+2.1.4
+

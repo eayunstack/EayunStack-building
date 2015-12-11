@@ -1,0 +1,63 @@
+From 66a67e71d97e02934cf88a5a6869b68abb7404c3 Mon Sep 17 00:00:00 2001
+From: Dunrong Huang <dunrong.huang@eayun.com>
+Date: Tue, 7 Jul 2015 13:55:02 +0800
+Subject: [PATCH 3/5] usd is_uuid_like from oslo_utils
+
+the is_uuid_like function can only verify uuid like
+0000-1111-2222-3333-4444, but for project_id, something like 00001111222233334444
+can not be verify by it.
+
+this patch introduces correct is_uuid_like() from oslo(upstream version) and use
+it to verify project_id
+
+Signed-off-by: Dunrong Huang <dunrong.huang@eayun.com>
+---
+ cinder/api/contrib/volume_type_access.py | 24 ++++++++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/cinder/api/contrib/volume_type_access.py b/cinder/api/contrib/volume_type_access.py
+index 5371316..dc874bd 100644
+--- a/cinder/api/contrib/volume_type_access.py
++++ b/cinder/api/contrib/volume_type_access.py
+@@ -21,8 +21,28 @@ from cinder.api.openstack import wsgi
+ from cinder.api import xmlutil
+ from cinder import exception
+ from cinder.i18n import _
+-from cinder.openstack.common import uuidutils
+ from cinder.volume import volume_types
++import uuid
++
++
++def _format_uuid_string(string):
++    return (string.replace('urn:', '')
++                  .replace('uuid:', '')
++                  .strip('{}')
++                  .replace('-', '')
++                  .lower())
++
++
++def is_uuid_like(val):
++    """Returns validation of a value as a UUID.
++    :param val: Value to verify
++    :type val: string
++    :returns: bool
++    """
++    try:
++        return str(uuid.UUID(val)).replace('-', '') == _format_uuid_string(val)
++    except (TypeError, ValueError, AttributeError):
++        return False
+ 
+ 
+ soft_authorize = extensions.soft_extension_authorizer('volume',
+@@ -111,7 +131,7 @@ class VolumeTypeActionController(wsgi.Controller):
+             raise webob.exc.HTTPBadRequest()
+         access = body[action_name]
+         project = access.get('project')
+-        if not uuidutils.is_uuid_like(project):
++        if not is_uuid_like(project):
+             msg = _("Bad project format: "
+                     "project is not in proper format (%s)") % project
+             raise webob.exc.HTTPBadRequest(explanation=msg)
+-- 
+2.1.4
+
