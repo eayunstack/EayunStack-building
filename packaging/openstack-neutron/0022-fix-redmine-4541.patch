@@ -1,0 +1,31 @@
+From b65220538bbb4c8bf351f6912140a2f7495e7c40 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Fri, 24 Jul 2015 14:02:42 +0800
+Subject: [PATCH 22/25] fix redmine #4541
+
+For eventlet, monkey_patch is needed.
+See http://eventlet.net/doc/patching.html#monkeypatching-the-standard-library.
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/agents/qos_agent.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index aebfdbd..797d0ab 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -15,6 +15,9 @@
+ 
+ import sys
+ import uuid
++import eventlet
++eventlet.monkey_patch()
++
+ 
+ from oslo.config import cfg
+ 
+-- 
+2.6.4
+

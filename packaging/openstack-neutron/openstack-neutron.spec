@@ -1,10 +1,10 @@
 %global release_name juno
 
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.1.0.1
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	17%{?dist_eayunstack}
+Release:	18%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -57,6 +57,17 @@ Patch0011: 0011-Use-stop-method-on-MessageHandlingServer.patch
 Patch0012: 0012-merge-neutron-qos-feature.patch
 Patch0013: 0013-different-qos-can-have-filters-with-the-same-prio.patch
 Patch0014: 0014-fix-redmine-4163-queue-rate-error-in-qos_db.py.patch
+Patch0015: 0015-Enable-to-specify-context-on-POST-requests-during-un.patch
+Patch0016: 0016-Insert-validation-in-creating-updating-firewall.patch
+Patch0017: 0017-Remove-port-from-ovsdb-after-its-deletion.patch
+Patch0018: 0018-Don-t-delete-port-from-bridge-on-delete_port-event.patch
+Patch0019: 0019-Check-for-removed-in-port_info-before-reference.patch
+Patch0020: 0020-Refactor-retry-mechanism-used-in-some-DB-operations.patch
+Patch0021: 0021-Randomize-tunnel-id-query-to-avoid-contention.patch
+Patch0022: 0022-fix-redmine-4541.patch
+Patch0023: 0023-Check-whether-target-s-tenant-is-the-same-with-qos.patch
+Patch0024: 0024-Fix-wrong-class-inheritance.patch
+Patch0025: 0025-Refine-database-relationships.patch
 
 BuildArch:	noarch
 
@@ -548,6 +559,17 @@ IPSec.
 %patch0012 -p1
 %patch0013 -p1
 %patch0014 -p1
+%patch0015 -p1
+%patch0016 -p1
+%patch0017 -p1
+%patch0018 -p1
+%patch0019 -p1
+%patch0020 -p1
+%patch0021 -p1
+%patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1008,6 +1030,15 @@ exit 0
 
 
 %changelog
+* Fri Dec 11 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.eayunstack.1.0.1
+- add patch 0015 and 0016 from github pull request #12 (redemine#5360)
+- add patch 0017-0019 from github pull request #13 (redmine#5500)
+- add patch 0020-0021 from github pull request #14 (redmine#5504)
+- add patch 0022 from neutron-qos github pull request #7 (redmine#4541)
+- add patch 0023 from neutron-qos github pull request #8 (redmine#4542)
+- add patch 0024 from neutron-qos github pull request #9
+- add patch 0025 from neutron-qos github pull request #11
+
 * Tue Jun 30 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-17.eayunstack.1.0
 - remove Revert-Fix-direction-problem-when-target_type-is-por.patch
 

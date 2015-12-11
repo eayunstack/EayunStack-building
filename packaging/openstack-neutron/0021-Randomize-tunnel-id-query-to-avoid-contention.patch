@@ -1,0 +1,67 @@
+From 80deebf8b5dd7acfef01f9d14482322cf645593d Mon Sep 17 00:00:00 2001
+From: Eugene Nikanorov <enikanorov@mirantis.com>
+Date: Mon, 11 May 2015 01:34:35 +0400
+Subject: [PATCH 21/25] Randomize tunnel id query to avoid contention
+
+When networks are created rapidly, neutron-servers compete
+for segmentation ids which creates too much contention and
+may lead to inability to choose available id in hardcoded amount
+of attempts (11)
+Randomize tunnel id selection so that condition is not hit.
+
+(cherry picked from commit 1d9fd2aec00cb85034e5a23cc1beac33c74e0110)
+Conflicts:
+        neutron/plugins/ml2/drivers/helpers.py
+
+Related-Bug: #1382064
+Closes-Bug: #1454434
+Change-Id: I7068f90fe4927e6e693f8a62cb704213b2da2920
+(cherry picked from commit 07d3d4401f34a19b23738296c189122eeef9150f)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/plugins/ml2/drivers/helpers.py | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/neutron/plugins/ml2/drivers/helpers.py b/neutron/plugins/ml2/drivers/helpers.py
+index 938a244..cc3afff 100644
+--- a/neutron/plugins/ml2/drivers/helpers.py
++++ b/neutron/plugins/ml2/drivers/helpers.py
+@@ -13,6 +13,8 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
++import random
++
+ from oslo.db import exception as db_exc
+ 
+ from neutron.common import exceptions as exc
+@@ -20,9 +22,7 @@ from neutron.openstack.common import log
+ from neutron.plugins.ml2 import driver_api as api
+ 
+ 
+-# Number of retries to find a valid segment candidate and allocate it
+-DB_MAX_RETRIES = 10
+-
++IDPOOL_SELECT_SIZE = 100
+ 
+ LOG = log.getLogger(__name__)
+ 
+@@ -107,12 +107,13 @@ class TypeDriverHelper(api.TypeDriver):
+                       filter_by(allocated=False, **filters))
+ 
+             # Selected segment can be allocated before update by someone else,
+-            alloc = select.first()
++            allocs = select.limit(IDPOOL_SELECT_SIZE).all()
+ 
+-            if not alloc:
++            if not allocs:
+                 # No resource available
+                 return
+ 
++            alloc = random.choice(allocs)
+             raw_segment = dict((k, alloc[k]) for k in self.primary_keys)
+             LOG.debug("%(type)s segment allocate from pool "
+                       "started with %(segment)s ",
+-- 
+2.6.4
+

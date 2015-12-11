@@ -1,0 +1,30 @@
+From 7e4fee08666894cc3c4f9672df1df42ee25debd6 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 2 Sep 2015 15:56:26 +0800
+Subject: [PATCH 24/25] Fix wrong class inheritance
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/qos_plugin.py | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/neutron/services/qos/qos_plugin.py b/neutron/services/qos/qos_plugin.py
+index 4e72306..a1cc213 100644
+--- a/neutron/services/qos/qos_plugin.py
++++ b/neutron/services/qos/qos_plugin.py
+@@ -16,11 +16,9 @@
+ from neutron.api.rpc.agentnotifiers import qos_rpc_agent_api
+ from neutron.common import rpc as n_rpc
+ from neutron.db.qos import qos_rpc
+-from neutron.db import portbindings_db
+ 
+ 
+-class QosPlugin(qos_rpc.QosServerRpcServerMixin,
+-                portbindings_db.PortBindingMixin):
++class QosPlugin(qos_rpc.QosServerRpcServerMixin):
+ 
+     supported_extension_aliases = ['qos']
+ 
+-- 
+2.6.4
+
