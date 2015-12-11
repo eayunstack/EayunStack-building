@@ -1,0 +1,36 @@
+From 600eed357e1028fac3d2fcfff1937ecc6b985dce Mon Sep 17 00:00:00 2001
+From: "Denis V. Meltsaykin" <dmeltsaykin@mirantis.com>
+Date: Mon, 15 Jun 2015 17:33:36 +0300
+Subject: [PATCH 7/9] Fix possible usage of undefined variable
+
+In reconnect() the variable is defined after it's being used in
+if-section. This could lead to undefined behavior while getting
+timeout exception.
+
+Closes-Bug: #1465314
+
+Change-Id: I97720f793728af2158152b7aafcc0ca9a45a6b07
+(cherry picked from commit 3ac14ae54881d47a96cb506ca3fcad39f245d42c)
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 75be24a..939d835 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -615,9 +615,9 @@ class Connection(object):
+                 # a protocol response.  (See paste link in LP888621)
+                 # So, we check all exceptions for 'timeout' in them
+                 # and try to reconnect in this case.
+-                if 'timeout' not in six.text_type(ex):
+-                    raise
+                 e = ex
++                if 'timeout' not in six.text_type(e):
++                    raise
+ 
+             log_info = {}
+             log_info['err_str'] = e
+-- 
+2.4.3
+

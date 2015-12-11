@@ -1,9 +1,10 @@
 %global sname oslo.messaging
 %global milestone a5
+%global dist_eayunstack .eayunstack.1.0.1
 
 Name:       python-oslo-messaging
 Version:    1.4.1
-Release:    3%{?dist}
+Release:    4%{?dist_eayunstack}
 Summary:    OpenStack common messaging library
 
 Group:      Development/Languages
@@ -14,6 +15,12 @@ Source0:    https://pypi.python.org/packages/source/o/%{sname}/%{sname}-1.4.1.ta
 Patch0001: 0001-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
 Patch0002: 0002-Create-a-new-connection-when-a-process-fork-has-been.patch
 Patch0003: 0003-Fix-typo-in-reconnect-exception-handler.patch
+Patch0004: 0004-Fix-_poll_connection-not-timeout-issue-1-2.patch
+Patch0005: 0005-update-requirements-to-pass-unittest.patch
+Patch0006: 0006-Fix-_poll_connection-not-timeout-issue-2-2.patch
+Patch0007: 0007-Fix-possible-usage-of-undefined-variable.patch
+Patch0008: 0008-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
+Patch0009: 0009-Fix-list_opts-test-to-not-check-all-deps.patch
 
 BuildArch:  noarch
 Requires:   python-setuptools
@@ -67,6 +74,12 @@ Documentation for the oslo.messaging library.
 %patch0001 -p1
 %patch0002 -p1
 %patch0003 -p1
+%patch0004 -p1
+%patch0005 -p1
+%patch0006 -p1
+%patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
 
 # Remove bundled egg-info
 rm -rf %{sname}.egg-info
@@ -109,6 +122,14 @@ rm -fr doc/build/html/.buildinfo
 %doc doc/build/html LICENSE
 
 %changelog
+* Fri Dec 11 2015 apporc <appleorchard2000@gmail.com> - 1.4.1-4.eayunstack.1.0.1
+- 0004-Fix-_poll_connection-not-timeout-issue-1-2.patch
+- 0005-update-requirements-to-pass-unittest.patch
+- 0006-Fix-_poll_connection-not-timeout-issue-2-2.patch
+- 0007-Fix-possible-usage-of-undefined-variable.patch
+- 0008-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
+- 0009-Fix-list_opts-test-to-not-check-all-deps.patch
+
 * Thu Jan 08 2015 Alan Pevec <apevec@redhat.com> - 1.4.1-3
 - Fix reconnect exception handler (Dan Smith) rhbz#1175685
 
