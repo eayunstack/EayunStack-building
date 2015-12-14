@@ -1,10 +1,10 @@
 %global release_name juno
 
-%global dist_eayunstack .eayunstack.1.0.1
+%global dist_eayunstack .eayunstack.1.1
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18%{?dist_eayunstack}
+Release:	19%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -68,6 +68,10 @@ Patch0022: 0022-fix-redmine-4541.patch
 Patch0023: 0023-Check-whether-target-s-tenant-is-the-same-with-qos.patch
 Patch0024: 0024-Fix-wrong-class-inheritance.patch
 Patch0025: 0025-Refine-database-relationships.patch
+Patch0026: 0026-Implement-portmapping-feature.patch
+Patch0027: 0027-Implement-firewall-target-routers.patch
+Patch0028: 0028-Implement-PPTP-VPN-feature.patch
+Patch0029: 0029-Catch-broad-exception-in-methods-used-in-FixedInterv.patch
 
 BuildArch:	noarch
 
@@ -570,6 +574,10 @@ IPSec.
 %patch0023 -p1
 %patch0024 -p1
 %patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1030,6 +1038,12 @@ exit 0
 
 
 %changelog
+* Mon Dec 14 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-19.eayunstack.1.1
+- add patch 0026 from github pull request #10, #16 (redemine#4543)
+- add patch 0027 from github pull request #11, #19 (redemine#4674)
+- add patch 0028 from github pull request #15, #18, #20
+- add patch 0029 from github pull request #21
+
 * Fri Dec 11 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.eayunstack.1.0.1
 - add patch 0015 and 0016 from github pull request #12 (redemine#5360)
 - add patch 0017-0019 from github pull request #13 (redmine#5500)

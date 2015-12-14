@@ -1,0 +1,491 @@
+From 3c3b96aa0ba30e3f0c03b037a65960d9b1a17dcc Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 19 Aug 2015 18:18:10 +0800
+Subject: [PATCH 27/28] Implement firewall target routers
+
+This patch allows users to specify which router(s) the firewall should
+be bound to, making the usage of FWaaS more flexible.
+
+Usage:
+* to bind the firewall to the specified router(s) or update the
+  bindings:
+  - neutron firewall-create/update ... --fw_target_routers list=true \
+    router_id1, router_id2
+
+* to clear the bindings (i.e., make the firewall active on all routers
+  of the tenant):
+  - neutron firewall-update ... --fw_target_routers action=clear
+
+Fixes: redmine #4674
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/db/firewall/firewall_db.py                 | 10 ++-
+ neutron/db/firewall/targetrouters_db.py            | 91 ++++++++++++++++++++++
+ neutron/db/l3_db.py                                |  5 ++
+ .../eayun_fw_target_router_init_ops.py             | 33 ++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ .../versions/eayun_fw_target_router.py             | 38 +++++++++
+ neutron/extensions/firewall.py                     |  1 +
+ neutron/extensions/firewall_target_routers.py      | 67 ++++++++++++++++
+ .../firewall/drivers/linux/iptables_fwaas.py       | 25 ++++--
+ neutron/services/firewall/fwaas_plugin.py          | 20 ++++-
+ 10 files changed, 281 insertions(+), 11 deletions(-)
+ create mode 100644 neutron/db/firewall/targetrouters_db.py
+ create mode 100644 neutron/db/migration/alembic_migrations/eayun_fw_target_router_init_ops.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/eayun_fw_target_router.py
+ create mode 100644 neutron/extensions/firewall_target_routers.py
+
+diff --git a/neutron/db/firewall/firewall_db.py b/neutron/db/firewall/firewall_db.py
+index cdc1537..65f27e4 100644
+--- a/neutron/db/firewall/firewall_db.py
++++ b/neutron/db/firewall/firewall_db.py
+@@ -90,6 +90,12 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
+     def _core_plugin(self):
+         return manager.NeutronManager.get_plugin()
+ 
++    @classmethod
++    def register_dict_extend_funcs(cls, resource, funcs):
++        cur_funcs = cls._dict_extend_functions.get(resource, [])
++        cur_funcs.extend(funcs)
++        cls._dict_extend_functions[resource] = cur_funcs
++
+     def _get_firewall(self, context, id):
+         try:
+             return self._get_by_id(context, Firewall, id)
+@@ -108,7 +114,7 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
+         except exc.NoResultFound:
+             raise firewall.FirewallRuleNotFound(firewall_rule_id=id)
+ 
+-    def _make_firewall_dict(self, fw, fields=None):
++    def _make_firewall_dict(self, fw, fields=None, process_extensions=True):
+         res = {'id': fw['id'],
+                'tenant_id': fw['tenant_id'],
+                'name': fw['name'],
+@@ -117,6 +123,8 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
+                'admin_state_up': fw['admin_state_up'],
+                'status': fw['status'],
+                'firewall_policy_id': fw['firewall_policy_id']}
++        if process_extensions:
++            self._apply_dict_extend_functions(firewall.FIREWALLS, res, fw)
+         return self._fields(res, fields)
+ 
+     def _make_firewall_policy_dict(self, firewall_policy, fields=None):
+diff --git a/neutron/db/firewall/targetrouters_db.py b/neutron/db/firewall/targetrouters_db.py
+new file mode 100644
+index 0000000..5f9515b
+--- /dev/null
++++ b/neutron/db/firewall/targetrouters_db.py
+@@ -0,0 +1,91 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import sqlalchemy as sa
++from sqlalchemy import orm
++from sqlalchemy.orm import exc
++
++from neutron.db import common_db_mixin as base_db
++from neutron.db import model_base
++from neutron.db import l3_db
++from neutron.db.firewall import firewall_db
++from neutron.extensions.firewall import FIREWALLS
++from neutron.extensions import firewall_target_routers as fw_tr_ext
++from neutron.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++
++class FirewallRouterBinding(model_base.BASEV2):
++    firewall_id = sa.Column(sa.String(36),
++                            sa.ForeignKey('firewalls.id', ondelete='CASCADE'),
++                            primary_key=True)
++    router_id = sa.Column(sa.String(36),
++                          sa.ForeignKey('routers.id', ondelete='CASCADE'),
++                          primary_key=True)
++    firewalls = orm.relationship(
++        firewall_db.Firewall,
++        backref=orm.backref(fw_tr_ext.FW_TARGET_ROUTERS,
++                            lazy='joined', cascade='delete'))
++
++
++class FirewallTargetRoutersMixin(base_db.CommonDbMixin):
++    """Mixin class for firewall target routers."""
++
++    def _extend_firewall_dict_target_routers(self, firewall_res, firewall_db):
++        fw_target_routers = [
++            binding.router_id for binding
++            in firewall_db[fw_tr_ext.FW_TARGET_ROUTERS]]
++        firewall_res[fw_tr_ext.FW_TARGET_ROUTERS] = fw_target_routers
++        return firewall_res
++
++    firewall_db.Firewall_db_mixin.register_dict_extend_funcs(
++        FIREWALLS, ['_extend_firewall_dict_target_routers'])
++
++    def check_router_in_use(self, context, router_id):
++        mq = self._model_query(context, FirewallRouterBinding)
++        firewalls = [
++            binding.firewall_id for binding
++            in mq.filter_by(router_id=router_id)
++        ]
++        if firewalls:
++            raise fw_tr_ext.RouterInUseByFirewall(
++                router_id=router_id,
++                firewalls=firewalls)
++
++    def _process_create_firewall_target_routers(self, context,
++                                                firewall_id, router_ids):
++        with context.session.begin(subtransactions=True):
++            for router_id in router_ids:
++                try:
++                    self._get_by_id(context, l3_db.Router, router_id)
++                except exc.NoResultFound:
++                    LOG.warn(_('Router %s cannot be found'), router_id)
++                    continue
++                firewall_router_binding_db = FirewallRouterBinding(
++                    firewall_id=firewall_id,
++                    router_id=router_id)
++                context.session.add(firewall_router_binding_db)
++
++    def _get_target_routers(self, context, firewall_id):
++        mq = self._model_query(context, FirewallRouterBinding)
++        return [db.router_id for db in mq.filter_by(firewall_id=firewall_id)]
++
++    def _delete_target_routers(self, context, firewall_id):
++        mq = self._model_query(context, FirewallRouterBinding)
++        with context.session.begin(subtransactions=True):
++            mq.filter(
++                FirewallRouterBinding.firewall_id == firewall_id
++            ).delete()
+diff --git a/neutron/db/l3_db.py b/neutron/db/l3_db.py
+index 5c3e1fc..c0a4c1e 100644
+--- a/neutron/db/l3_db.py
++++ b/neutron/db/l3_db.py
+@@ -429,6 +429,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+             if vpnservice:
+                 vpnservice.check_router_in_use(context, id)
+ 
++            fwservice = manager.NeutronManager.get_service_plugins().get(
++                constants.FIREWALL)
++            if fwservice:
++                fwservice.check_router_in_use(context, id)
++
+             router_ports = router.attached_ports.all()
+             # Set the router's gw_port to None to avoid a constraint violation.
+             router.gw_port = None
+diff --git a/neutron/db/migration/alembic_migrations/eayun_fw_target_router_init_ops.py b/neutron/db/migration/alembic_migrations/eayun_fw_target_router_init_ops.py
+new file mode 100644
+index 0000000..2764034
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/eayun_fw_target_router_init_ops.py
+@@ -0,0 +1,33 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.create_table(
++        'firewallrouterbindings',
++        sa.Column('firewall_id', sa.String(length=36), nullable=False),
++        sa.Column('router_id', sa.String(length=36), nullable=False),
++        sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
++                                ondelete='CASCADE'),
++        sa.ForeignKeyConstraint(['firewall_id'], ['firewalls.id'],
++                                ondelete='CASCADE'),
++    )
++
++
++def downgrade():
++    op.drop_table('firewallrouterbindings')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 36542b9..d94bd9e 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-eayun_portmapping
++eayun_fw_target_router
+diff --git a/neutron/db/migration/alembic_migrations/versions/eayun_fw_target_router.py b/neutron/db/migration/alembic_migrations/versions/eayun_fw_target_router.py
+new file mode 100644
+index 0000000..42d01e9
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/eayun_fw_target_router.py
+@@ -0,0 +1,38 @@
++# Copyright (c) 2015 Eayun, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""eayun_fw_target_router
++
++Revision ID: eayun_fw_target_router
++Revises: eayun_portmapping
++Create Date: 2015-08-19 14:00:00.000000
++
++"""
++from neutron.db.migration.alembic_migrations import (
++    eayun_fw_target_router_init_ops
++)
++
++
++# revision identifiers, used by Alembic.
++revision = 'eayun_fw_target_router'
++down_revision = 'eayun_portmapping'
++
++
++def upgrade():
++    eayun_fw_target_router_init_ops.upgrade()
++
++
++def downgrade():
++    eayun_fw_target_router_init_ops.downgrade()
+diff --git a/neutron/extensions/firewall.py b/neutron/extensions/firewall.py
+index dbf9215..08bfafd 100644
+--- a/neutron/extensions/firewall.py
++++ b/neutron/extensions/firewall.py
+@@ -222,6 +222,7 @@ def _validate_ip_or_subnet_or_none(data, valid_values=None):
+ attr.validators['type:port_range'] = _validate_port_range
+ attr.validators['type:ip_or_subnet_or_none'] = _validate_ip_or_subnet_or_none
+ 
++FIREWALLS = 'firewalls'
+ 
+ RESOURCE_ATTRIBUTE_MAP = {
+     'firewall_rules': {
+diff --git a/neutron/extensions/firewall_target_routers.py b/neutron/extensions/firewall_target_routers.py
+new file mode 100644
+index 0000000..c8817fb
+--- /dev/null
++++ b/neutron/extensions/firewall_target_routers.py
+@@ -0,0 +1,67 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++
++from neutron.api import extensions
++from neutron.api.v2 import attributes as attr
++from neutron.common import exceptions as nexception
++from neutron.extensions.firewall import FIREWALLS
++
++FW_TARGET_ROUTERS = 'fw_target_routers'
++
++
++class RouterInUseByFirewall(nexception.InUse):
++    message = _("Router %(router_id)s is used by firewalls: %(firewalls)s")
++
++
++EXTENDED_ATTRIBUTES_2_0 = {
++    FIREWALLS: {
++        FW_TARGET_ROUTERS: {'allow_post': True, 'allow_put': True,
++                            'validate': {'type:uuid_list': None},
++                            'convert_to': attr.convert_none_to_empty_list,
++                            'default': attr.ATTR_NOT_SPECIFIED,
++                            'is_visible': True},
++    }
++}
++
++
++class Firewall_target_routers(extensions.ExtensionDescriptor):
++    """Extension class supporting firewall target routers."""
++
++    @classmethod
++    def get_name(cls):
++        return "Firewall Target Routers"
++
++    @classmethod
++    def get_alias(cls):
++        return "firewall-target-routers"
++
++    @classmethod
++    def get_description(cls):
++        return "Allow specifying target routers for firewalls"
++
++    @classmethod
++    def get_namespace(cls):
++        return "https://github.com/eayunstack"
++
++    @classmethod
++    def get_updated(cls):
++        return "2015-08-18T12:00:00-00:00"
++
++    def get_extended_resources(self, version):
++        if version == "2.0":
++            return EXTENDED_ATTRIBUTES_2_0
++        else:
++            return {}
+diff --git a/neutron/services/firewall/drivers/linux/iptables_fwaas.py b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+index 7f4a2c1..b7d3a67 100644
+--- a/neutron/services/firewall/drivers/linux/iptables_fwaas.py
++++ b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+@@ -15,6 +15,7 @@
+ 
+ from neutron.agent.linux import iptables_manager
+ from neutron.extensions import firewall as fw_ext
++from neutron.extensions.firewall_target_routers import FW_TARGET_ROUTERS
+ from neutron.openstack.common import log as logging
+ from neutron.services.firewall.drivers import fwaas_base
+ 
+@@ -122,6 +123,7 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+         LOG.debug(_('Applying firewall %(fw_id)s for tenant %(tid)s)'),
+                   {'fw_id': firewall['id'], 'tid': firewall['tenant_id']})
+         fwid = firewall['id']
++        target_routers = firewall[FW_TARGET_ROUTERS]
+         try:
+             for router_info in apply_list:
+                 ipt_if_prefix_list = self._get_ipt_mgrs_with_if_prefix(
+@@ -132,9 +134,13 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+                     self._remove_chains(fwid, ipt_mgr)
+                     self._remove_default_chains(ipt_mgr)
+ 
+-                    # create default 'DROP ALL' policy chain
+-                    self._add_default_policy_chain_v4v6(ipt_mgr)
+-                    self._enable_policy_chain(fwid, ipt_if_prefix)
++                    if (
++                        not target_routers or
++                        router_info.router_id in target_routers
++                    ):
++                        # create default 'DROP ALL' policy chain
++                        self._add_default_policy_chain_v4v6(ipt_mgr)
++                        self._enable_policy_chain(fwid, ipt_if_prefix)
+ 
+                     # apply the changes immediately (no defer in firewall path)
+                     ipt_mgr.defer_apply_off()
+@@ -146,6 +152,7 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+ 
+     def _setup_firewall(self, agent_mode, apply_list, firewall):
+         fwid = firewall['id']
++        target_routers = firewall[FW_TARGET_ROUTERS]
+         for router_info in apply_list:
+             ipt_if_prefix_list = self._get_ipt_mgrs_with_if_prefix(
+                 agent_mode, router_info)
+@@ -155,10 +162,14 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+                 self._remove_chains(fwid, ipt_mgr)
+                 self._remove_default_chains(ipt_mgr)
+ 
+-                # create default 'DROP ALL' policy chain
+-                self._add_default_policy_chain_v4v6(ipt_mgr)
+-                #create chain based on configured policy
+-                self._setup_chains(firewall, ipt_if_prefix)
++                if (
++                    not target_routers or
++                    router_info.router_id in target_routers
++                ):
++                    # create default 'DROP ALL' policy chain
++                    self._add_default_policy_chain_v4v6(ipt_mgr)
++                    #create chain based on configured policy
++                    self._setup_chains(firewall, ipt_if_prefix)
+ 
+                 # apply the changes immediately (no defer in firewall path)
+                 ipt_mgr.defer_apply_off()
+diff --git a/neutron/services/firewall/fwaas_plugin.py b/neutron/services/firewall/fwaas_plugin.py
+index 49feefe..74a8903 100644
+--- a/neutron/services/firewall/fwaas_plugin.py
++++ b/neutron/services/firewall/fwaas_plugin.py
+@@ -19,8 +19,11 @@ from neutron.common import exceptions as n_exception
+ from neutron.common import rpc as n_rpc
+ from neutron.common import topics
+ from neutron import context as neutron_context
++from neutron.api.v2 import attributes as attr
+ from neutron.db.firewall import firewall_db
++from neutron.db.firewall import targetrouters_db
+ from neutron.extensions import firewall as fw_ext
++from neutron.extensions.firewall_target_routers import FW_TARGET_ROUTERS
+ from neutron.openstack.common import log as logging
+ from neutron.plugins.common import constants as const
+ 
+@@ -138,7 +141,8 @@ class FirewallCountExceeded(n_exception.Conflict):
+                 "%(tenant_id)s. Only one firewall is supported per tenant.")
+ 
+ 
+-class FirewallPlugin(firewall_db.Firewall_db_mixin):
++class FirewallPlugin(firewall_db.Firewall_db_mixin,
++                     targetrouters_db.FirewallTargetRoutersMixin):
+ 
+     """Implementation of the Neutron Firewall Service Plugin.
+ 
+@@ -146,7 +150,7 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
+     Most DB related works are implemented in class
+     firewall_db.Firewall_db_mixin.
+     """
+-    supported_extension_aliases = ["fwaas"]
++    supported_extension_aliases = ["fwaas", "firewall-target-routers"]
+ 
+     def __init__(self):
+         """Do the initialization for the firewall service plugin here."""
+@@ -220,7 +224,11 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
+                                             filters={'tenant_id': [tenant_id]})
+         if fw_count:
+             raise FirewallCountExceeded(tenant_id=tenant_id)
++        fw_target_routers = firewall['firewall'].pop(FW_TARGET_ROUTERS)
+         fw = super(FirewallPlugin, self).create_firewall(context, firewall)
++        if attr.is_attr_set(fw_target_routers):
++            self._process_create_firewall_target_routers(
++                context, fw['id'], fw_target_routers)
+         fw_with_rules = (
+             self._make_firewall_dict_with_rules(context, fw['id']))
+         self.agent_rpc.create_firewall(context, fw_with_rules)
+@@ -230,7 +238,15 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
+         LOG.debug(_("update_firewall() called"))
+         self._ensure_update_firewall(context, id)
+         firewall['firewall']['status'] = const.PENDING_UPDATE
++        new_targets = firewall['firewall'].pop(FW_TARGET_ROUTERS)
+         fw = super(FirewallPlugin, self).update_firewall(context, id, firewall)
++        if (
++            attr.is_attr_set(new_targets) and
++            new_targets != self._get_target_routers(context, id)
++        ):
++            self._delete_target_routers(context, id)
++            self._process_create_firewall_target_routers(
++                context, id, new_targets)
+         fw_with_rules = (
+             self._make_firewall_dict_with_rules(context, fw['id']))
+         self.agent_rpc.update_firewall(context, fw_with_rules)
+-- 
+2.6.4
+
