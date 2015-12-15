@@ -1,0 +1,73 @@
+From a69695ecede283b653ccee8dd2cd66a06303c693 Mon Sep 17 00:00:00 2001
+From: Jie Li <jie.li@easystack.cn>
+Date: Wed, 4 Mar 2015 15:47:59 +0800
+Subject: [PATCH 6/9] Fix _poll_connection not timeout issue (2/2)
+
+Backport bugfix about the last cherry-pick.
+
+The title of the commit in master was:
+  rabbit: fix timeout timer when duration is None
+
+but this was changed since it didn't describe the actual change.
+
+Change-Id: I7f4cb3075f776c63aa7dc497173677f92b68c16d
+(cherry picked from commit 44132d4344902f98007e6e58ea3bee56c701b400)
+(cherry picked from commit 2bb31d179345802e50fb0ed0042e296a39b41585)
+---
+ oslo/messaging/_drivers/common.py |  4 ++--
+ tests/test_utils.py               | 15 +++++++++++++++
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/common.py b/oslo/messaging/_drivers/common.py
+index 24fee5e..a8137bd 100644
+--- a/oslo/messaging/_drivers/common.py
++++ b/oslo/messaging/_drivers/common.py
+@@ -360,13 +360,13 @@ class DecayingTimer(object):
+             self._ends_at = time.time() + max(0, self._duration)
+ 
+     def check_return(self, timeout_callback, *args, **kwargs):
++        maximum = kwargs.pop('maximum', None)
+         if self._duration is None:
+-            return None
++            return None if maximum is None else maximum
+         if self._ends_at is None:
+             raise RuntimeError(_("Can not check/return a timeout from a timer"
+                                " that has not been started."))
+ 
+-        maximum = kwargs.pop('maximum', None)
+         left = self._ends_at - time.time()
+         if left <= 0:
+             timeout_callback(*args, **kwargs)
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index 1321009..38ee1d0 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -13,6 +13,7 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
++from oslo.messaging._drivers import common
+ from oslo.messaging import _utils as utils
+ from tests import utils as test_utils
+ 
+@@ -47,3 +48,17 @@ class VersionIsCompatibleTestCase(test_utils.BaseTestCase):
+ 
+     def test_version_is_compatible_no_rev_is_zero(self):
+         self.assertTrue(utils.version_is_compatible('1.23.0', '1.23'))
++
++
++class TimerTestCase(test_utils.BaseTestCase):
++    def test_duration_is_none(self):
++        t = common.DecayingTimer()
++        t.start()
++        remaining = t.check_return(None)
++        self.assertEqual(None, remaining)
++
++    def test_duration_is_none_and_maximun_set(self):
++        t = common.DecayingTimer()
++        t.start()
++        remaining = t.check_return(None, maximum=2)
++        self.assertEqual(2, remaining)
+-- 
+2.4.3
+
