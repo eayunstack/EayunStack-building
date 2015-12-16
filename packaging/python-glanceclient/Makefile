@@ -1,4 +1,4 @@
-srpm_repo = http://192.168.3.239:11080/pulp/repos/rdo/openstack-juno/epel-7
+srpm_repo = http://192.168.2.65:11080/pulp/repos/rdo/openstack-juno/epel-7
 base_srpm = python-glanceclient-0.15.0-1.el7.centos.src.rpm
 spec_file = python-glanceclient.spec
 
