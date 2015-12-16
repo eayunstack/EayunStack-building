@@ -1,0 +1,253 @@
+From 0fb7c0e786d7f4d06325f40aa6fd1e2ee8106300 Mon Sep 17 00:00:00 2001
+From: Dunrong Huang <dunrong.huang@eayun.com>
+Date: Tue, 7 Jul 2015 13:25:19 +0800
+Subject: [PATCH 2/5] private-type: fix db scripts
+
+the db version should be 27 rather than 32, since our cinder
+version is juno not kilo.
+
+Signed-off-by: Dunrong Huang <dunrong.huang@eayun.com>
+---
+ .../versions/027_add_volume_type_projects.py       | 74 ++++++++++++++++++++++
+ .../migrate_repo/versions/027_sqlite_downgrade.sql | 29 +++++++++
+ .../versions/032_add_volume_type_projects.py       | 74 ----------------------
+ .../migrate_repo/versions/032_sqlite_downgrade.sql | 29 ---------
+ 4 files changed, 103 insertions(+), 103 deletions(-)
+ create mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/027_add_volume_type_projects.py
+ create mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/027_sqlite_downgrade.sql
+ delete mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/032_add_volume_type_projects.py
+ delete mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/032_sqlite_downgrade.sql
+
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/027_add_volume_type_projects.py b/cinder/db/sqlalchemy/migrate_repo/versions/027_add_volume_type_projects.py
+new file mode 100644
+index 0000000..693e4a7
+--- /dev/null
++++ b/cinder/db/sqlalchemy/migrate_repo/versions/027_add_volume_type_projects.py
+@@ -0,0 +1,74 @@
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from sqlalchemy import Boolean, Column, DateTime, UniqueConstraint
++from sqlalchemy import Integer, MetaData, String, Table, ForeignKey
++
++from cinder.i18n import _
++from cinder.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++
++def upgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++    volume_types = Table('volume_types', meta, autoload=True)
++    is_public = Column('is_public', Boolean)
++
++    try:
++        volume_types.create_column(is_public)
++        # pylint: disable=E1120
++        volume_types.update().values(is_public=True).execute()
++    except Exception:
++        LOG.error(_("Column |%s| not created!"), repr(is_public))
++        raise
++
++    volume_type_projects = Table(
++        'volume_type_projects', meta,
++        Column('id', Integer, primary_key=True, nullable=False),
++        Column('created_at', DateTime),
++        Column('updated_at', DateTime),
++        Column('deleted_at', DateTime),
++        Column('volume_type_id', String(36),
++               ForeignKey('volume_types.id')),
++        Column('project_id', String(length=255)),
++        Column('deleted', Boolean(create_constraint=True, name=None)),
++        UniqueConstraint('volume_type_id', 'project_id', 'deleted'),
++        mysql_engine='InnoDB',
++    )
++
++    try:
++        volume_type_projects.create()
++    except Exception:
++        LOG.error(_("Table |%s| not created!"), repr(volume_type_projects))
++        raise
++
++
++def downgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    volume_types = Table('volume_types', meta, autoload=True)
++    is_public = volume_types.columns.is_public
++    try:
++        volume_types.drop_column(is_public)
++    except Exception:
++        LOG.error(_("volume_types.is_public column not dropped"))
++        raise
++
++    volume_type_projects = Table('volume_type_projects', meta, autoload=True)
++    try:
++        volume_type_projects.drop()
++    except Exception:
++        LOG.error(_("volume_type_projects table not dropped"))
++        raise
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/027_sqlite_downgrade.sql b/cinder/db/sqlalchemy/migrate_repo/versions/027_sqlite_downgrade.sql
+new file mode 100644
+index 0000000..ade3dc2
+--- /dev/null
++++ b/cinder/db/sqlalchemy/migrate_repo/versions/027_sqlite_downgrade.sql
+@@ -0,0 +1,29 @@
++-- As sqlite does not support the DROP CHECK, we need to create
++-- the table, and move all the data to it.
++
++CREATE TABLE volume_types_v31 (
++  created_at DATETIME,
++  updated_at DATETIME,
++  deleted_at DATETIME,
++  deleted BOOLEAN,
++  id VARCHAR(36) NOT NULL,
++  name VARCHAR(255),
++  qos_specs_id VARCHAR(36),
++  PRIMARY KEY (id),
++  CHECK (deleted IN (0, 1)),
++  FOREIGN KEY(qos_specs_id) REFERENCES quality_of_service_specs (id)
++);
++
++INSERT INTO volume_types_v31
++    SELECT created_at,
++        updated_at,
++        deleted_at,
++        deleted,
++        id,
++        name,
++        qos_specs_id
++    FROM volume_types;
++
++DROP TABLE volume_types;
++ALTER TABLE volume_types_v31 RENAME TO volume_types;
++DROP TABLE volume_type_projects;
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/032_add_volume_type_projects.py b/cinder/db/sqlalchemy/migrate_repo/versions/032_add_volume_type_projects.py
+deleted file mode 100644
+index 693e4a7..0000000
+--- a/cinder/db/sqlalchemy/migrate_repo/versions/032_add_volume_type_projects.py
++++ /dev/null
+@@ -1,74 +0,0 @@
+-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+-#    not use this file except in compliance with the License. You may obtain
+-#    a copy of the License at
+-#
+-#         http://www.apache.org/licenses/LICENSE-2.0
+-#
+-#    Unless required by applicable law or agreed to in writing, software
+-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+-#    License for the specific language governing permissions and limitations
+-#    under the License.
+-
+-from sqlalchemy import Boolean, Column, DateTime, UniqueConstraint
+-from sqlalchemy import Integer, MetaData, String, Table, ForeignKey
+-
+-from cinder.i18n import _
+-from cinder.openstack.common import log as logging
+-
+-LOG = logging.getLogger(__name__)
+-
+-
+-def upgrade(migrate_engine):
+-    meta = MetaData()
+-    meta.bind = migrate_engine
+-    volume_types = Table('volume_types', meta, autoload=True)
+-    is_public = Column('is_public', Boolean)
+-
+-    try:
+-        volume_types.create_column(is_public)
+-        # pylint: disable=E1120
+-        volume_types.update().values(is_public=True).execute()
+-    except Exception:
+-        LOG.error(_("Column |%s| not created!"), repr(is_public))
+-        raise
+-
+-    volume_type_projects = Table(
+-        'volume_type_projects', meta,
+-        Column('id', Integer, primary_key=True, nullable=False),
+-        Column('created_at', DateTime),
+-        Column('updated_at', DateTime),
+-        Column('deleted_at', DateTime),
+-        Column('volume_type_id', String(36),
+-               ForeignKey('volume_types.id')),
+-        Column('project_id', String(length=255)),
+-        Column('deleted', Boolean(create_constraint=True, name=None)),
+-        UniqueConstraint('volume_type_id', 'project_id', 'deleted'),
+-        mysql_engine='InnoDB',
+-    )
+-
+-    try:
+-        volume_type_projects.create()
+-    except Exception:
+-        LOG.error(_("Table |%s| not created!"), repr(volume_type_projects))
+-        raise
+-
+-
+-def downgrade(migrate_engine):
+-    meta = MetaData()
+-    meta.bind = migrate_engine
+-
+-    volume_types = Table('volume_types', meta, autoload=True)
+-    is_public = volume_types.columns.is_public
+-    try:
+-        volume_types.drop_column(is_public)
+-    except Exception:
+-        LOG.error(_("volume_types.is_public column not dropped"))
+-        raise
+-
+-    volume_type_projects = Table('volume_type_projects', meta, autoload=True)
+-    try:
+-        volume_type_projects.drop()
+-    except Exception:
+-        LOG.error(_("volume_type_projects table not dropped"))
+-        raise
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/032_sqlite_downgrade.sql b/cinder/db/sqlalchemy/migrate_repo/versions/032_sqlite_downgrade.sql
+deleted file mode 100644
+index ade3dc2..0000000
+--- a/cinder/db/sqlalchemy/migrate_repo/versions/032_sqlite_downgrade.sql
++++ /dev/null
+@@ -1,29 +0,0 @@
+--- As sqlite does not support the DROP CHECK, we need to create
+--- the table, and move all the data to it.
+-
+-CREATE TABLE volume_types_v31 (
+-  created_at DATETIME,
+-  updated_at DATETIME,
+-  deleted_at DATETIME,
+-  deleted BOOLEAN,
+-  id VARCHAR(36) NOT NULL,
+-  name VARCHAR(255),
+-  qos_specs_id VARCHAR(36),
+-  PRIMARY KEY (id),
+-  CHECK (deleted IN (0, 1)),
+-  FOREIGN KEY(qos_specs_id) REFERENCES quality_of_service_specs (id)
+-);
+-
+-INSERT INTO volume_types_v31
+-    SELECT created_at,
+-        updated_at,
+-        deleted_at,
+-        deleted,
+-        id,
+-        name,
+-        qos_specs_id
+-    FROM volume_types;
+-
+-DROP TABLE volume_types;
+-ALTER TABLE volume_types_v31 RENAME TO volume_types;
+-DROP TABLE volume_type_projects;
+-- 
+2.1.4
+
