@@ -1,0 +1,98 @@
+From c05e03cbafd3656eb8dfabafe6744046f4b6c35a Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Sun, 26 Jul 2015 14:06:03 +0800
+Subject: [PATCH 23/25] Check whether target's tenant is the same with qos
+
+Fixes: redmine #4542
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py  | 12 ++++++------
+ neutron/db/qos/qos_rpc.py | 10 +++++++---
+ neutron/extensions/qos.py |  5 +++++
+ 3 files changed, 18 insertions(+), 9 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 23fee91..891c213 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -224,9 +224,9 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+             raise ext_qos.QosRateTooSmall(id=qos_id, rate=qos['rate'])
+ 
+         if qos['router_id']:
+-            self._check_router(context, qos['router_id'])
++            self._check_router(context, qos['router_id'], tenant_id)
+         elif qos['port_id']:
+-            self._check_port(context, qos['port_id'])
++            self._check_port(context, qos['port_id'], tenant_id)
+ 
+         siblings = self._get_qos_siblings(
+             context,
+@@ -261,13 +261,13 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+ 
+         router_id = qos.get('router_id', None)
+         port_id = qos.get('port_id', None)
+-        if router_id:
+-            self._check_router(context, router_id)
+-        elif port_id:
+-            self._check_port(context, port_id)
+ 
+         with context.session.begin(subtransactions=True):
+             qos_db = self._get_qos(context, id)
++            if router_id:
++                self._check_router(context, router_id, qos_db.tenant_id)
++            elif port_id:
++                self._check_port(context, port_id, qos_db.tenant_id)
+             qos_queue_db = self._get_qos_queue(context,
+                                                qos_db.default_queue_id)
+ 
+diff --git a/neutron/db/qos/qos_rpc.py b/neutron/db/qos/qos_rpc.py
+index bb723a2..0906852 100644
+--- a/neutron/db/qos/qos_rpc.py
++++ b/neutron/db/qos/qos_rpc.py
+@@ -82,19 +82,23 @@ class QosServerRpcServerMixin(qos_db.QosDbMixin):
+ 
+         return ret
+ 
+-    def _check_port(self, context, port_id):
++    def _check_port(self, context, port_id, tenant_id):
+         plugin = manager.NeutronManager.get_plugin()
+         adminContext = context if context.is_admin else context.elevated()
+         port = plugin.get_port(adminContext, port_id)
+         if not port['device_owner'].startswith('compute'):
+             raise ext_qos.QosInvalidPortType(
+                 port_id=port_id, port_type=port['device_owner'])
++        if not port['tenant_id'] == tenant_id:
++            raise ext_qos.QosTargetNotOwnedByTenant(target_id=port_id)
+ 
+-    def _check_router(self, context, router_id):
++    def _check_router(self, context, router_id, tenant_id):
+         plugin = manager.NeutronManager.get_service_plugins().get(
+             service_constants.L3_ROUTER_NAT)
+         adminContext = context if context.is_admin else context.elevated()
+-        plugin.get_router(adminContext, router_id)
++        router = plugin.get_router(adminContext, router_id)
++        if not router['tenant_id'] == tenant_id:
++            raise ext_qos.QosTargetNotOwnedByTenant(target_id=router_id)
+ 
+     def sync_qos(self, context, qos_list, host):
+         hosting_qos = self._get_qos_on_host(context, host)
+diff --git a/neutron/extensions/qos.py b/neutron/extensions/qos.py
+index f2eec1b..855902c 100644
+--- a/neutron/extensions/qos.py
++++ b/neutron/extensions/qos.py
+@@ -123,6 +123,11 @@ class QosInvalidPortValue(nexception.InvalidInput):
+                 "It must be None or between 1 to 65535.")
+ 
+ 
++class QosTargetNotOwnedByTenant(nexception.Conflict):
++    message = _("The following target %(target_id)s is not owned by your "
++                "tenant.")
++
++
+ def convert_to_tc_u32(value):
+     """ Callers should at least catch ValueError and TypeError. """
+     u32 = int(value)
+-- 
+2.6.4
+

@@ -1,0 +1,136 @@
+From 950b6096a233b8c4312ea37cdb22267083da08bc Mon Sep 17 00:00:00 2001
+From: Elena Ezhova <eezhova@mirantis.com>
+Date: Wed, 24 Dec 2014 17:09:32 +0300
+Subject: [PATCH 17/25] Remove port from ovsdb after its deletion
+
+When port is being deleted via API it is not removed
+from ovsdb and corresponding iptables chains remain
+even though the port does not exist.
+
+This patch adds a notification for the ovs neutron agent,
+upon which the port is deleted from ovsdb.
+
+Co-Authored-By: Akash Gangil <akashg1611@gmail.com>
+Closes-Bug: #1333365
+Change-Id: Iccda3bee98d561ef3a06d0317d3d68d6b1dfb76b
+(cherry picked from commit d6a55c17360d1aa8ca91849199987ae71e8600ee)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/plugins/ml2/plugin.py                            |  1 +
+ neutron/plugins/ml2/rpc.py                               |  9 +++++++++
+ neutron/plugins/openvswitch/agent/ovs_neutron_agent.py   |  8 ++++++++
+ neutron/tests/unit/ml2/test_rpcapi.py                    | 10 ++++++++++
+ neutron/tests/unit/openvswitch/test_ovs_neutron_agent.py | 14 ++++++++++++++
+ 5 files changed, 42 insertions(+)
+
+diff --git a/neutron/plugins/ml2/plugin.py b/neutron/plugins/ml2/plugin.py
+index d744f19..5b84875 100644
+--- a/neutron/plugins/ml2/plugin.py
++++ b/neutron/plugins/ml2/plugin.py
+@@ -1042,6 +1042,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+             # fact that an error occurred.
+             LOG.error(_("mechanism_manager.delete_port_postcommit failed for "
+                         "port %s"), id)
++        self.notifier.port_delete(context, id)
+         self.notify_security_groups_member_updated(context, port)
+ 
+     def get_bound_port_context(self, plugin_context, port_id, host=None):
+diff --git a/neutron/plugins/ml2/rpc.py b/neutron/plugins/ml2/rpc.py
+index d9cb07e..9ada381 100644
+--- a/neutron/plugins/ml2/rpc.py
++++ b/neutron/plugins/ml2/rpc.py
+@@ -194,6 +194,9 @@ class AgentNotifierApi(n_rpc.RpcProxy,
+         self.topic_port_update = topics.get_topic_name(topic,
+                                                        topics.PORT,
+                                                        topics.UPDATE)
++        self.topic_port_delete = topics.get_topic_name(topic,
++                                                       topics.PORT,
++                                                       topics.DELETE)
+ 
+     def network_delete(self, context, network_id):
+         self.fanout_cast(context,
+@@ -210,3 +213,9 @@ class AgentNotifierApi(n_rpc.RpcProxy,
+                                        segmentation_id=segmentation_id,
+                                        physical_network=physical_network),
+                          topic=self.topic_port_update)
++
++    def port_delete(self, context, port_id):
++        self.fanout_cast(context,
++                         self.make_msg('port_delete',
++                                       port_id=port_id),
++                         topic=self.topic_port_delete)
+diff --git a/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py b/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
+index 8901cde..8d4a740 100644
+--- a/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
++++ b/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
+@@ -275,6 +275,7 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
+         self.endpoints = [self]
+         # Define the listening consumers for the agent
+         consumers = [[topics.PORT, topics.UPDATE],
++                     [topics.PORT, topics.DELETE],
+                      [topics.NETWORK, topics.DELETE],
+                      [constants.TUNNEL, topics.UPDATE],
+                      [topics.SECURITY_GROUP, topics.UPDATE],
+@@ -316,6 +317,13 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
+         self.updated_ports.add(port['id'])
+         LOG.debug(_("port_update message processed for port %s"), port['id'])
+ 
++    def port_delete(self, context, **kwargs):
++        port_id = kwargs.get('port_id')
++        port = self.int_br.get_vif_port_by_id(port_id)
++        # If port exists, delete it
++        if port:
++            self.int_br.delete_port(port.port_name)
++
+     def tunnel_update(self, context, **kwargs):
+         LOG.debug(_("tunnel_update received"))
+         if not self.enable_tunneling:
+diff --git a/neutron/tests/unit/ml2/test_rpcapi.py b/neutron/tests/unit/ml2/test_rpcapi.py
+index f955df1..c74feed 100644
+--- a/neutron/tests/unit/ml2/test_rpcapi.py
++++ b/neutron/tests/unit/ml2/test_rpcapi.py
+@@ -210,6 +210,16 @@ class RpcApiTestCase(base.BaseTestCase):
+                            segmentation_id='fake_segmentation_id',
+                            physical_network='fake_physical_network')
+ 
++    def test_port_delete(self):
++        rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
++        self._test_rpc_api(
++            rpcapi,
++            topics.get_topic_name(topics.AGENT,
++                                  topics.PORT,
++                                  topics.DELETE),
++            'port_delete', rpc_method='cast',
++            fanout=True, port_id='fake_port')
++
+     def test_tunnel_update(self):
+         rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
+         self._test_rpc_api(rpcapi,
+diff --git a/neutron/tests/unit/openvswitch/test_ovs_neutron_agent.py b/neutron/tests/unit/openvswitch/test_ovs_neutron_agent.py
+index 64ba72a..59db133 100644
+--- a/neutron/tests/unit/openvswitch/test_ovs_neutron_agent.py
++++ b/neutron/tests/unit/openvswitch/test_ovs_neutron_agent.py
+@@ -834,6 +834,20 @@ class TestOvsNeutronAgent(base.BaseTestCase):
+                                physical_network="physnet")
+         self.assertEqual(set(['123']), self.agent.updated_ports)
+ 
++    def test_port_delete(self):
++        port_id = "123"
++        port_name = "foo"
++        with contextlib.nested(
++            mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
++                              return_value=mock.MagicMock(
++                                      port_name=port_name)),
++            mock.patch.object(self.agent.int_br, "delete_port")
++        ) as (get_vif_func, del_port_func):
++            self.agent.port_delete("unused_context",
++                                   port_id=port_id)
++            self.assertTrue(get_vif_func.called)
++            del_port_func.assert_called_once_with(port_name)
++
+     def test_setup_physical_bridges(self):
+         with contextlib.nested(
+             mock.patch.object(ip_lib, "device_exists"),
+-- 
+2.6.4
+

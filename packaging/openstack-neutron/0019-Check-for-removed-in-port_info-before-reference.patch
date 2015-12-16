@@ -1,0 +1,51 @@
+From aec4117e6490b2b50a0d10a527553f76cfd98ab1 Mon Sep 17 00:00:00 2001
+From: Kevin Benton <blak111@gmail.com>
+Date: Tue, 2 Jun 2015 16:52:14 -0700
+Subject: [PATCH 19/25] Check for 'removed' in port_info before reference
+
+scan_ports can return early on no changes, in which case
+'removed' won't be present in the dict. The deleted_ports
+logic wasn't setup to handle that.
+
+This patch checks for the key before trying to reference it.
+
+Change-Id: I0e2c6d76515ad8e2a2addc8d40451ac003a150f7
+Closes-Bug: #1461325
+(cherry picked from commit 75f3aaa4cc42c2c1280f6c578e27e64cff8f860c)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/plugins/openvswitch/agent/ovs_neutron_agent.py | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py b/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
+index 8fcf4b3..4efbf8c 100644
+--- a/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
++++ b/neutron/plugins/openvswitch/agent/ovs_neutron_agent.py
+@@ -324,7 +324,11 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
+         self.deleted_ports.add(port_id)
+         LOG.debug("port_delete message processed for port %s", port_id)
+ 
+-    def process_deleted_ports(self):
++    def process_deleted_ports(self, port_info):
++        # don't try to process removed ports as deleted ports since
++        # they are already gone
++        if 'removed' in port_info:
++            self.deleted_ports -= port_info['removed']
+         while self.deleted_ports:
+             port_id = self.deleted_ports.pop()
+             # Flush firewall rules and move to dead VLAN so deleted ports no
+@@ -1410,10 +1414,7 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
+                     self.updated_ports = set()
+                     reg_ports = (set() if ovs_restarted else ports)
+                     port_info = self.scan_ports(reg_ports, updated_ports_copy)
+-                    # don't try to process removed ports as deleted ports since
+-                    # they are already gone
+-                    self.deleted_ports -= port_info['removed']
+-                    self.process_deleted_ports()
++                    self.process_deleted_ports(port_info)
+                     LOG.debug(_("Agent rpc_loop - iteration:%(iter_num)d - "
+                                 "port information retrieved. "
+                                 "Elapsed:%(elapsed).3f"),
+-- 
+2.6.4
+
