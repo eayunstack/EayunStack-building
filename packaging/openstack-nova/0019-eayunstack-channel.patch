@@ -1,0 +1,41 @@
+From beb367d72d85fcb153cdae9d90993e28bc612efb Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Mon, 27 Jul 2015 15:07:19 +0800
+Subject: [PATCH 19/19] eayunstack channel
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/virt/libvirt/driver.py | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index cc6ed79..c7dcf79 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -4072,6 +4072,23 @@ class LibvirtDriver(driver.ComputeDriver):
+                                 ("org.qemu.guest_agent.0", instance['name']))
+                 guest.add_device(qga)
+ 
++            eayunga_enabled = False
++            hw_eayunga = img_meta_prop.get('hw_eayun_guest_agent', 'no')
++            if hw_eayunga.lower() == 'yes':
++                LOG.debug("EayunStack guest agent is enabled through "
++                          "image metadata", instance=instance)
++                eayunga_enabled = True
++
++            if eayunga_enabled:
++                # EayunStack Channel
++                eayunga = vconfig.LibvirtConfigGuestChannel()
++                eayunga.type = "unix"
++                eayunga.target_name = "com.eayun.eayunstack.0"
++                eayunga.source_path = ("/var/lib/libvirt/qemu/%s.%s.sock" %
++                                       (instance['uuid'], "com.eayun.eayunstack.0"))
++
++                guest.add_device(eayunga)
++
+             if (img_meta_prop.get('hw_rng_model') == 'virtio' and
+                 flavor.extra_specs.get('hw_rng:allowed',
+                                              '').lower() == 'true'):
+-- 
+2.4.3
+
