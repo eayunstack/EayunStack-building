@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          5%{?dist_eayunstack}
+Release:          6%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -63,6 +63,7 @@ Patch0015: 0015-fix-redmint-4544.patch
 Patch0016: 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
 Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
 Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
+Patch0019: 0019-eayunstack-channel.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -483,6 +484,7 @@ This package contains documentation files for nova.
 %patch0016 -p1
 %patch0017 -p1
 %patch0018 -p1
+%patch0019 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -841,6 +843,8 @@ exit 0
 
 %changelog
 
+* Fri Dec 18 2015 apporc <appleorchard2000@gmail.com> - 2014.2-6.eayunstack.1.0
+- 0019-eayunstack-channel.patch
 
 * Thu Dec 10 2015 apporc <appleorchard2000@gmail.com> - 2014.2-5.eayunstack.1.0
 - 0008-Don-t-delete-rbd-ephemeral-disks-when-revert-resize-.patch
