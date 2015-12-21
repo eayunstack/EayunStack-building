@@ -1,0 +1,210 @@
+From 5bf9c5f47b43c0d1ab83c0e8c11616e95ce8a3cd Mon Sep 17 00:00:00 2001
+From: chenyanfun <kakashi_chenyan@163.com>
+Date: Wed, 5 Aug 2015 16:32:51 +0800
+Subject: [PATCH 6/7] Add Portmapping support
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/portmapping.py | 110 ++++++++++++++++++++++++++++++
+ neutronclient/shell.py                    |   6 ++
+ neutronclient/v2_0/client.py              |  29 ++++++++
+ 3 files changed, 145 insertions(+)
+ create mode 100644 neutronclient/neutron/v2_0/portmapping.py
+
+diff --git a/neutronclient/neutron/v2_0/portmapping.py b/neutronclient/neutron/v2_0/portmapping.py
+new file mode 100644
+index 0000000..0605a07
+--- /dev/null
++++ b/neutronclient/neutron/v2_0/portmapping.py
+@@ -0,0 +1,110 @@
++# Copyright 2015 Eayun, Inc.
++# All Rights Reserved
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++from neutronclient.neutron import v2_0 as neutronV20
++from neutronclient.openstack.common.gettextutils import _
++
++
++class ListPortmapping(neutronV20.ListCommand):
++    """List portmappings."""
++
++    resource = "portmapping"
++    list_columns = ['id', 'name', 'status', 'router_id', 'destination_ip',
++                    'protocol', 'admin_state_up', 'tenant_id',
++                    'destination_port', 'router_port']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowPortmapping(neutronV20.ShowCommand):
++    """show information of a given portmapping."""
++
++    resource = "portmapping"
++    allow_names = True
++
++
++class CreatePortmapping(neutronV20.CreateCommand):
++    """Create a portmapping."""
++
++    resource = "portmapping"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            'router_id', metavar='ROUTER_ID',
++            help=_('The id of the router to be port-mapped.')
++        )
++        parser.add_argument(
++            'router_port', metavar='ROUTER_PORT',
++            help=_("The router's port number to be mapped.")
++        )
++        parser.add_argument(
++            'destination_ip', metavar='DESTINATION_IP',
++            help=_('The destination ip to be redirected to.')
++        )
++        parser.add_argument(
++            'destination_port', metavar='DESTINATION_PORT',
++            help=_('The destination port to be redirected to.')
++        )
++        parser.add_argument(
++            '--name',
++            help=_("The portmapping's name")
++        )
++        parser.add_argument(
++            '--protocol',
++            help=_('The protocol to be matched by this '
++                   'portmapping, "TCP" or "UDP", default: TCP.')
++        )
++
++    def args2body(self, parsed_args):
++        body = {
++            'portmapping': {
++                'router_id': parsed_args.router_id,
++                'router_port': parsed_args.router_port,
++                'destination_ip': parsed_args.destination_ip,
++                'destination_port': parsed_args.destination_port,
++            }
++        }
++        if parsed_args.name:
++            body['portmapping'].update(
++                {'name': parsed_args.name})
++        if parsed_args.protocol:
++            body['portmapping'].update(
++                {'protocol': parsed_args.protocol})
++        return body
++
++
++class UpdatePortmapping(neutronV20.UpdateCommand):
++    """Update a given portmapping."""
++
++    resource = "portmapping"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--name',
++            help=_("The portmapping's name."))
++
++    def args2body(self, parsed_args):
++        body = {'portmapping': {}}
++        if parsed_args.name:
++            body['portmapping'].update(
++                {'name': parsed_args.name})
++        return body
++
++
++class DeletePortmapping(neutronV20.DeleteCommand):
++    """Delete a given portmapping."""
++
++    resource = "portmapping"
+diff --git a/neutronclient/shell.py b/neutronclient/shell.py
+index 5a8150c..19a06ee 100644
+--- a/neutronclient/shell.py
++++ b/neutronclient/shell.py
+@@ -71,6 +71,7 @@ from neutronclient.neutron.v2_0.vpn import vpnservice
+ from neutronclient.neutron.v2_0 import eayun_qos
+ from neutronclient.openstack.common.gettextutils import _
+ from neutronclient.openstack.common import strutils
++from neutronclient.neutron.v2_0 import portmapping
+ from neutronclient.version import __version__
+ 
+ 
+@@ -313,6 +314,11 @@ COMMAND_V2 = {
+     'eayun-qos-filter-update': eayun_qos.UpdateQosFilter,
+     'eayun-qos-filter-delete': eayun_qos.DeleteQosFilter,
+     'eayun-qos-filter-unattach': eayun_qos.UnattachQosFilter,
++    'portmapping-list': portmapping.ListPortmapping,
++    'portmapping-show': portmapping.ShowPortmapping,
++    'portmapping-create': portmapping.CreatePortmapping,
++    'portmapping-update': portmapping.UpdatePortmapping,
++    'portmapping-delete': portmapping.DeletePortmapping,
+ }
+ 
+ COMMANDS = {'2.0': COMMAND_V2}
+diff --git a/neutronclient/v2_0/client.py b/neutronclient/v2_0/client.py
+index 73aa7df..2b44901 100644
+--- a/neutronclient/v2_0/client.py
++++ b/neutronclient/v2_0/client.py
+@@ -232,6 +232,8 @@ class Client(object):
+     eayun_qos_qos_queue_path = '/eayun_qos/qos-queues/%s'
+     eayun_qos_qos_filters_path = '/eayun_qos/qos-filters'
+     eayun_qos_qos_filter_path = '/eayun_qos/qos-filters/%s'
++    portmappings_path = "/portmappings"
++    portmapping_path = "/portmappings/%s"
+ 
+     # API has no way to report plurals, so we have to hard code them
+     EXTED_PLURALS = {'routers': 'router',
+@@ -260,6 +262,7 @@ class Client(object):
+                      'qoss': 'qos',
+                      'qos_queues': 'qos_queue',
+                      'qos_filters': 'qos_filter',
++                     'portmappings': 'portmapping',
+                      }
+     # 8192 Is the default max URI len for eventlet.wsgi.server
+     MAX_URI_LEN = 8192
+@@ -1284,6 +1287,32 @@ class Client(object):
+         """Deletes the specified eayun qos filter."""
+         return self.delete(self.eayun_qos_qos_filter_path % (qos_filter))
+ 
++    @APIParamsCall
++    def create_portmapping(self, body=None):
++        """Create a new portmapping."""
++        return self.post(self.portmappings_path, body=body)
++
++    @APIParamsCall
++    def list_portmappings(self, **_params):
++        """List portmappings."""
++        return self.get(self.portmappings_path, params=_params)
++
++    @APIParamsCall
++    def show_portmapping(self, portmapping, **_params):
++        """Show a portmapping information."""
++        return self.get(self.portmapping_path % (portmapping),
++                        params=_params)
++
++    @APIParamsCall
++    def update_portmapping(self, portmapping, body=None):
++        """Update a portmapping."""
++        return self.put(self.portmapping_path % (portmapping), body=body)
++
++    @APIParamsCall
++    def delete_portmapping(self, portmapping):
++        """Delete the specified portmapping."""
++        return self.delete(self.portmapping_path % (portmapping))
++
+     def __init__(self, **kwargs):
+         """Initialize a new client for the Neutron v2.0 API."""
+         super(Client, self).__init__()
+-- 
+2.6.4
+
