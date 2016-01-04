@@ -1,0 +1,108 @@
+From 2ca22c9c7fd8fcf7e760649e51e122d9d5bb8e1f Mon Sep 17 00:00:00 2001
+From: He Jie Xu <soulxu@gmail.com>
+Date: Fri, 7 Nov 2014 14:22:05 +0800
+Subject: [PATCH 19/34] Better error message when check volume status
+
+When debug the code, the cinder volume status checking code return
+the error message, but without which volume is wrong and detail.
+This patch add volume uuid and detail in the message.
+
+Change-Id: I043f7b956b7e56ea5eb7e4ff9c9023fd607f2358
+(cherry picked from commit 173a8638c1526b92771b8de6d9f43402e5e2cb0e)
+---
+ nova/tests/volume/test_cinder.py | 11 ++++++-----
+ nova/volume/cinder.py            | 20 +++++++++++++++-----
+ 2 files changed, 21 insertions(+), 10 deletions(-)
+
+diff --git a/nova/tests/volume/test_cinder.py b/nova/tests/volume/test_cinder.py
+index cf54c9c..b33c05c 100644
+--- a/nova/tests/volume/test_cinder.py
++++ b/nova/tests/volume/test_cinder.py
+@@ -129,20 +129,21 @@ class CinderApiTestCase(test.NoDBTestCase):
+         self.assertEqual(['id1', 'id2'], self.api.get_all(self.ctx))
+ 
+     def test_check_attach_volume_status_error(self):
+-        volume = {'status': 'error'}
++        volume = {'id': 'fake', 'status': 'error'}
+         self.assertRaises(exception.InvalidVolume,
+                           self.api.check_attach, self.ctx, volume)
+ 
+     def test_check_attach_volume_already_attached(self):
+-        volume = {'status': 'available'}
++        volume = {'id': 'fake', 'status': 'available'}
+         volume['attach_status'] = "attached"
+         self.assertRaises(exception.InvalidVolume,
+                           self.api.check_attach, self.ctx, volume)
+ 
+     def test_check_attach_availability_zone_differs(self):
+-        volume = {'status': 'available'}
++        volume = {'id': 'fake', 'status': 'available'}
+         volume['attach_status'] = "detached"
+-        instance = {'availability_zone': 'zone1', 'host': 'fakehost'}
++        instance = {'id': 'fake',
++                    'availability_zone': 'zone1', 'host': 'fakehost'}
+ 
+         with mock.patch.object(cinder.az, 'get_instance_availability_zone',
+                                side_effect=lambda context,
+@@ -185,7 +186,7 @@ class CinderApiTestCase(test.NoDBTestCase):
+         cinder.CONF.reset()
+ 
+     def test_check_detach(self):
+-        volume = {'status': 'available'}
++        volume = {'id': 'fake', 'status': 'available'}
+         self.assertRaises(exception.InvalidVolume,
+                           self.api.check_detach, self.ctx, volume)
+         volume['status'] = 'non-available'
+diff --git a/nova/volume/cinder.py b/nova/volume/cinder.py
+index f846353..66cc406 100644
+--- a/nova/volume/cinder.py
++++ b/nova/volume/cinder.py
+@@ -302,16 +302,20 @@ class API(object):
+ 
+     def check_attached(self, context, volume):
+         if volume['status'] != "in-use":
+-            msg = _("status must be 'in-use'")
++            msg = _("volume '%(vol)s' status must be 'in-use'. Currently in "
++                    "'%(status)s' status") % {"vol": volume['id'],
++                                              "status": volume['status']}
+             raise exception.InvalidVolume(reason=msg)
+ 
+     def check_attach(self, context, volume, instance=None):
+         # TODO(vish): abstract status checking?
+         if volume['status'] != "available":
+-            msg = _("status must be 'available'")
++            msg = _("volume '%(vol)s' status must be 'available'. Currently "
++                    "in '%(status)s'") % {'vol': volume['id'],
++                                          'status': volume['status']}
+             raise exception.InvalidVolume(reason=msg)
+         if volume['attach_status'] == "attached":
+-            msg = _("already attached")
++            msg = _("volume %s already attached") % volume['id']
+             raise exception.InvalidVolume(reason=msg)
+         if instance and not CONF.cinder.cross_az_attach:
+             # NOTE(sorrison): If instance is on a host we match against it's AZ
+@@ -322,13 +326,19 @@ class API(object):
+             else:
+                 instance_az = instance['availability_zone']
+             if instance_az != volume['availability_zone']:
+-                msg = _("Instance and volume not in same availability_zone")
++                msg = _("Instance %(instance)s and volume %(vol)s are not in "
++                        "the same availability_zone. Instance is in "
++                        "%(ins_zone)s. Volume is in %(vol_zone)s") % {
++                            "instance": instance['id'],
++                            "vol": volume['id'],
++                            'ins_zone': instance_az,
++                            'vol_zone': volume['availability_zone']}
+                 raise exception.InvalidVolume(reason=msg)
+ 
+     def check_detach(self, context, volume):
+         # TODO(vish): abstract status checking?
+         if volume['status'] == "available":
+-            msg = _("already detached")
++            msg = _("volume %s already detached") % volume['id']
+             raise exception.InvalidVolume(reason=msg)
+ 
+     @translate_volume_exception
+-- 
+2.4.3
+

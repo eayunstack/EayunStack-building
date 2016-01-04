@@ -4,11 +4,11 @@
 
 %global release_name juno
 %global milestone rc2
-%global dist_eayunstack .eayunstack.1.0.1
+%global dist_eayunstack .eayunstack.1.1
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6%{?dist_eayunstack}
+Release:          7%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -60,10 +60,25 @@ Patch0012: 0012-Updated-requirements-from-stable-juno.patch
 Patch0013: 0013-Bump-version-to-2014.2.1.patch
 Patch0014: 0014-fix-redmine-4122.patch
 Patch0015: 0015-fix-redmint-4544.patch
-Patch0016: 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
-Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
-Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
-Patch0019: 0019-eayunstack-channel.patch
+Patch0016: 0016-Fix-swap_volumes.patch
+Patch0017: 0017-Use-session-in-cinderclient.patch
+Patch0018: 0018-virt-use-instance-object-for-attach-in-block_device.patch
+Patch0019: 0019-Better-error-message-when-check-volume-status.patch
+Patch0020: 0020-initialize-objects-with-context-in-block-device.patch
+Patch0021: 0021-Save-bdm.connection_info-before-calling-volume_api.a.patch
+Patch0022: 0022-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+Patch0023: 0023-db-Allow-multiple-volume-attachments.patch
+Patch0024: 0024-obj-Allow-multiple-volume-attachments.patch
+Patch0025: 0025-virt-Allow-multiple-volume-attachments.patch
+Patch0026: 0026-comp-Allow-multiple-volume-attachments.patch
+Patch0027: 0027-WIP-REST-API-changes-to-support-multi-attach.patch
+Patch0028: 0028-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+Patch0029: 0029-Update-network-resource-when-rescheduling-instance.patch
+Patch0030: 0030-Fix-nova-compute-start-issue-after-evacuate.patch
+Patch0031: 0031-output-log-to-nova-all-log-file.patch
+Patch0032: 0032-eayunstack-channel.patch
+Patch0033: 0033-network-fix-instance-cache-refresh-for-empty-list.patch
+Patch0034: 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -485,6 +500,21 @@ This package contains documentation files for nova.
 %patch0017 -p1
 %patch0018 -p1
 %patch0019 -p1
+%patch0020 -p1
+%patch0021 -p1
+%patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
+%patch0031 -p1
+%patch0032 -p1
+%patch0033 -p1
+%patch0034 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -842,6 +872,31 @@ exit 0
 %endif
 
 %changelog
+
+* Mon Jan 04 2016 apporc <appleorchard2000@gmail.com> - 2014.2-7.eayunstack.1.1
+- delete patch 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+- delete patch 0017-Update-network-resource-when-rescheduling-instance.patch
+- delete patch 0018-Fix-nova-compute-start-issue-after-evacuate.patch
+- delete patch 0019-eayunstack-channel.patch
+- add patch 0016-Fix-swap_volumes.patch
+- add patch 0017-Use-session-in-cinderclient.patch
+- add patch 0018-virt-use-instance-object-for-attach-in-block_device.patch
+- add patch 0019-Better-error-message-when-check-volume-status.patch
+- add patch 0020-initialize-objects-with-context-in-block-device.patch
+- add patch 0021-Save-bdm.connection_info-before-calling-volume_api.a.patch
+- add patch 0022-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+- add patch 0023-db-Allow-multiple-volume-attachments.patch
+- add patch 0024-obj-Allow-multiple-volume-attachments.patch
+- add patch 0025-virt-Allow-multiple-volume-attachments.patch
+- add patch 0026-comp-Allow-multiple-volume-attachments.patch
+- add patch 0027-WIP-REST-API-changes-to-support-multi-attach.patch
+- add patch 0028-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+- add patch 0029-Update-network-resource-when-rescheduling-instance.patch
+- add patch 0030-Fix-nova-compute-start-issue-after-evacuate.patch
+- add patch 0031-output-log-to-nova-all-log-file.patch
+- add patch 0032-eayunstack-channel.patch
+- add patch 0033-network-fix-instance-cache-refresh-for-empty-list.patch
+- add patch 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
 
 * Fri Dec 18 2015 apporc <appleorchard2000@gmail.com> - 2014.2-6.eayunstack.1.0
 - 0019-eayunstack-channel.patch

@@ -1,0 +1,32 @@
+From d126d13844860e34034199033f8c6cb310516cc3 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Fri, 20 Nov 2015 17:20:25 +0800
+Subject: [PATCH 31/34] output log to nova-all log file LMA monitor platform
+ need get HTTP response infomation from nova-all.log
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ nova/openstack/common/log.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/nova/openstack/common/log.py b/nova/openstack/common/log.py
+index 5b8c685..8929737 100644
+--- a/nova/openstack/common/log.py
++++ b/nova/openstack/common/log.py
+@@ -549,9 +549,11 @@ def _setup_logging_from_conf(project, version):
+             # TODO(bogdando) use the format provided by RFCSysLogHandler
+             #   after existing syslog format deprecation in J
+             if CONF.use_syslog_rfc_format:
+-                syslog = RFCSysLogHandler(facility=facility)
++                syslog = RFCSysLogHandler(address='/dev/log',
++                                        facility=facility)
+             else:
+-                syslog = logging.handlers.SysLogHandler(facility=facility)
++                syslog = logging.handlers.SysLogHandler(address='/dev/log',
++                                                        facility=facility)
+             log_root.addHandler(syslog)
+         except socket.error:
+             log_root.error('Unable to add syslog handler. Verify that syslog'
+-- 
+2.4.3
+

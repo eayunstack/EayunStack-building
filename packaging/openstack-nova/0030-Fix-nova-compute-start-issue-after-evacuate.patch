@@ -1,7 +1,7 @@
-From 6ca8f31c77442a660844df47878f9efb3b1f31bd Mon Sep 17 00:00:00 2001
+From 60d9cef22b4806437176ac868a80d0f549a21221 Mon Sep 17 00:00:00 2001
 From: Fei Long Wang <flwang@catalyst.net.nz>
 Date: Sat, 25 Oct 2014 10:05:57 +1300
-Subject: [PATCH 18/30] Fix nova-compute start issue after evacuate
+Subject: [PATCH 30/34] Fix nova-compute start issue after evacuate
 
 After evacuated successfully, and restarting the failed
 host to get it back, Nova will call init_host() and then

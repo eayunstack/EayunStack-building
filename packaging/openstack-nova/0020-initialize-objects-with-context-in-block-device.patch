@@ -1,0 +1,227 @@
+From e12e11a5404666985b54a23b0aa007c06a3b5a47 Mon Sep 17 00:00:00 2001
+From: melanie witt <melwitt@yahoo-inc.com>
+Date: Wed, 19 Nov 2014 22:46:08 +0000
+Subject: [PATCH 20/34] initialize objects with context in block device
+
+These changes aim to clean up the pattern of passing a context in
+object member functions create/destroy/refresh/save and instead
+initialize the object with the context when it's constructed.
+
+Related to blueprint kilo-objects
+
+(cherry picked from commit 570c98cb9e9e7327477d92c52bfdc0a28ab7f88e)
+
+This patch was reverted in https://review.openstack.org/#/c/147751/
+because it broke boot from block device functionality, the test for
+which is currently being skipped in tempest, temporarily. I tested
+this locally with tempest with test_volume_boot_pattern enabled.
+
+This is a resubmission of the reverted patch with the broken call
+site fixed.
+
+This clean up is intended to reduce complexity and confusion about
+the use of objects, and in the future, objects will no longer
+give the option of passing a context to create/destroy/refresh/save.
+Instead, the context manager obj_as_admin() should be used to perform
+an action with an elevated context.
+
+Change-Id: I598df35d055b39f25b28e7bcff1062b875788ded
+(cherry picked from commit fac0e90b3d54e9a2c74f8017b9a9c592bc296e0c)
+---
+ nova/tests/compute/test_compute.py     |  9 +++++----
+ nova/tests/virt/libvirt/test_driver.py |  2 +-
+ nova/tests/virt/test_block_device.py   | 11 +++--------
+ nova/virt/block_device.py              | 14 +++++---------
+ nova/virt/libvirt/blockinfo.py         |  2 +-
+ nova/virt/libvirt/driver.py            |  6 +++---
+ 6 files changed, 18 insertions(+), 26 deletions(-)
+
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index 1f97c06..9efff99 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -424,7 +424,8 @@ class ComputeVolumeTestCase(BaseTestCase):
+         self.stubs.Set(db, 'block_device_mapping_update', store_cinfo)
+ 
+     def test_attach_volume_serial(self):
+-        fake_bdm = objects.BlockDeviceMapping(**self.fake_volume)
++        fake_bdm = objects.BlockDeviceMapping(context=self.context,
++                                              **self.fake_volume)
+         with (mock.patch.object(cinder.API, 'get_volume_encryption_metadata',
+                                 return_value={})):
+             instance = self._create_fake_instance()
+@@ -572,7 +573,7 @@ class ComputeVolumeTestCase(BaseTestCase):
+             })]
+             prepped_bdm = self.compute._prep_block_device(
+                     self.context, self.instance_object, block_device_mapping)
+-            mock_save.assert_called_once_with(self.context)
++            mock_save.assert_called_once_with()
+             volume_driver_bdm = prepped_bdm['block_device_mapping'][0]
+             self.assertEqual(volume_driver_bdm['connection_info']['serial'],
+                              self.volume_id)
+@@ -9198,7 +9199,7 @@ class ComputeAPITestCase(BaseTestCase):
+         def fake_rpc_reserve_block_device_name(self, context, instance, device,
+                                                volume_id, **kwargs):
+             called['fake_rpc_reserve_block_device_name'] = True
+-            bdm = block_device_obj.BlockDeviceMapping()
++            bdm = block_device_obj.BlockDeviceMapping(context=context)
+             bdm['device_name'] = '/dev/vdb'
+             return bdm
+ 
+@@ -9320,7 +9321,7 @@ class ComputeAPITestCase(BaseTestCase):
+                                  'get_by_volume_id')
+         objects.BlockDeviceMapping.get_by_volume_id(
+                 self.context, 1).AndReturn(objects.BlockDeviceMapping(
+-                    **fake_bdm))
++                    context=self.context, **fake_bdm))
+         self.mox.ReplayAll()
+ 
+         self.assertRaises(AttributeError, self.compute.detach_volume,
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index aa5f607..ec7203d 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -7093,7 +7093,7 @@ class LibvirtConnTestCase(test.TestCase):
+             if not hasattr(self, attrname):
+                 self[attrname] = {}
+ 
+-        def fake_save(self, context):
++        def fake_save(self):
+             pass
+ 
+         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+diff --git a/nova/tests/virt/test_block_device.py b/nova/tests/virt/test_block_device.py
+index 633a129..d7fbe73 100644
+--- a/nova/tests/virt/test_block_device.py
++++ b/nova/tests/virt/test_block_device.py
+@@ -238,16 +238,11 @@ class TestDriverBlockDevice(test.NoDBTestCase):
+ 
+         # Test the save method
+         with mock.patch.object(test_bdm._bdm_obj, 'save') as save_mock:
+-            test_bdm.save(self.context)
++            test_bdm.save()
+             for fld, alias in test_bdm._update_on_save.iteritems():
+                 self.assertEqual(test_bdm[alias or fld],
+                                  getattr(test_bdm._bdm_obj, fld))
+ 
+-            save_mock.assert_called_once_with(self.context)
+-
+-        # Test the save method with no context passed
+-        with mock.patch.object(test_bdm._bdm_obj, 'save') as save_mock:
+-            test_bdm.save()
+             save_mock.assert_called_once_with()
+ 
+     def _test_driver_default_size(self, name):
+@@ -383,7 +378,7 @@ class TestDriverBlockDevice(test.NoDBTestCase):
+             self.volume_api.attach(elevated_context, fake_volume['id'],
+                                    'fake_uuid', bdm_dict['device_name'],
+                                    mode=access_mode).AndReturn(None)
+-        driver_bdm._bdm_obj.save(self.context).AndReturn(None)
++        driver_bdm._bdm_obj.save().AndReturn(None)
+         return instance, expected_conn_info
+ 
+     def test_volume_attach(self):
+@@ -494,7 +489,7 @@ class TestDriverBlockDevice(test.NoDBTestCase):
+         self.volume_api.initialize_connection(
+             self.context, test_bdm.volume_id,
+             connector).AndReturn(connection_info)
+-        test_bdm._bdm_obj.save(self.context).AndReturn(None)
++        test_bdm._bdm_obj.save().AndReturn(None)
+ 
+         self.mox.ReplayAll()
+ 
+diff --git a/nova/virt/block_device.py b/nova/virt/block_device.py
+index b633711..d2ae79d 100644
+--- a/nova/virt/block_device.py
++++ b/nova/virt/block_device.py
+@@ -44,7 +44,7 @@ def update_db(method):
+     @functools.wraps(method)
+     def wrapped(obj, context, *args, **kwargs):
+         ret_val = method(obj, context, *args, **kwargs)
+-        obj.save(context)
++        obj.save()
+         return ret_val
+     return wrapped
+ 
+@@ -130,14 +130,10 @@ class DriverBlockDevice(dict):
+         """
+         raise NotImplementedError()
+ 
+-    def save(self, context=None):
++    def save(self):
+         for attr_name, key_name in self._update_on_save.iteritems():
+             setattr(self._bdm_obj, attr_name, self[key_name or attr_name])
+-
+-        if context:
+-            self._bdm_obj.save(context)
+-        else:
+-            self._bdm_obj.save()
++        self._bdm_obj.save()
+ 
+ 
+ class DriverSwapBlockDevice(DriverBlockDevice):
+@@ -284,7 +280,7 @@ class DriverVolumeBlockDevice(DriverBlockDevice):
+         self._preserve_multipath_id(connection_info)
+         self['connection_info'] = connection_info
+ 
+-    def save(self, context=None):
++    def save(self):
+         # NOTE(ndipanov): we might want to generalize this by adding it to the
+         # _update_on_save and adding a transformation function.
+         try:
+@@ -292,7 +288,7 @@ class DriverVolumeBlockDevice(DriverBlockDevice):
+                     self.get('connection_info'))
+         except TypeError:
+             pass
+-        super(DriverVolumeBlockDevice, self).save(context)
++        super(DriverVolumeBlockDevice, self).save()
+ 
+ 
+ class DriverSnapshotBlockDevice(DriverVolumeBlockDevice):
+diff --git a/nova/virt/libvirt/blockinfo.py b/nova/virt/libvirt/blockinfo.py
+index 2ef7b70..f91bb0c 100644
+--- a/nova/virt/libvirt/blockinfo.py
++++ b/nova/virt/libvirt/blockinfo.py
+@@ -454,7 +454,7 @@ def default_device_names(virt_type, context, instance, root_device_name,
+                                [block_device_info['swap']] if
+                                block_device_info['swap'] else [],
+                                block_device_info['block_device_mapping']):
+-        driver_bdm.save(context)
++        driver_bdm.save()
+ 
+ 
+ def has_default_ephemeral(instance, disk_bus, block_device_info, mapping):
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index ea92849..4cc2f94 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -3489,7 +3489,7 @@ class LibvirtDriver(driver.ComputeDriver):
+             cfg = self._connect_volume(connection_info, info)
+             devices.append(cfg)
+             vol['connection_info'] = connection_info
+-            vol.save(nova_context.get_admin_context())
++            vol.save()
+ 
+         for d in devices:
+             self._set_cache_mode(d)
+@@ -4378,7 +4378,7 @@ class LibvirtDriver(driver.ComputeDriver):
+             if 'data' in connection_info:
+                 connection_info['data']['device_path'] = conf.source_path
+                 vol['connection_info'] = connection_info
+-                vol.save(context)
++                vol.save()
+ 
+             if (not reboot and 'data' in connection_info and
+                     'volume_id' in connection_info['data']):
+@@ -6443,7 +6443,7 @@ class LibvirtDriver(driver.ComputeDriver):
+         inst_obj.system_metadata['clean_attempts'] = str(attempts + 1)
+         if success:
+             inst_obj.cleaned = True
+-        inst_obj.save(context)
++        inst_obj.save()
+ 
+     def delete_instance_files(self, instance):
+         target = libvirt_utils.get_instance_path(instance)
+-- 
+2.4.3
+

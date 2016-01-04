@@ -1,7 +1,7 @@
-From beb367d72d85fcb153cdae9d90993e28bc612efb Mon Sep 17 00:00:00 2001
+From e956038795f67477cde31b80458329a573ca4950 Mon Sep 17 00:00:00 2001
 From: apporc <appleorchard2000@gmail.com>
 Date: Mon, 27 Jul 2015 15:07:19 +0800
-Subject: [PATCH 19/19] eayunstack channel
+Subject: [PATCH 32/34] eayunstack channel
 
 Signed-off-by: apporc <appleorchard2000@gmail.com>
 ---
@@ -9,10 +9,10 @@ Signed-off-by: apporc <appleorchard2000@gmail.com>
  1 file changed, 17 insertions(+)
 
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index cc6ed79..c7dcf79 100644
+index ec0b1f5..a0ff8c6 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
-@@ -4072,6 +4072,23 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -4082,6 +4082,23 @@ class LibvirtDriver(driver.ComputeDriver):
                                  ("org.qemu.guest_agent.0", instance['name']))
                  guest.add_device(qga)
  
