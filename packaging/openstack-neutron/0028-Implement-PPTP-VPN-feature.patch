@@ -1,0 +1,1703 @@
+From 6907714e49c1028dc14053946a079d1dc430ddeb Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Tue, 13 Oct 2015 22:27:43 +0800
+Subject: [PATCH 28/28] Implement PPTP VPN feature
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ etc/neutron/rootwrap.d/vpnaas.filters              |   2 +
+ .../alembic_migrations/eayun_pptp_vpn_init_ops.py  |  46 +++
+ .../db/migration/alembic_migrations/versions/HEAD  |   2 +-
+ .../alembic_migrations/versions/eayun_pptp_vpn.py  |  36 ++
+ neutron/db/vpn/vpn_db.py                           | 339 +++++++++++++++++-
+ neutron/extensions/vpnaas.py                       |  62 +++-
+ neutron/services/vpn/common/topics.py              |   2 +
+ neutron/services/vpn/device_drivers/pptp.py        | 398 +++++++++++++++++++++
+ .../template/pptp/ppp_options.template             |  29 ++
+ neutron/services/vpn/plugin.py                     | 190 ++++++++--
+ neutron/services/vpn/service_drivers/__init__.py   |  21 +-
+ neutron/services/vpn/service_drivers/ipsec.py      |   8 +-
+ neutron/services/vpn/service_drivers/pptp.py       | 150 ++++++++
+ neutron/tests/unit/db/vpn/test_db_vpnaas.py        |   6 +-
+ .../vpn/service_drivers/test_cisco_ipsec.py        |   4 +-
+ .../services/vpn/service_drivers/test_ipsec.py     |  19 +-
+ .../unit/services/vpn/test_vpnaas_driver_plugin.py |   7 +-
+ .../unit/services/vpn/test_vpnaas_extension.py     |   1 +
+ 18 files changed, 1250 insertions(+), 72 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/eayun_pptp_vpn.py
+ create mode 100644 neutron/services/vpn/device_drivers/pptp.py
+ create mode 100644 neutron/services/vpn/device_drivers/template/pptp/ppp_options.template
+ create mode 100644 neutron/services/vpn/service_drivers/pptp.py
+
+diff --git a/etc/neutron/rootwrap.d/vpnaas.filters b/etc/neutron/rootwrap.d/vpnaas.filters
+index b399dbd..398a05b 100644
+--- a/etc/neutron/rootwrap.d/vpnaas.filters
++++ b/etc/neutron/rootwrap.d/vpnaas.filters
+@@ -12,3 +12,5 @@ ip: IpFilter, ip, root
+ ip_exec: IpNetnsExecFilter, ip, root
+ openswan: CommandFilter, ipsec, root
+ ipsec: EnvFilter, env, root, IPSEC_CONF=, ipsec
++pptp: CommandFilter, pptpd, root
++kill_pptp: CommandFilter, kill, root
+diff --git a/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py b/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
+new file mode 100644
+index 0000000..95e0912
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
+@@ -0,0 +1,46 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.create_table(
++        'pptp_credentials',
++        sa.Column('id', sa.String(length=36), nullable=False),
++        sa.Column('tenant_id', sa.String(length=255), nullable=False),
++        sa.Column('username', sa.String(length=255), nullable=False),
++        sa.Column('password', sa.String(length=255), nullable=False),
++        sa.PrimaryKeyConstraint('id')
++    )
++    op.create_table(
++        'pptpcredentialserviceassociations',
++        sa.Column('pptp_credential_id', sa.String(length=36), nullable=False),
++        sa.Column('vpnservice_id', sa.String(length=36), nullable=False),
++        sa.Column('port_id', sa.String(length=36), nullable=False),
++        sa.ForeignKeyConstraint(
++            ['pptp_credential_id'], ['pptp_credentials.id'],
++            ondelete='CASCADE'),
++        sa.ForeignKeyConstraint(
++            ['vpnservice_id'], ['vpnservices.id'], ondelete='CASCADE'),
++        sa.ForeignKeyConstraint(
++            ['port_id'], ['ports.id'], ondelete='CASCADE')
++    )
++
++
++def downgrade():
++    op.drop_table('pptpcredentialserviceassociations')
++    op.drop_table('pptp_credentials')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index d94bd9e..2dadb14 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-eayun_fw_target_router
++eayun_pptp_vpn
+diff --git a/neutron/db/migration/alembic_migrations/versions/eayun_pptp_vpn.py b/neutron/db/migration/alembic_migrations/versions/eayun_pptp_vpn.py
+new file mode 100644
+index 0000000..06227a6
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/eayun_pptp_vpn.py
+@@ -0,0 +1,36 @@
++# Copyright (c) 2015 Eayun, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""eayun_pptp_vpn
++
++Revision ID: eayun_pptp_vpn
++Revises: eayun_fw_target_router
++Create Date: 2015-10-26 18:00:00.000000
++
++"""
++from neutron.db.migration.alembic_migrations import eayun_pptp_vpn_init_ops
++
++
++# revision identifiers, used by Alembic.
++revision = 'eayun_pptp_vpn'
++down_revision = 'eayun_fw_target_router'
++
++
++def upgrade():
++    eayun_pptp_vpn_init_ops.upgrade()
++
++
++def downgrade():
++    eayun_pptp_vpn_init_ops.downgrade()
+diff --git a/neutron/db/vpn/vpn_db.py b/neutron/db/vpn/vpn_db.py
+index 6ff9b7c..719f4e6 100644
+--- a/neutron/db/vpn/vpn_db.py
++++ b/neutron/db/vpn/vpn_db.py
+@@ -18,12 +18,15 @@ import sqlalchemy as sa
+ from sqlalchemy import orm
+ from sqlalchemy.orm import exc
+ 
++from neutron.api.v2 import attributes as attr
+ from neutron.common import constants as n_constants
++from neutron.common import exceptions as n_exc
+ from neutron.db import common_db_mixin as base_db
+ from neutron.db import l3_agentschedulers_db as l3_agent_db
+ from neutron.db import l3_db
+ from neutron.db import model_base
+ from neutron.db import models_v2
++from neutron.db import servicetype_db as st_db
+ from neutron.db.vpn import vpn_validator
+ from neutron.extensions import vpnaas
+ from neutron import manager
+@@ -154,12 +157,50 @@ class VPNService(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+         IPsecSiteConnection,
+         backref='vpnservice',
+         cascade="all, delete-orphan")
++    provider = orm.relationship(
++        st_db.ProviderResourceAssociation,
++        uselist=False,
++        lazy="joined",
++        primaryjoin="VPNService.id==ProviderResourceAssociation.resource_id",
++        foreign_keys=[st_db.ProviderResourceAssociation.resource_id]
++    )
++
++
++class PPTPCredential(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
++    """Represents a PPTPCredential object."""
++    __tablename__ = 'pptp_credentials'
++    username = sa.Column(sa.String(255), nullable=False)
++    password = sa.Column(sa.String(255), nullable=False)
++
++
++class PPTPCredentialServiceAssociation(model_base.BASEV2):
++    """Many-to-many association between PPTP credential and VPN service."""
++    pptp_credential_id = sa.Column(
++        sa.String(36),
++        sa.ForeignKey('pptp_credentials.id', ondelete='CASCADE'),
++        primary_key=True)
++    vpnservice_id = sa.Column(
++        sa.String(36),
++        sa.ForeignKey('vpnservices.id', ondelete='CASCADE'),
++        primary_key=True)
++    port_id = sa.Column(
++        sa.String(36),
++        sa.ForeignKey('ports.id', ondelete='CASCADE'),
++        primary_key=True)
++    pptp_credentials = orm.relationship(
++        PPTPCredential,
++        backref=orm.backref('associations',
++                            lazy='joined', cascade='delete'))
+ 
+ 
+ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+     """VPN plugin database class using SQLAlchemy models."""
+ 
+-    def _get_validator(self):
++    @property
++    def _core_plugin(self):
++        return manager.NeutronManager.get_plugin()
++
++    def _get_validator(self, provider=None):
+         """Obtain validator to use for attribute validation.
+ 
+         Subclasses may override this with a different valdiator, as needed.
+@@ -234,9 +275,10 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+         ip_version = netaddr.IPNetwork(subnet).version
+         return ip_version
+ 
+-    def create_ipsec_site_connection(self, context, ipsec_site_connection):
++    def create_ipsec_site_connection(self, context, ipsec_site_connection,
++                                     validator=None):
+         ipsec_sitecon = ipsec_site_connection['ipsec_site_connection']
+-        validator = self._get_validator()
++        validator = validator or self._get_validator()
+         validator.assign_sensible_ipsec_sitecon_defaults(ipsec_sitecon)
+         tenant_id = self._get_tenant_id_for_create(context, ipsec_sitecon)
+         with context.session.begin(subtransactions=True):
+@@ -287,10 +329,10 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+ 
+     def update_ipsec_site_connection(
+             self, context,
+-            ipsec_site_conn_id, ipsec_site_connection):
++            ipsec_site_conn_id, ipsec_site_connection, validator=None):
+         ipsec_sitecon = ipsec_site_connection['ipsec_site_connection']
+         changed_peer_cidrs = False
+-        validator = self._get_validator()
++        validator = validator or self._get_validator()
+         with context.session.begin(subtransactions=True):
+             ipsec_site_conn_db = self._get_resource(
+                 context,
+@@ -544,12 +586,14 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+                'router_id': vpnservice['router_id'],
+                'admin_state_up': vpnservice['admin_state_up'],
+                'status': vpnservice['status']}
++        if vpnservice.provider:
++            res['provider'] = vpnservice.provider.provider_name
+         return self._fields(res, fields)
+ 
+-    def create_vpnservice(self, context, vpnservice):
++    def create_vpnservice(self, context, vpnservice, validator=None):
+         vpns = vpnservice['vpnservice']
+         tenant_id = self._get_tenant_id_for_create(context, vpns)
+-        validator = self._get_validator()
++        validator = validator or self._get_validator()
+         with context.session.begin(subtransactions=True):
+             validator.validate_vpnservice(context, vpns)
+             vpnservice_db = VPNService(id=uuidutils.generate_uuid(),
+@@ -579,6 +623,12 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+             ).first():
+                 raise vpnaas.VPNServiceInUse(vpnservice_id=vpnservice_id)
+             vpns_db = self._get_resource(context, VPNService, vpnservice_id)
++            associations = context.session.query(
++                PPTPCredentialServiceAssociation
++            ).filter_by(vpnservice_id=vpnservice_id).all()
++            for association in associations:
++                self._core_plugin.delete_port(
++                    context, association.port_id, l3_port_check=False)
+             context.session.delete(vpns_db)
+ 
+     def _get_vpnservice(self, context, vpnservice_id):
+@@ -601,9 +651,138 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+                 router_id=router_id,
+                 vpnservice_id=vpnservices[0]['id'])
+ 
++    def _make_pptp_credential_dict(self, pptp_credential, fields=None):
++        res = {'id': pptp_credential['id'],
++               'tenant_id': pptp_credential['tenant_id'],
++               'username': pptp_credential['username'],
++               'password': pptp_credential['password'],
++               'vpnservices': [association.vpnservice_id for association in
++                               pptp_credential['associations']]}
++        return self._fields(res, fields)
++
++    def _username_already_exists(self, context, username):
++        query = self._model_query(context, PPTPCredential)
++        return len(query.filter_by(username=username).all()) > 0
++
++    def _create_port_for_vpnservice(self, context,
++                                    vpnservice_id, pptp_credential_id):
++        vpns_db = self._get_resource(context, VPNService, vpnservice_id)
++        subnet_id = vpns_db['subnet_id']
++        subnet = self._core_plugin._get_subnet(context, subnet_id)
++        port = {
++            'port': {
++                'tenant_id': subnet['tenant_id'],
++                'network_id': subnet['network_id'],
++                'fixed_ips': [{'subnet_id': subnet_id}],
++                'mac_address': attr.ATTR_NOT_SPECIFIED,
++                'admin_state_up': True,
++                'status': n_constants.PORT_STATUS_DOWN,
++                'device_id': vpnservice_id,
++                'device_owner': constants.VPN,
++                'name': pptp_credential_id
++            }
++        }
++        port = self._core_plugin.create_port(context, port)
++        if port['fixed_ips']:
++            return port['id']
++
++        # Port creation failed
++        self._core_plugin.delete_port(context, port['id'], l3_port_check=False)
++        return None
++
++    def create_pptp_credential(self, context, pptp_credential):
++        pptp_credential = pptp_credential['pptp_credential']
++        tenant_id = self._get_tenant_id_for_create(context, pptp_credential)
++        pptp_credential_id = uuidutils.generate_uuid()
++        with context.session.begin(subtransactions=True):
++            username = pptp_credential['username']
++            if self._username_already_exists(context, username):
++                raise vpnaas.PPTPUsernameAlreadyExists(username=username)
++            pptp_credential_db = PPTPCredential(
++                id=pptp_credential_id,
++                tenant_id=tenant_id,
++                username=username,
++                password=pptp_credential['password']
++            )
++            context.session.add(pptp_credential_db)
++            if attr.is_attr_set(pptp_credential['vpnservices']):
++                for vpnservice_id in pptp_credential['vpnservices']:
++                    port_id = self._create_port_for_vpnservice(
++                        context, vpnservice_id, pptp_credential_id)
++                    if not port_id:
++                        LOG.warn(
++                            _("Cannot create port for vpnservice "
++                              "%(vpnservice_id)s and pptp_credential "
++                              "%(pptp_credential_id)s."),
++                            {'vpnservice_id': vpnservice_id,
++                             'pptp_credential_id': pptp_credential_id})
++                        continue
++                    association = PPTPCredentialServiceAssociation(
++                        pptp_credential_id=pptp_credential_id,
++                        vpnservice_id=vpnservice_id,
++                        port_id=port_id
++                    )
++                    context.session.add(association)
++        return self._make_pptp_credential_dict(pptp_credential_db)
++
++    def update_pptp_credential(self, context, pptp_credential_id,
++                               pptp_credential):
++        pptp_credential = pptp_credential['pptp_credential']
++        vpnservices = pptp_credential.pop('vpnservices', None)
++        with context.session.begin(subtransactions=True):
++            pptp_credential_db = self._get_resource(
++                context, PPTPCredential, pptp_credential_id)
++            pptp_credential_db.update(pptp_credential)
++            if attr.is_attr_set(vpnservices):
++                new_services = set(vpnservices)
++                for association in pptp_credential_db['associations']:
++                    if association.vpnservice_id in new_services:
++                        new_services.remove(association.vpnservice_id)
++                    else:
++                        self._core_plugin.delete_port(
++                            context, association.port_id, l3_port_check=False)
++                        context.session.delete(association)
++                for service_id in new_services:
++                    port_id = self._create_port_for_vpnservice(
++                        context, service_id, pptp_credential_id)
++                    if not port_id:
++                        LOG.warn(
++                            _("Cannot create port for vpnservice "
++                              "%(vpnservice_id)s and pptp_credential "
++                              "%(pptp_credential_id)s."),
++                            {'vpnservice_id': service_id,
++                             'pptp_credential_id': pptp_credential_id})
++                        continue
++                    association = PPTPCredentialServiceAssociation(
++                        pptp_credential_id=pptp_credential_id,
++                        vpnservice_id=service_id,
++                        port_id=port_id
++                    )
++                    context.session.add(association)
++        return self._make_pptp_credential_dict(pptp_credential_db)
++
++    def delete_pptp_credential(self, context, pptp_credential_id):
++        with context.session.begin(subtransactions=True):
++            pptp_credential = self._get_resource(
++                context, PPTPCredential, pptp_credential_id)
++            for association in pptp_credential['associations']:
++                self._core_plugin.delete_port(
++                    context, association.port_id, l3_port_check=False)
++            context.session.delete(pptp_credential)
++
++    def get_pptp_credential(self, context, pptp_credential_id, fields=None):
++        pptp_credential = self._get_resource(
++            context, PPTPCredential, pptp_credential_id)
++        return self._make_pptp_credential_dict(pptp_credential, fields)
++
++    def get_pptp_credentials(self, context, filters=None, fields=None):
++        return self._get_collection(context, PPTPCredential,
++                                    self._make_pptp_credential_dict,
++                                    filters=filters, fields=fields)
++
+ 
+ class VPNPluginRpcDbMixin():
+-    def _get_agent_hosting_vpn_services(self, context, host):
++    def _get_agent_hosting_vpn_services(self, context, host, provider):
+ 
+         plugin = manager.NeutronManager.get_plugin()
+         agent = plugin._get_agent_by_type_and_host(
+@@ -611,6 +790,11 @@ class VPNPluginRpcDbMixin():
+         if not agent.admin_state_up:
+             return []
+         query = context.session.query(VPNService)
++        query = query.join(
++            st_db.ProviderResourceAssociation,
++            st_db.ProviderResourceAssociation.provider_name == provider)
++        query = query.filter(
++            st_db.ProviderResourceAssociation.resource_id == VPNService.id)
+         query = query.join(IPsecSiteConnection)
+         query = query.join(IKEPolicy)
+         query = query.join(IPsecPolicy)
+@@ -658,3 +842,142 @@ class VPNPluginRpcDbMixin():
+                     self._update_connection_status(
+                         context, conn_id, conn['status'],
+                         conn['updated_pending_status'])
++
++    def set_vpnservice_status(self, context, vpnservice_id, status):
++        with context.session.begin(subtransactions=True):
++            try:
++                vpnservice_db = self._get_vpnservice(context, vpnservice_id)
++                vpnservice_db.status = status
++            except vpnaas.VPNServiceNotFound:
++                LOG.warn(_('vpnservice %s in db is already deleted'),
++                         vpnservice_db['id'])
++
++    def update_pptp_status_by_agent(
++            self, context, host,
++            pptp_processes_status, credentials, updated_ports,
++            provider):
++
++        notify_vpnservices = {
++            'enabled': [],
++            'disabled': [],
++            'deleted': [],
++            'added': []
++        }
++        notify_credentials = {
++            'added': [],
++            'deleted': [],
++            'updated': {}
++        }
++        notify_ports = {
++            'added': {},
++            'deleted': []
++        }
++
++        # First, get vpnservices running on the specified host
++        plugin = manager.NeutronManager.get_plugin()
++        agent = plugin._get_agent_by_type_and_host(
++            context, n_constants.AGENT_TYPE_L3, host)
++        vpnservices = {}
++        if agent.admin_state_up:
++            query = context.session.query(VPNService)
++            query = query.join(
++                st_db.ProviderResourceAssociation,
++                st_db.ProviderResourceAssociation.provider_name == provider)
++            query = query.filter(
++                st_db.ProviderResourceAssociation.resource_id == VPNService.id)
++            query = query.join(l3_agent_db.RouterL3AgentBinding,
++                               l3_agent_db.RouterL3AgentBinding.router_id ==
++                               VPNService.router_id)
++            query = query.filter(
++                l3_agent_db.RouterL3AgentBinding.l3_agent_id == agent.id)
++            for vpnservice in query.all():
++                vpnservices[vpnservice['id']] = self._make_vpnservice_dict(
++                    vpnservice)
++
++        # Second, obtain pptp_credentials and ports for the vpnservices
++        pptp_credentials = {}
++        ports = {}
++        for vpnservice_id in vpnservices.keys():
++            ports[vpnservice_id] = {}
++            for association in context.session.query(
++                PPTPCredentialServiceAssociation
++            ).filter_by(vpnservice_id=vpnservice_id).all():
++                if association.pptp_credential_id not in pptp_credentials:
++                    pptp_credential_db = self._get_resource(
++                        context, PPTPCredential,
++                        association.pptp_credential_id)
++                    pptp_credentials[association.pptp_credential_id] = {
++                        'id': pptp_credential_db['id'],
++                        'username': pptp_credential_db['username'],
++                        'password': pptp_credential_db['password']
++                    }
++                port_db = self._core_plugin._get_port(
++                    context, association.port_id
++                )
++                ports[vpnservice_id][association.port_id] = {
++                    'vpnservice_id': vpnservice_id,
++                    'ip': port_db.fixed_ips[0]['ip_address'],
++                    'credential_id': association.pptp_credential_id
++                }
++
++        with context.session.begin(subtransactions=True):
++            # Update port status
++            for port_id, status in updated_ports.iteritems():
++                try:
++                    port_db = self._core_plugin._get_port(context, port_id)
++                except n_exc.PortNotFound:
++                    LOG.warn(_('port %s in db is already deleted', port_id))
++                    continue
++                if status:
++                    port_db.status = n_constants.PORT_STATUS_ACTIVE
++                else:
++                    port_db.status = n_constants.PORT_STATUS_DOWN
++
++        # Update vpnservice status
++        for vpnservice_id, status in pptp_processes_status.iteritems():
++            if vpnservice_id not in vpnservices:
++                notify_vpnservices['deleted'].append(vpnservice_id)
++                continue
++            s = constants.ACTIVE if status['active'] else constants.DOWN
++            self.set_vpnservice_status(context, vpnservice_id, s)
++            vpnservice = vpnservices.pop(vpnservice_id)
++            # Sync vpnservice process status
++            if vpnservice['admin_state_up'] != status['enabled']:
++                notify_vpnservices[
++                    'enabled' if vpnservice['admin_state_up'] else 'disabled'
++                ].append(vpnservice_id)
++            for port_id in status['ports']:
++                if port_id not in ports[vpnservice_id]:
++                    notify_ports['deleted'].append(port_id)
++                    continue
++                ports[vpnservice_id].pop(port_id)
++
++        # Update pptp_credential status
++        for credential_id, credential in credentials.iteritems():
++            if credential_id not in pptp_credentials:
++                notify_credentials['deleted'].append(credential_id)
++                continue
++            c = pptp_credentials.pop(credential_id)
++            if c['password'] != credential['password']:
++                notify_credentials['updated'][credential_id] = c['password']
++
++        # Handle added vpnservices
++        for vpnservice_id, vpnservice in vpnservices.iteritems():
++            subnet = self._core_plugin.get_subnet(
++                context, vpnservice['subnet_id']
++            )
++            vpnservice['localip'] = subnet['gateway_ip']
++            notify_vpnservices['added'].append(vpnservice)
++
++        # Handle added credentials
++        for credential_id, credential in pptp_credentials.iteritems():
++            notify_credentials['added'].append(credential)
++
++        # Handle added ports
++        for vpnservice_id, ports in ports.iteritems():
++            notify_ports['added'].update(ports)
++
++        driver = self.drivers[provider]
++        driver.sync_from_server(
++            context, host, notify_vpnservices, notify_credentials, notify_ports
++        )
+diff --git a/neutron/extensions/vpnaas.py b/neutron/extensions/vpnaas.py
+index a1bf418..4e541e3 100644
+--- a/neutron/extensions/vpnaas.py
++++ b/neutron/extensions/vpnaas.py
+@@ -87,6 +87,20 @@ class RouterIsNotExternal(qexception.BadRequest):
+     message = _("Router %(router_id)s has no external network gateway set")
+ 
+ 
++class BadProviderForIPsec(qexception.BadRequest):
++    message = _("Provider of VPN service %(vpnservice_id)s does not support "
++                "IPsec Connection.")
++
++
++class BadProviderForPPTP(qexception.BadRequest):
++    message = _("Provider of VPN services %(vpnservice_ids)s does not support "
++                "PPTP Connection.")
++
++
++class PPTPUsernameAlreadyExists(qexception.BadRequest):
++    message = _("Username %(username)s already exists.")
++
++
+ vpn_supported_initiators = ['bi-directional', 'response-only']
+ vpn_supported_encryption_algorithms = ['3des', 'aes-128',
+                                        'aes-192', 'aes-256']
+@@ -134,7 +148,10 @@ RESOURCE_ATTRIBUTE_MAP = {
+                            'convert_to': attr.convert_to_boolean,
+                            'is_visible': True},
+         'status': {'allow_post': False, 'allow_put': False,
+-                   'is_visible': True}
++                   'is_visible': True},
++        'provider': {'allow_post': True, 'allow_put': False,
++                     'validate': {'type:string': None},
++                     'is_visible': True, 'default': attr.ATTR_NOT_SPECIFIED},
+     },
+ 
+     'ipsec_site_connections': {
+@@ -330,6 +347,28 @@ RESOURCE_ATTRIBUTE_MAP = {
+                 'default': 'group5',
+                 'validate': {'type:values': vpn_supported_pfs},
+                 'is_visible': True}
++    },
++
++    'pptp_credentials': {
++        'id': {'allow_post': False, 'allow_put': False,
++               'validate': {'type:uuid': None},
++               'is_visible': True,
++               'primary_key': True},
++        'tenant_id': {'allow_post': True, 'allow_put': False,
++                      'validate': {'type:string': None},
++                      'required_by_policy': True,
++                      'is_visible': True},
++        'username': {'allow_post': True, 'allow_put': False,
++                     'validate': {'type:string': None},
++                     'is_visible': True},
++        'password': {'allow_post': True, 'allow_put': True,
++                     'validate': {'type:string': None},
++                     'is_visible': True},
++        'vpnservices': {'allow_post': True, 'allow_put': True,
++                        'validate': {'type:uuid_list': None},
++                        'convert_to': attr.convert_to_list,
++                        'default': attr.ATTR_NOT_SPECIFIED,
++                        'is_visible': True}
+     }
+ }
+ 
+@@ -478,3 +517,24 @@ class VPNPluginBase(service_base.ServicePluginBase):
+     @abc.abstractmethod
+     def delete_ipsecpolicy(self, context, ipsecpolicy_id):
+         pass
++
++    @abc.abstractmethod
++    def get_pptp_credentials(self, context, filters=None, fields=None):
++        pass
++
++    @abc.abstractmethod
++    def get_pptp_credential(self, context, pptp_credential_id, fields=None):
++        pass
++
++    @abc.abstractmethod
++    def create_pptp_credential(self, context, pptp_credential):
++        pass
++
++    @abc.abstractmethod
++    def update_pptp_credential(self, context, pptp_credential_id,
++                               pptp_credential):
++        pass
++
++    @abc.abstractmethod
++    def delete_pptp_credential(self, context, pptp_credential_id):
++        pass
+diff --git a/neutron/services/vpn/common/topics.py b/neutron/services/vpn/common/topics.py
+index d17c829..da49ac7 100644
+--- a/neutron/services/vpn/common/topics.py
++++ b/neutron/services/vpn/common/topics.py
+@@ -18,3 +18,5 @@ IPSEC_DRIVER_TOPIC = 'ipsec_driver'
+ IPSEC_AGENT_TOPIC = 'ipsec_agent'
+ CISCO_IPSEC_DRIVER_TOPIC = 'cisco_csr_ipsec_driver'
+ CISCO_IPSEC_AGENT_TOPIC = 'cisco_csr_ipsec_agent'
++PPTP_DRIVER_TOPIC = 'pptp_driver'
++PPTP_AGENT_TOPIC = 'pptp_agent'
+diff --git a/neutron/services/vpn/device_drivers/pptp.py b/neutron/services/vpn/device_drivers/pptp.py
+new file mode 100644
+index 0000000..469fe62
+--- /dev/null
++++ b/neutron/services/vpn/device_drivers/pptp.py
+@@ -0,0 +1,398 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import os
++import shutil
++
++import jinja2
++from oslo.config import cfg
++from oslo import messaging
++
++from neutron.agent.linux import ip_lib
++from neutron.agent.linux import utils
++from neutron.common import rpc as n_rpc
++from neutron import context
++from neutron.openstack.common import lockutils
++from neutron.openstack.common import log as logging
++from neutron.openstack.common import loopingcall
++from neutron.services.vpn.common import topics
++from neutron.services.vpn import device_drivers
++
++LOG = logging.getLogger(__name__)
++TEMPLATE_PATH = os.path.dirname(__file__)
++
++pptp_opts = [
++    cfg.StrOpt(
++        'chap_secrets',
++        default='/etc/ppp/chap-secrets',
++        help=_('Location to store pptp chap secrets')),
++    cfg.StrOpt(
++        'config_base_dir',
++        default='$state_path/pptp',
++        help=_('Location to store pptp server config files')),
++    cfg.StrOpt(
++        'ppp_options_file_template',
++        default=os.path.join(
++            TEMPLATE_PATH,
++            'template/pptp/ppp_options.template'),
++        help=_('Template file for pppd options')),
++    cfg.IntOpt(
++        'pptp_status_check_interval',
++        default=60,
++        help=_("Interval for checking pptp vpn services status"))
++]
++
++cfg.CONF.register_opts(pptp_opts, 'pptp')
++
++JINJA_ENV = None
++
++
++def _get_template(template_file):
++    global JINJA_ENV
++    if not JINJA_ENV:
++        templateLoader = jinja2.FileSystemLoader(searchpath="/")
++        JINJA_ENV = jinja2.Environment(loader=templateLoader)
++    return JINJA_ENV.get_template(template_file)
++
++
++class PPTPProcess(object):
++    binary = 'pptpd'
++
++    def __init__(self, conf, root_helper, process_id, localip, namespace):
++        self.conf = conf
++        self.root_helper = root_helper
++        self.id = process_id
++        self.namespace = namespace
++        self.localip = localip
++        self.ports = {}
++        self.config_dir = os.path.join(cfg.CONF.pptp.config_base_dir, self.id)
++        self.ppp_options_file = os.path.join(self.config_dir, 'ppp_options')
++        self.connections_dir = os.path.join(self.config_dir, 'connections')
++        self.pid_file = os.path.join(self.config_dir, 'pid')
++        self.ensure_config()
++        self.enabled = False
++
++    def ensure_config(self):
++        self.remove_config()
++        os.makedirs(self.config_dir, 0o755)
++        os.makedirs(self.connections_dir, 0o755)
++
++        ppp_options_file_template = _get_template(
++            self.conf.pptp.ppp_options_file_template)
++        utils.replace_file(
++            self.ppp_options_file,
++            ppp_options_file_template.render(
++                {'localip': self.localip, 'name': self.id, 'ipparam': self.id}
++            )
++        )
++
++    def remove_config(self):
++        shutil.rmtree(self.config_dir, ignore_errors=True)
++
++    def _execute(self, cmd, check_exit_code=True, addl_env={}):
++        ip_wrapper = ip_lib.IPWrapper(self.root_helper, self.namespace)
++        return ip_wrapper.netns.execute(cmd, check_exit_code=check_exit_code,
++                                        addl_env=addl_env)
++
++    def start(self):
++        self.enabled = True
++        if not self.active:
++            self._execute([
++                self.binary,
++                '--noipparam',
++                '--option', self.ppp_options_file,
++                '--pidfile', self.pid_file,
++                '--delegate'
++            ])
++
++    def stop(self):
++        self.enabled = False
++        if self.active:
++            self._execute(['kill', '-9', '--', '-%s' % self.pid])
++
++    def update_ports_status(self):
++        changed = {}
++        connected_ips = self.connected_ips
++        for port_id, port in self.ports.iteritems():
++            port['was_connected'] = port['connected']
++            port['connected'] = port['ip'] in connected_ips
++            if port['was_connected'] != port['connected']:
++                changed[port_id] = port['connected']
++        return changed
++
++    def add_port(self, port_id, port_ip, credential_id):
++        port = {'ip': port_ip,
++                'credential_id': credential_id,
++                'was_connected': None,
++                'connected': None}
++        self.ports[port_id] = port
++
++    def disconnect_port(self, port_id):
++        remote_ip = self.ports[port_id]['ip']
++        if remote_ip in self.connected_ips:
++            connection_pid = os.path.join(self.connections_dir, remote_ip)
++            try:
++                with open(connection_pid, 'r') as f:
++                    pid = int(f.readline())
++            except (IOError, ValueError):
++                return
++            self._execute(['kill', pid])
++
++    def del_port(self, port_id):
++        self.disconnect_port(port_id)
++        del self.ports[port_id]
++
++    @property
++    def active(self):
++        pid = self.pid
++        if pid is None:
++            return False
++
++        cmdline = '/proc/%s/cmdline' % pid
++        try:
++            with open(cmdline, 'r') as f:
++                return self.ppp_options_file in f.readline()
++        except IOError:
++            return False
++
++    @property
++    def pid(self):
++        try:
++            with open(self.pid_file, 'r') as f:
++                return int(f.readline())
++        except (IOError, ValueError):
++            return None
++
++    @property
++    def connected_ips(self):
++        try:
++            return os.listdir(self.connections_dir)
++        except OSError:
++            # This should not happen
++            return []
++
++
++class PPTPVpnDriverApi(n_rpc.RpcProxy):
++    """PPTPVpnDriver RPC api."""
++    RPC_API_VERSION = '1.0'
++
++    def report_status(self, context, host,
++                      pptp_processes_status, credentials, updated_ports):
++        self.cast(
++            context,
++            self.make_msg(
++                'report_status',
++                host=host,
++                pptp_processes_status=pptp_processes_status,
++                credentials=credentials,
++                updated_ports=updated_ports,
++            ),
++            version=self.RPC_API_VERSION
++        )
++
++
++class PPTPDriver(device_drivers.DeviceDriver):
++
++    RPC_API_VERSION = '1.0'
++
++    target = messaging.Target(version=RPC_API_VERSION)
++
++    def __init__(self, agent, host):
++        self.agent = agent
++        self.conf = self.agent.conf
++        self.root_helper = self.agent.root_helper
++        self.host = host
++        self.conn = n_rpc.create_connection(new=True)
++        self.context = context.get_admin_context_without_session()
++        self.topic = topics.PPTP_AGENT_TOPIC
++        node_topic = '%s.%s' % (self.topic, self.host)
++
++        self.processes = {}
++        self.credentials = {}
++
++        self.endpoints = [self]
++        self.conn.create_consumer(node_topic, self.endpoints, fanout=False)
++        self.conn.consume_in_threads()
++        self.agent_rpc = PPTPVpnDriverApi(
++            topics.PPTP_DRIVER_TOPIC, self.RPC_API_VERSION)
++        self.process_status_check = loopingcall.FixedIntervalLoopingCall(
++            self.check_and_report, self.context)
++        self.process_status_check.start(
++            interval=self.conf.pptp.pptp_status_check_interval)
++
++    def check_and_report(self, context):
++        pptp_processes_status = {}
++        updated_ports = {}
++
++        for process_id, process in self.processes.iteritems():
++            # Try to start enabled processes that are not running
++            # or unexpected dead
++            if process.enabled and not process.active:
++                process.start()
++
++            # Check port connection status change
++            updated_ports.update(process.update_ports_status())
++
++            process_status = {
++                'enabled': process.enabled,
++                'active': process.active,
++                'ports': process.ports.keys()
++            }
++            pptp_processes_status[process_id] = process_status
++
++        self.agent_rpc.report_status(
++            context, self.host,
++            pptp_processes_status, self.credentials, updated_ports)
++
++    def start_process(self, router_id, process_id, localip, enabled):
++        namespace = self.agent.get_namespace(router_id)
++        if not namespace:
++            LOG.warn(
++                _('Namespace not ready for vpnservice %(vpnservice_id)s'),
++                {'vpnservice_id': process_id})
++            return
++        process = self.processes.get(process_id)
++        if not process:
++            process = PPTPProcess(
++                self.conf, self.root_helper, process_id, localip, namespace)
++            self.processes[process_id] = process
++        if enabled:
++            process.start()
++
++    def stop_process(self, process_id, delete=True):
++        process = self.processes.get(process_id)
++        if process:
++            process.stop()
++            if delete:
++                process.remove_config()
++                del self.processes[process_id]
++
++    def start_vpnservice(self, context, vpnservice, localip):
++        router_id = vpnservice['router_id']
++        process_id = vpnservice['id']
++        enabled = vpnservice['admin_state_up']
++        if not localip:
++            LOG.warn(
++                _('PPTP VPN service localip is None, so vpnservice '
++                  'so vpnservice %(vpnservice_id) cannot be started. '
++                  'Maybe connected subnet does not have a valid gateway ip?'),
++                {'vpnservice_id': vpnservice['id']})
++        else:
++            self.start_process(router_id, process_id, localip, enabled)
++
++    def stop_vpnservice(self, context, vpnservice, delete):
++        process_id = vpnservice['id']
++        self.stop_process(process_id, delete=delete)
++
++    @lockutils.synchronized('pptp-driver', 'neutron-')
++    def sync_from_server(self, context, vpnservices, credentials, ports):
++        LOG.debug(
++            _('Syncing from server: vpnservices: %(vpnservices)s, '
++              'credentials: %(credentials)s, '
++              'ports: %(ports)s.'),
++            {'vpnservices': vpnservices,
++             'credentials': credentials,
++             'ports': ports})
++        for vpnservice in vpnservices['added']:
++            localip = vpnservice.pop('localip')
++            self.start_vpnservice(context, vpnservice, localip)
++        for vpnservice_id in vpnservices['enabled']:
++            process = self.processes.get(vpnservice_id)
++            if process:
++                process.start()
++        for vpnservice_id in vpnservices['disabled']:
++            self.stop_process(vpnservice_id, deleted=False)
++        for vpnservice_id in vpnservices['deleted']:
++            self.stop_process(vpnservice_id)
++
++        for credential in credentials['added']:
++            self.credentials[credential['id']] = {
++                'username': credential['username'],
++                'password': credential['password']
++            }
++        for credential_id in credentials['deleted']:
++            if credential_id in self.credentials:
++                del self.credentials[credential_id]
++        for credential_id, password in credentials['updated'].iteritems():
++            if credential_id in self.credentials:
++                self.credentials[credential_id]['password'] = password
++
++        for port_id, port in ports['added'].iteritems():
++            process_id = port['vpnservice_id']
++            port_ip = port['ip']
++            credential_id = port['credential_id']
++
++            process = self.processes.get(process_id)
++            if process:
++                process.add_port(port_id, port_ip, credential_id)
++
++        to_disconnect = {}
++        to_delete = {}
++        credential_items = []
++
++        for process_id, process in self.processes.iteritems():
++            for port_id, port in process.ports.iteritems():
++                if port_id in ports['deleted']:
++                    if process_id in to_delete:
++                        to_delete[process_id].append(port_id)
++                    else:
++                        to_delete[process_id] = [port_id]
++                    continue
++                elif (
++                    port['credential_id'] in credentials['updated'] and
++                    port_id not in ports['added']
++                ):
++                    if process_id in to_disconnect:
++                        to_disconnect[process_id].append(port_id)
++                    else:
++                        to_disconnect[process_id] = [port_id]
++
++                credential = self.credentials[port['credential_id']]
++                username = credential['username']
++                password = credential['password']
++                vpnservice_id = process_id
++                remote_ip = port['ip']
++                credential_items.append('%s %s %s %s' % (
++                    username, vpnservice_id, password, remote_ip))
++
++        credential_items.append('\n')  # Add a empty line
++        utils.replace_file(self.conf.pptp.chap_secrets,
++                           '\n'.join(credential_items))
++
++        for process_id, port_ids in to_disconnect.iteritems():
++            process = self.processes.get(process_id)
++            if process:
++                for port_id in port_ids:
++                    process.disconnect_port(port_id)
++
++        for process_id, port_ids in to_delete.iteritems():
++            process = self.processes.get(process_id)
++            if process:
++                for port_id in port_ids:
++                    process.del_port(port_id)
++
++    def sync(self, context, routers):
++        """
++        Agent regularly reports active processes statuses to the server. And
++        the server then checks and then ask the agent to start/stop services.
++        So we don't need to do anything here.
++        """
++        pass
++
++    def create_router(self, router_id):
++        pass
++
++    def destroy_router(self, router_id):
++        pass
+diff --git a/neutron/services/vpn/device_drivers/template/pptp/ppp_options.template b/neutron/services/vpn/device_drivers/template/pptp/ppp_options.template
+new file mode 100644
+index 0000000..4211c21
+--- /dev/null
++++ b/neutron/services/vpn/device_drivers/template/pptp/ppp_options.template
+@@ -0,0 +1,29 @@
++name {{name}}
++
++ipparam {{ipparam}}
++{{localip}}:
++# Refuse PAP, CHAP or MS-CHAP connections but accept connections with
++# MS-CHAPv2 or MPPE with 128-bit encryption
++refuse-pap
++refuse-chap
++refuse-mschap
++require-mschap-v2
++require-mppe-128
++
++# Add entry to the ARP system table
++proxyarp
++
++# For the serial device to ensure exclusive access to the device
++lock
++
++# Disable BSD-Compress and Van Jacobson TCP/IP header compression
++nobsdcomp
++novj
++novjccomp
++
++# Disable file logging
++nolog
++
++# DNS servers for Microsoft Windows clients. Using Google's public servers here
++ms-dns 8.8.8.8
++ms-dns 8.8.4.4
+diff --git a/neutron/services/vpn/plugin.py b/neutron/services/vpn/plugin.py
+index 9353d6c..eb50fe6 100644
+--- a/neutron/services/vpn/plugin.py
++++ b/neutron/services/vpn/plugin.py
+@@ -14,13 +14,22 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
++from neutron.api.v2 import attributes as attrs
++from neutron.common import exceptions as n_exc
++from neutron import context as n_context
++from neutron.db import servicetype_db as st_db
+ from neutron.db.vpn import vpn_db
++from neutron.extensions import vpnaas as vpn_ext
+ from neutron.openstack.common import log as logging
+ from neutron.plugins.common import constants
++from neutron.services import provider_configuration as pconf
+ from neutron.services import service_base
+ 
+ LOG = logging.getLogger(__name__)
+ 
++IPSEC = 'ipsec'
++PPTP = 'pptp'
++
+ 
+ class VPNPlugin(vpn_db.VPNPluginDb):
+ 
+@@ -30,38 +39,144 @@ class VPNPlugin(vpn_db.VPNPluginDb):
+     Most DB related works are implemented in class
+     vpn_db.VPNPluginDb.
+     """
+-    supported_extension_aliases = ["vpnaas", "service-type"]
++    supported_extension_aliases = ["vpnaas"]
+ 
+ 
+ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
+     """VpnPlugin which supports VPN Service Drivers."""
+     #TODO(nati) handle ikepolicy and ipsecpolicy update usecase
+-    def __init__(self):
+-        super(VPNDriverPlugin, self).__init__()
+-        # Load the service driver from neutron.conf.
+-        drivers, default_provider = service_base.load_drivers(
+-            constants.VPN, self)
+-        LOG.info(_("VPN plugin using service driver: %s"), default_provider)
+-        self.ipsec_driver = drivers[default_provider]
++    supported_extension_aliases = ["vpnaas", "service-type"]
+ 
+-    def _get_driver_for_vpnservice(self, vpnservice):
+-        return self.ipsec_driver
++    def __init__(self):
++        """Initialization for the vpn service plugin."""
+ 
+-    def _get_driver_for_ipsec_site_connection(self, context,
+-                                              ipsec_site_connection):
+-        #TODO(nati) get vpnservice when we support service type framework
+-        vpnservice = None
+-        return self._get_driver_for_vpnservice(vpnservice)
++        super(VPNDriverPlugin, self).__init__()
++        self.service_type_manager = st_db.ServiceTypeManager.get_instance()
++        self._load_drivers()
+ 
+-    def _get_validator(self):
+-        return self.ipsec_driver.validator
++    def _load_drivers(self):
++        """Loads plugin-drivers specified in configuration."""
++        self.drivers, self.default_provider = service_base.load_drivers(
++            constants.VPN, self)
++        ctx = n_context.get_admin_context(load_admin_roles=False)
++        # check status of the services if they have lost their providers
++        self._check_orphan_vpnservice_associations(ctx, self.drivers.keys())
++
++    def _get_driver_for_vpnservice(self, resource):
++        provider_name = resource['provider']
++        return self.drivers[provider_name]
++
++    def _get_driver_for_ipsec_site_connection(self, context, resource):
++        vpnservice = self.get_vpnservice(
++            context, resource['vpnservice_id'])
++        provider_name = vpnservice['provider']
++        return self.drivers[provider_name]
++
++    def _check_drivers_for_pptp_credential(self, context, pptp_credential):
++        providers = dict()
++        if (
++            'vpnservices' in pptp_credential and
++            attrs.is_attr_set(pptp_credential['vpnservices'])
++        ):
++            for vpnservice_id in pptp_credential['vpnservices']:
++                vpnservice = self.get_vpnservice(context, vpnservice_id)
++                provider = vpnservice['provider']
++                if provider in providers:
++                    providers[provider].append(vpnservice_id)
++                else:
++                    providers[provider] = [vpnservice_id]
++
++        for provider, vpnservice_ids in providers.iteritems():
++            driver = self.drivers[provider]
++            if not driver.service_type == PPTP:
++                raise vpn_ext.BadProviderForPPTP(
++                    vpnservice_ids=vpnservice_ids)
++
++    def _check_orphan_vpnservice_associations(self, context, provider_names):
++        """Ensure no orphaned providers for existing services.
++
++        Administrator should delete all associations
++        before removing a provider.
++        """
++        vpnservices = self.get_vpnservices(context)
++        lost_providers = set([vpnservice['provider']
++                              for vpnservice in vpnservices
++                              if vpnservice['provider'] not in provider_names])
++        if lost_providers:
++            msg = _("Delete associated vpnservices "
++                    "before removing providers %s") % list(lost_providers)
++            LOG.exception(msg)
++            raise SystemExit(msg)
++
++    def _get_validator(self, provider=None):
++        if provider:
++            driver = self.drivers[provider]
++            return driver.validator
++        else:
++            return None
++
++    def _get_provider_name(self, vpnservice):
++        if attrs.is_attr_set(vpnservice.get('provider')):
++            provider_name = pconf.normalize_provider_name(
++                vpnservice['provider'])
++            self.validate_provider(provider_name)
++            return provider_name
++
++        if not self.default_provider:
++            raise n_exc.InvalidInput(
++                error_message=_("No default provider specified "
++                                "for VPN Service %s") % vpnservice['id'])
++        return self.default_provider
++
++    def create_vpnservice(self, context, vpnservice):
++        provider_name = self._get_provider_name(vpnservice['vpnservice'])
++        driver = self.drivers[provider_name]
++        validator = driver.validator
++        with context.session.begin(subtransactions=True):
++            service = super(VPNDriverPlugin, self).create_vpnservice(
++                context, vpnservice, validator)
++            self.service_type_manager.add_resource_association(
++                context,
++                constants.VPN,
++                provider_name, service['id'])
++
++        # need to add provider name to vpnservice dict,
++        # because provider was not known to db plugin at vpnservice creation
++        service['provider'] = provider_name
++        driver.create_vpnservice(context, service)
++        return service
++
++    def validate_provider(self, provider):
++        if provider not in self.drivers:
++            raise n_exc.InvalidInput(
++                error_message=_("No provider with name '%s' found.") %
++                provider)
++
++    def update_vpnservice(self, context, id, vpnservice):
++        old_vpnservice = self.get_vpnservice(context, id)
++        updated_vpnservice = super(VPNDriverPlugin, self).update_vpnservice(
++            context, id, vpnservice)
++        driver = self._get_driver_for_vpnservice(updated_vpnservice)
++        driver.update_vpnservice(context, old_vpnservice, updated_vpnservice)
++        return updated_vpnservice
++
++    def delete_vpnservice(self, context, id):
++        vpnservice = self.get_vpnservice(context, id)
++        self.service_type_manager.del_resource_associations(context, [id])
++        super(VPNDriverPlugin, self).delete_vpnservice(context, id)
++        driver = self._get_driver_for_vpnservice(vpnservice)
++        driver.delete_vpnservice(context, vpnservice)
+ 
+     def create_ipsec_site_connection(self, context, ipsec_site_connection):
++        driver = self._get_driver_for_ipsec_site_connection(
++            context, ipsec_site_connection['ipsec_site_connection'])
++        if not driver.service_type == IPSEC:
++            raise vpn_ext.BadProviderForIPsec(
++                vpnservice_id=ipsec_site_connection['vpnservice_id'])
++        validator = driver.validator
+         ipsec_site_connection = super(
+             VPNDriverPlugin, self).create_ipsec_site_connection(
+-                context, ipsec_site_connection)
+-        driver = self._get_driver_for_ipsec_site_connection(
+-            context, ipsec_site_connection)
++                context, ipsec_site_connection, validator)
+         driver.create_ipsec_site_connection(context, ipsec_site_connection)
+         return ipsec_site_connection
+ 
+@@ -79,28 +194,29 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
+             ipsec_conn_id, ipsec_site_connection):
+         old_ipsec_site_connection = self.get_ipsec_site_connection(
+             context, ipsec_conn_id)
++        # VPN service id would not be changed.
++        driver = self._get_driver_for_ipsec_site_connection(
++            context, old_ipsec_site_connection)
++        validator = driver.validator
+         ipsec_site_connection = super(
+             VPNDriverPlugin, self).update_ipsec_site_connection(
+                 context,
+                 ipsec_conn_id,
+-                ipsec_site_connection)
+-        driver = self._get_driver_for_ipsec_site_connection(
+-            context, ipsec_site_connection)
++                ipsec_site_connection,
++                validator)
+         driver.update_ipsec_site_connection(
+             context, old_ipsec_site_connection, ipsec_site_connection)
+         return ipsec_site_connection
+ 
+-    def update_vpnservice(self, context, vpnservice_id, vpnservice):
+-        old_vpn_service = self.get_vpnservice(context, vpnservice_id)
+-        new_vpn_service = super(
+-            VPNDriverPlugin, self).update_vpnservice(context, vpnservice_id,
+-                                                     vpnservice)
+-        driver = self._get_driver_for_vpnservice(old_vpn_service)
+-        driver.update_vpnservice(context, old_vpn_service, new_vpn_service)
+-        return new_vpn_service
+-
+-    def delete_vpnservice(self, context, vpnservice_id):
+-        vpnservice = self._get_vpnservice(context, vpnservice_id)
+-        super(VPNDriverPlugin, self).delete_vpnservice(context, vpnservice_id)
+-        driver = self._get_driver_for_vpnservice(vpnservice)
+-        driver.delete_vpnservice(context, vpnservice)
++    def create_pptp_credential(self, context, pptp_credential):
++        self._check_drivers_for_pptp_credential(context, pptp_credential)
++        return super(
++            VPNDriverPlugin, self
++        ).create_pptp_credential(context, pptp_credential)
++
++    def update_pptp_credential(self, context, pptp_credential_id,
++                               pptp_credential):
++        self._check_drivers_for_pptp_credential(context, pptp_credential)
++        return super(
++            VPNDriverPlugin, self
++        ).update_pptp_credential(context, pptp_credential_id, pptp_credential)
+diff --git a/neutron/services/vpn/service_drivers/__init__.py b/neutron/services/vpn/service_drivers/__init__.py
+index e6f2551..dd6612d 100644
+--- a/neutron/services/vpn/service_drivers/__init__.py
++++ b/neutron/services/vpn/service_drivers/__init__.py
+@@ -41,6 +41,14 @@ class VpnDriver(object):
+             constants.L3_ROUTER_NAT)
+ 
+     @property
++    def core_plugin(self):
++        try:
++            return self._core_plugin
++        except AttributeError:
++            self._core_plugin = manager.NeutronManager.get_plugin()
++            return self._core_plugin
++
++    @property
+     def service_type(self):
+         pass
+ 
+@@ -57,19 +65,6 @@ class VpnDriver(object):
+     def delete_vpnservice(self, context, vpnservice):
+         pass
+ 
+-    @abc.abstractmethod
+-    def create_ipsec_site_connection(self, context, ipsec_site_connection):
+-        pass
+-
+-    @abc.abstractmethod
+-    def update_ipsec_site_connection(self, context, old_ipsec_site_connection,
+-                                     ipsec_site_connection):
+-        pass
+-
+-    @abc.abstractmethod
+-    def delete_ipsec_site_connection(self, context, ipsec_site_connection):
+-        pass
+-
+ 
+ class BaseIPsecVpnAgentApi(n_rpc.RpcProxy):
+     """Base class for IPSec API to agent."""
+diff --git a/neutron/services/vpn/service_drivers/ipsec.py b/neutron/services/vpn/service_drivers/ipsec.py
+index 9fe4806..cdc82f2 100644
+--- a/neutron/services/vpn/service_drivers/ipsec.py
++++ b/neutron/services/vpn/service_drivers/ipsec.py
+@@ -40,9 +40,13 @@ class IPsecVpnDriverCallBack(n_rpc.RpcCallback):
+ 
+     def get_vpn_services_on_host(self, context, host=None):
+         """Returns the vpnservices on the host."""
++        vpnservices = []
+         plugin = self.driver.service_plugin
+-        vpnservices = plugin._get_agent_hosting_vpn_services(
+-            context, host)
++        for provider in plugin.drivers:
++            if plugin.drivers[provider] == self.driver:
++                vpnservices = plugin._get_agent_hosting_vpn_services(
++                    context, host, provider)
++                break
+         return [self.driver._make_vpnservice_dict(vpnservice)
+                 for vpnservice in vpnservices]
+ 
+diff --git a/neutron/services/vpn/service_drivers/pptp.py b/neutron/services/vpn/service_drivers/pptp.py
+new file mode 100644
+index 0000000..7517a6d
+--- /dev/null
++++ b/neutron/services/vpn/service_drivers/pptp.py
+@@ -0,0 +1,150 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from neutron.common import rpc as n_rpc
++from neutron.openstack.common import log as logging
++from neutron.services.vpn.common import topics
++from neutron.services.vpn import service_drivers
++from neutron.plugins.common import constants
++
++
++LOG = logging.getLogger(__name__)
++
++PPTP = 'pptp'
++BASE_PPTP_VERSION = '1.0'
++
++
++class PPTPVpnDriverCallBack(n_rpc.RpcCallback):
++    """Callback for PPTPVpnDriver rpc."""
++    RPC_API_VERSION = BASE_PPTP_VERSION
++
++    def __init__(self, driver):
++        super(PPTPVpnDriverCallBack, self).__init__()
++        self.driver = driver
++
++    def report_status(self, context, host,
++                      pptp_processes_status, credentials, updated_ports):
++        plugin = self.driver.service_plugin
++        provider = None
++        for p in plugin.drivers:
++            if plugin.drivers[p] == self.driver:
++                provider = p
++                break
++        plugin.update_pptp_status_by_agent(
++            context, host, pptp_processes_status, credentials, updated_ports,
++            provider)
++
++
++class PPTPVpnAgentApi(n_rpc.RpcProxy, n_rpc.RpcCallback):
++    """Agent RPC API for PPTPVPNAgent"""
++    RPC_API_VERSION = BASE_PPTP_VERSION
++
++    def __init__(self, topic, default_version):
++        self.topic = topic
++        super(PPTPVpnAgentApi, self).__init__(topic, default_version)
++
++    def _agent_notification(self, context, method, host,
++                            version=None, **kwargs):
++        LOG.debug(
++            _('Notify agent at %(topic)s.%(host)s the message '
++              '%(method)s %(args)s'),
++            {'topic': self.topic, 'host': host,
++             'method': method, 'args': kwargs})
++        self.cast(context,
++                  self.make_msg(method, **kwargs),
++                  version=version or self.RPC_API_VERSION,
++                  topic='%s.%s' % (self.topic, host))
++
++    def start_vpnservice(self, context, host, **kwargs):
++        self._agent_notification(context, 'start_vpnservice', host, **kwargs)
++
++    def stop_vpnservice(self, context, host, **kwargs):
++        self._agent_notification(context, 'stop_vpnservice', host, **kwargs)
++
++    def add_pptp_credential(self, context, host, **kwargs):
++        self._agent_notification(
++            context, 'add_pptp_credential', host, **kwargs)
++
++    def update_pptp_credential(self, context, host, **kwargs):
++        self._agent_notification(
++            context, 'update_pptp_credential', host, **kwargs)
++
++    def delete_pptp_credential(self, context, host, **kwargs):
++        self._agent_notification(
++            context, 'delete_pptp_credential', host, **kwargs)
++
++    def sync_from_server(self, context, host, **kwargs):
++        self._agent_notification(
++            context, 'sync_from_server', host, **kwargs)
++
++
++class PPTPVPNDriver(service_drivers.VpnDriver):
++    """VPN Service Driver class for PPTP."""
++
++    def __init__(self, service_plugin):
++        super(PPTPVPNDriver, self).__init__(service_plugin)
++        self.endpoints = [PPTPVpnDriverCallBack(self)]
++        self.conn = n_rpc.create_connection(new=True)
++        self.conn.create_consumer(
++            topics.PPTP_DRIVER_TOPIC, self.endpoints, fanout=False)
++        self.conn.consume_in_threads()
++        self.agent_rpc = PPTPVpnAgentApi(
++            topics.PPTP_AGENT_TOPIC, BASE_PPTP_VERSION)
++
++    @property
++    def service_type(self):
++        return PPTP
++
++    def _get_hosts_for_vpnservice(self, context, vpnservice):
++        admin_context = context.is_admin and context or context.elevated()
++        l3_agents = self.l3_plugin.get_l3_agents_hosting_routers(
++            admin_context, [vpnservice['router_id']],
++            admin_state_up=True,
++            active=True)
++        return [l3_agent.host for l3_agent in l3_agents]
++
++    def _start_vpnservice(self, context, vpnservice):
++        subnet = self.core_plugin.get_subnet(context, vpnservice['subnet_id'])
++        localip = subnet['gateway_ip']
++        for host in self._get_hosts_for_vpnservice(context, vpnservice):
++            self.agent_rpc.start_vpnservice(
++                context, host, vpnservice=vpnservice, localip=localip)
++
++    def _stop_vpnservice(self, context, vpnservice, delete=False):
++        for host in self._get_hosts_for_vpnservice(context, vpnservice):
++            self.agent_rpc.stop_vpnservice(
++                context, host, vpnservice=vpnservice, delete=delete)
++
++    def create_vpnservice(self, context, vpnservice):
++        self.service_plugin.set_vpnservice_status(
++            context, vpnservice['id'], constants.DOWN)
++        self._start_vpnservice(context, vpnservice)
++
++    def update_vpnservice(self, context, old_vpnservice, vpnservice):
++        if old_vpnservice['admin_state_up'] != vpnservice['admin_state_up']:
++            if vpnservice['admin_state_up']:
++                self._start_vpnservice(context, vpnservice)
++            else:
++                self._stop_vpnservice(context, vpnservice)
++
++    def delete_vpnservice(self, context, vpnservice):
++        if vpnservice['admin_state_up']:
++            self._stop_vpnservice(context, vpnservice, delete=True)
++
++    def sync_from_server(self, context, host, vpnservices, credentials, ports):
++        self.agent_rpc.sync_from_server(
++            context, host,
++            vpnservices=vpnservices, credentials=credentials, ports=ports
++        )
+diff --git a/neutron/tests/unit/db/vpn/test_db_vpnaas.py b/neutron/tests/unit/db/vpn/test_db_vpnaas.py
+index 979240e..36e8854 100644
+--- a/neutron/tests/unit/db/vpn/test_db_vpnaas.py
++++ b/neutron/tests/unit/db/vpn/test_db_vpnaas.py
+@@ -37,7 +37,7 @@ from neutron.tests.unit import test_db_plugin
+ from neutron.tests.unit import test_l3_plugin
+ 
+ DB_CORE_PLUGIN_KLASS = 'neutron.db.db_base_plugin_v2.NeutronDbPluginV2'
+-DB_VPN_PLUGIN_KLASS = "neutron.services.vpn.plugin.VPNPlugin"
++DB_VPN_PLUGIN_KLASS = "neutron.services.vpn.plugin.VPNDriverPlugin"
+ ROOTDIR = os.path.normpath(os.path.join(
+     os.path.dirname(__file__),
+     '..', '..', '..', '..'))
+@@ -187,11 +187,13 @@ class VPNTestMixin(object):
+     def _create_vpnservice(self, fmt, name,
+                            admin_state_up,
+                            router_id, subnet_id,
++                           provider='vpnaas',
+                            expected_res_status=None, **kwargs):
+         tenant_id = kwargs.get('tenant_id', self._tenant_id)
+         data = {'vpnservice': {'name': name,
+                                'subnet_id': subnet_id,
+                                'router_id': router_id,
++                               'provider': provider,
+                                'admin_state_up': admin_state_up,
+                                'tenant_id': tenant_id}}
+         if kwargs.get('description') is not None:
+@@ -216,6 +218,7 @@ class VPNTestMixin(object):
+                    plug_subnet=True,
+                    external_subnet_cidr='192.168.100.0/24',
+                    external_router=True,
++                   provider='vpnaas',
+                    **kwargs):
+         if not fmt:
+             fmt = self.fmt
+@@ -246,6 +249,7 @@ class VPNTestMixin(object):
+                                                      ['id']),
+                                           subnet_id=(tmp_subnet['subnet']
+                                                      ['id']),
++                                          provider=provider,
+                                           **kwargs)
+             vpnservice = self.deserialize(fmt or self.fmt, res)
+             if res.status_int < 400:
+diff --git a/neutron/tests/unit/services/vpn/service_drivers/test_cisco_ipsec.py b/neutron/tests/unit/services/vpn/service_drivers/test_cisco_ipsec.py
+index 781344f..6736fb7 100644
+--- a/neutron/tests/unit/services/vpn/service_drivers/test_cisco_ipsec.py
++++ b/neutron/tests/unit/services/vpn/service_drivers/test_cisco_ipsec.py
+@@ -67,10 +67,12 @@ class TestCiscoValidatorSelection(base.BaseTestCase):
+         mock.patch('neutron.db.servicetype_db.ServiceTypeManager.get_instance',
+                    return_value=stm).start()
+         mock.patch('neutron.common.rpc.create_connection').start()
++        mock.patch('neutron.db.vpn.vpn_db.VPNPluginDb.get_vpnservices',
++                   return_value=[{'provider': 'vpnaas'}]).start()
+         self.vpn_plugin = vpn_plugin.VPNDriverPlugin()
+ 
+     def test_reference_driver_used(self):
+-        self.assertIsInstance(self.vpn_plugin._get_validator(),
++        self.assertIsInstance(self.vpn_plugin._get_validator('vpnaas'),
+                               validator.CiscoCsrVpnValidator)
+ 
+ 
+diff --git a/neutron/tests/unit/services/vpn/service_drivers/test_ipsec.py b/neutron/tests/unit/services/vpn/service_drivers/test_ipsec.py
+index b2aab3a..499edf5 100644
+--- a/neutron/tests/unit/services/vpn/service_drivers/test_ipsec.py
++++ b/neutron/tests/unit/services/vpn/service_drivers/test_ipsec.py
+@@ -35,7 +35,8 @@ FAKE_VPN_CONNECTION = {
+ }
+ FAKE_ROUTER_ID = _uuid()
+ FAKE_VPN_SERVICE = {
+-    'router_id': FAKE_ROUTER_ID
++    'router_id': FAKE_ROUTER_ID,
++    'provider': 'fake_provider'
+ }
+ FAKE_HOST = 'fake_host'
+ FAKE_ROUTER = {l3_db.EXTERNAL_GW_INFO: FAKE_ROUTER_ID}
+@@ -60,10 +61,12 @@ class TestValidatorSelection(base.BaseTestCase):
+         stm = st_db.ServiceTypeManager()
+         mock.patch('neutron.db.servicetype_db.ServiceTypeManager.get_instance',
+                    return_value=stm).start()
++        mock.patch('neutron.db.vpn.vpn_db.VPNPluginDb.get_vpnservices',
++                   return_value=[{'provider': 'vpnaas'}]).start()
+         self.vpn_plugin = vpn_plugin.VPNDriverPlugin()
+ 
+     def test_reference_driver_used(self):
+-        self.assertIsInstance(self.vpn_plugin._get_validator(),
++        self.assertIsInstance(self.vpn_plugin._get_validator('vpnaas'),
+                               vpn_validator.VpnReferenceValidator)
+ 
+ 
+@@ -231,12 +234,14 @@ class TestIPsecDriver(base.BaseTestCase):
+         get_service_plugin = service_plugin_p.start()
+         get_service_plugin.return_value = {constants.L3_ROUTER_NAT: plugin}
+ 
+-        service_plugin = mock.Mock()
+-        service_plugin.get_l3_agents_hosting_routers.return_value = [l3_agent]
+-        service_plugin._get_vpnservice.return_value = {
+-            'router_id': _uuid()
++        self.service_plugin = mock.Mock()
++        self.service_plugin.get_l3_agents_hosting_routers.return_value = [
++            l3_agent]
++        self.service_plugin._get_vpnservice.return_value = {
++            'router_id': _uuid(),
++            'provider': 'fake_provider'
+         }
+-        self.driver = ipsec_driver.IPsecVPNDriver(service_plugin)
++        self.driver = ipsec_driver.IPsecVPNDriver(self.service_plugin)
+ 
+     def _test_update(self, func, args):
+         ctxt = n_ctx.Context('', 'somebody')
+diff --git a/neutron/tests/unit/services/vpn/test_vpnaas_driver_plugin.py b/neutron/tests/unit/services/vpn/test_vpnaas_driver_plugin.py
+index dbdc999..395e23d 100644
+--- a/neutron/tests/unit/services/vpn/test_vpnaas_driver_plugin.py
++++ b/neutron/tests/unit/services/vpn/test_vpnaas_driver_plugin.py
+@@ -44,8 +44,13 @@ class TestVPNDriverPlugin(test_db_vpnaas.TestVpnaas,
+         self.driver.service_type = ipsec_driver.IPSEC
+         self.driver.validator = vpn_validator.VpnReferenceValidator()
+         driver_cls.return_value = self.driver
++        vpnaas_provider = (
++            p_constants.VPN +
++            ':vpnaas:neutron.services.vpn.'
++            'service_drivers.ipsec.IPsecVPNDriver:default')
+         super(TestVPNDriverPlugin, self).setUp(
+-            vpnaas_plugin=VPN_DRIVER_CLASS)
++            vpnaas_plugin=VPN_DRIVER_CLASS,
++            vpnaas_provider=vpnaas_provider)
+ 
+     def test_create_ipsec_site_connection(self, **extras):
+         super(TestVPNDriverPlugin, self).test_create_ipsec_site_connection()
+diff --git a/neutron/tests/unit/services/vpn/test_vpnaas_extension.py b/neutron/tests/unit/services/vpn/test_vpnaas_extension.py
+index 1053061..bdf07d1 100644
+--- a/neutron/tests/unit/services/vpn/test_vpnaas_extension.py
++++ b/neutron/tests/unit/services/vpn/test_vpnaas_extension.py
+@@ -280,6 +280,7 @@ class VpnaasExtensionTestCase(test_api_v2_extension.ExtensionTestCase):
+                                'subnet_id': _uuid(),
+                                'router_id': _uuid(),
+                                'admin_state_up': True,
++                               'provider': 'fake_provider',
+                                'tenant_id': _uuid()}}
+         return_value = copy.copy(data['vpnservice'])
+         return_value.update({'status': "ACTIVE", 'id': vpnservice_id})
+-- 
+2.6.4
+
