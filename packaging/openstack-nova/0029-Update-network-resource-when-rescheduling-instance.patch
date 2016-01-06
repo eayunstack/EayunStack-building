@@ -1,7 +1,7 @@
-From e1a9f21db021cc571f5c67690cefc2312a6c1e4b Mon Sep 17 00:00:00 2001
+From f9cc54610a1f6069839175c2ee2044a884fa92af Mon Sep 17 00:00:00 2001
 From: He Jie Xu <hejie.xu@intel.com>
 Date: Thu, 21 Aug 2014 21:17:08 +0800
-Subject: [PATCH 17/30] Update network resource when rescheduling instance
+Subject: [PATCH 29/34] Update network resource when rescheduling instance
 
 When instance building failed, compute manager will try to reschedule
 the failed instance. If the network resource already allocated before
