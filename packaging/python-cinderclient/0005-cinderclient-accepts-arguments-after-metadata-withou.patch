@@ -1,0 +1,233 @@
+From 790231bae0d29d5d878e29956383dcc9a5ae7e8e Mon Sep 17 00:00:00 2001
+From: rajiv <rajiv.kumar@nectechnologies.in>
+Date: Tue, 17 Feb 2015 13:45:34 +0530
+Subject: [PATCH 5/6] cinderclient accepts arguments after metadata without --
+ separator
+
+Added a function, which parse arguments and add -- separator
+after metadata subcommand
+
+Change-Id: I907eb89209d549dcdad361d88352491110eaadb9
+Closes-Bug: #1379486
+(cherry picked from commit 57c9bf17b3ed9c5a2818163085704175f9324527)
+---
+ cinderclient/shell.py               | 23 +++++++++++
+ cinderclient/tests/v1/test_shell.py | 69 ++++++++++++++++++++++++++++++++
+ cinderclient/tests/v2/test_shell.py | 80 +++++++++++++++++++++++++++++++++++++
+ 3 files changed, 172 insertions(+)
+
+diff --git a/cinderclient/shell.py b/cinderclient/shell.py
+index 04dfe71..ebbabad 100644
+--- a/cinderclient/shell.py
++++ b/cinderclient/shell.py
+@@ -490,6 +490,28 @@ class OpenStackCinderShell(object):
+         ks_logger = logging.getLogger("keystoneclient")
+         ks_logger.setLevel(logging.DEBUG)
+ 
++    def _delimit_metadata_args(self, argv):
++        """This function adds -- separator at the appropriate spot
++        """
++        word = '--metadata'
++        tmp = []
++        # flag is true in between metadata option and next option
++        metadata_options = False
++        if word in argv:
++            for arg in argv:
++                if arg == word:
++                    metadata_options = True
++                elif metadata_options:
++                    if arg.startswith('--'):
++                        metadata_options = False
++                    elif '=' not in arg:
++                        tmp.append(u'--')
++                        metadata_options = False
++                tmp.append(arg)
++            return tmp
++        else:
++            return argv
++
+     def main(self, argv):
+ 
+         # Parse args once to find version and debug settings
+@@ -519,6 +541,7 @@ class OpenStackCinderShell(object):
+             subcommand_parser.print_help()
+             return 0
+ 
++        argv = self._delimit_metadata_args(argv)
+         args = subcommand_parser.parse_args(argv)
+         self._run_extension_hooks('__post_parse_args__', args)
+ 
+diff --git a/cinderclient/tests/v1/test_shell.py b/cinderclient/tests/v1/test_shell.py
+index fb42328..2a919c8 100644
+--- a/cinderclient/tests/v1/test_shell.py
++++ b/cinderclient/tests/v1/test_shell.py
+@@ -112,6 +112,75 @@ class ShellTest(utils.TestCase):
+         # NOTE(jdg): we default to detail currently
+         self.assert_called('GET', '/volumes/detail')
+ 
++    def test_metadata_args_with_limiter(self):
++        self.run_command('create --metadata key1="--test1" 1')
++        expected = {'volume': {'snapshot_id': None,
++                               'display_description': None,
++                               'source_volid': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'volume_type': None,
++                               'imageRef': None,
++                               'availability_zone': None,
++                               'attach_status': 'detached',
++                               'user_id': None,
++                               'project_id': None,
++                               'metadata': {'key1': '"--test1"'},
++                               'display_name': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_metadata_args_limiter_display_name(self):
++        self.run_command('create --metadata key1="--t1" --display-name="t" 1')
++        expected = {'volume': {'snapshot_id': None,
++                               'display_description': None,
++                               'source_volid': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'volume_type': None,
++                               'imageRef': None,
++                               'availability_zone': None,
++                               'attach_status': 'detached',
++                               'user_id': None,
++                               'project_id': None,
++                               'metadata': {'key1': '"--t1"'},
++                               'display_name': '"t"'}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_delimit_metadata_args(self):
++        self.run_command('create --metadata key1="test1" key2="test2" 1')
++        expected = {'volume': {'snapshot_id': None,
++                               'display_description': None,
++                               'source_volid': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'volume_type': None,
++                               'imageRef': None,
++                               'availability_zone': None,
++                               'attach_status': 'detached',
++                               'user_id': None,
++                               'project_id': None,
++                               'metadata': {'key1': '"test1"',
++                                            'key2': '"test2"'},
++                               'display_name': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_delimit_metadata_args_display_name(self):
++        self.run_command('create --metadata key1="t1" --display-name="t" 1')
++        expected = {'volume': {'snapshot_id': None,
++                               'display_description': None,
++                               'source_volid': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'volume_type': None,
++                               'imageRef': None,
++                               'availability_zone': None,
++                               'attach_status': 'detached',
++                               'user_id': None,
++                               'project_id': None,
++                               'metadata': {'key1': '"t1"'},
++                               'display_name': '"t"'}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
+     def test_list_filter_status(self):
+         self.run_command('list --status=available')
+         self.assert_called('GET', '/volumes/detail?status=available')
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index 0d053da..caff65a 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -83,6 +83,86 @@ class ShellTest(utils.TestCase):
+         # NOTE(jdg): we default to detail currently
+         self.assert_called('GET', '/volumes/detail')
+ 
++    def test_metadata_args_with_limiter(self):
++        self.run_command('create --metadata key1="--test1" 1')
++        self.assert_called('GET', '/volumes/1234')
++        expected = {'volume': {'imageRef': None,
++                               'project_id': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'user_id': None,
++                               'availability_zone': None,
++                               'source_replica': None,
++                               'attach_status': 'detached',
++                               'source_volid': None,
++                               'consistencygroup_id': None,
++                               'name': None,
++                               'snapshot_id': None,
++                               'metadata': {'key1': '"--test1"'},
++                               'volume_type': None,
++                               'description': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_metadata_args_limiter_display_name(self):
++        self.run_command('create --metadata key1="--t1" --name="t" 1')
++        self.assert_called('GET', '/volumes/1234')
++        expected = {'volume': {'imageRef': None,
++                               'project_id': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'user_id': None,
++                               'availability_zone': None,
++                               'source_replica': None,
++                               'attach_status': 'detached',
++                               'source_volid': None,
++                               'consistencygroup_id': None,
++                               'name': '"t"',
++                               'snapshot_id': None,
++                               'metadata': {'key1': '"--t1"'},
++                               'volume_type': None,
++                               'description': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_delimit_metadata_args(self):
++        self.run_command('create --metadata key1="test1" key2="test2" 1')
++        expected = {'volume': {'imageRef': None,
++                               'project_id': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'user_id': None,
++                               'availability_zone': None,
++                               'source_replica': None,
++                               'attach_status': 'detached',
++                               'source_volid': None,
++                               'consistencygroup_id': None,
++                               'name': None,
++                               'snapshot_id': None,
++                               'metadata': {'key1': '"test1"',
++                                            'key2': '"test2"'},
++                               'volume_type': None,
++                               'description': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
++    def test_delimit_metadata_args_display_name(self):
++        self.run_command('create --metadata key1="t1" --name="t" 1')
++        self.assert_called('GET', '/volumes/1234')
++        expected = {'volume': {'imageRef': None,
++                               'project_id': None,
++                               'status': 'creating',
++                               'size': 1,
++                               'user_id': None,
++                               'availability_zone': None,
++                               'source_replica': None,
++                               'attach_status': 'detached',
++                               'source_volid': None,
++                               'consistencygroup_id': None,
++                               'name': '"t"',
++                               'snapshot_id': None,
++                               'metadata': {'key1': '"t1"'},
++                               'volume_type': None,
++                               'description': None}}
++        self.assert_called_anytime('POST', '/volumes', expected)
++
+     def test_list_filter_status(self):
+         self.run_command('list --status=available')
+         self.assert_called('GET', '/volumes/detail?status=available')
+-- 
+2.6.4
+

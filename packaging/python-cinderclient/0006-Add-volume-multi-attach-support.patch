@@ -1,0 +1,210 @@
+From f8b20897907c498c0bd44ac2cdf260f84e32731d Mon Sep 17 00:00:00 2001
+From: "Walter A. Boring IV" <walter.boring@hp.com>
+Date: Mon, 7 Apr 2014 14:55:57 -0700
+Subject: [PATCH 6/6] Add volume multi attach support
+
+This patch adds the new multiattach flag during volume
+creation time. This patch adds the attachment_uuid
+during detach time so cinder knows which
+attachment it should detach.
+
+This patch is needed by Cinder's multi-attach-volume
+https://review.openstack.org/#/c/85847/
+
+Change-Id: I98c6150cf548e9d1d8557770dbd3f88ec17a9b41
+Implements: blueprint multi-attach-volume
+(cherry picked from commit 480afa893a6dbae0720d78653812338fd6c24735)
+
+Conflicts:
+	cinderclient/v2/shell.py
+---
+ cinderclient/tests/v2/fakes.py        |  3 ++-
+ cinderclient/tests/v2/test_shell.py   | 12 ++++++++----
+ cinderclient/tests/v2/test_volumes.py |  5 +++--
+ cinderclient/v2/shell.py              | 15 ++++++++++++---
+ cinderclient/v2/volumes.py            | 13 +++++++++----
+ 5 files changed, 34 insertions(+), 14 deletions(-)
+
+diff --git a/cinderclient/tests/v2/fakes.py b/cinderclient/tests/v2/fakes.py
+index a88019a..cc7d606 100644
+--- a/cinderclient/tests/v2/fakes.py
++++ b/cinderclient/tests/v2/fakes.py
+@@ -40,6 +40,7 @@ def _stub_volume(**kwargs):
+         "snapshot_id": None,
+         "status": "available",
+         "volume_type": "None",
++        "multiattach": "false",
+         "links": [
+             {
+                 "href": "http://localhost/v2/fake/volumes/1234",
+@@ -376,7 +377,7 @@ class FakeHTTPClient(base_client.HTTPClient):
+                                                   'mode',
+                                                   'mountpoint']
+         elif action == 'os-detach':
+-            assert body[action] is None
++            assert list(body[action]) == ['attachment_id']
+         elif action == 'os-reserve':
+             assert body[action] is None
+         elif action == 'os-unreserve':
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index caff65a..eb26f7c 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -100,7 +100,8 @@ class ShellTest(utils.TestCase):
+                                'snapshot_id': None,
+                                'metadata': {'key1': '"--test1"'},
+                                'volume_type': None,
+-                               'description': None}}
++                               'description': None,
++                               'multiattach': False}}
+         self.assert_called_anytime('POST', '/volumes', expected)
+ 
+     def test_metadata_args_limiter_display_name(self):
+@@ -120,7 +121,8 @@ class ShellTest(utils.TestCase):
+                                'snapshot_id': None,
+                                'metadata': {'key1': '"--t1"'},
+                                'volume_type': None,
+-                               'description': None}}
++                               'description': None,
++                               'multiattach': False}}
+         self.assert_called_anytime('POST', '/volumes', expected)
+ 
+     def test_delimit_metadata_args(self):
+@@ -140,7 +142,8 @@ class ShellTest(utils.TestCase):
+                                'metadata': {'key1': '"test1"',
+                                             'key2': '"test2"'},
+                                'volume_type': None,
+-                               'description': None}}
++                               'description': None,
++                               'multiattach': False}}
+         self.assert_called_anytime('POST', '/volumes', expected)
+ 
+     def test_delimit_metadata_args_display_name(self):
+@@ -160,7 +163,8 @@ class ShellTest(utils.TestCase):
+                                'snapshot_id': None,
+                                'metadata': {'key1': '"t1"'},
+                                'volume_type': None,
+-                               'description': None}}
++                               'description': None,
++                               'multiattach': False}}
+         self.assert_called_anytime('POST', '/volumes', expected)
+ 
+     def test_list_filter_status(self):
+diff --git a/cinderclient/tests/v2/test_volumes.py b/cinderclient/tests/v2/test_volumes.py
+index 165742d..86eb730 100644
+--- a/cinderclient/tests/v2/test_volumes.py
++++ b/cinderclient/tests/v2/test_volumes.py
+@@ -68,7 +68,8 @@ class VolumesTest(utils.TestCase):
+                                'project_id': None,
+                                'metadata': {},
+                                'source_replica': None,
+-                               'consistencygroup_id': None},
++                               'consistencygroup_id': None,
++                               'multiattach': False},
+                     'OS-SCH-HNT:scheduler_hints': 'uuid'}
+         cs.assert_called('POST', '/volumes', body=expected)
+ 
+@@ -79,7 +80,7 @@ class VolumesTest(utils.TestCase):
+ 
+     def test_detach(self):
+         v = cs.volumes.get('1234')
+-        cs.volumes.detach(v)
++        cs.volumes.detach(v, 'abc123')
+         cs.assert_called('POST', '/volumes/1234/action')
+ 
+     def test_reserve(self):
+diff --git a/cinderclient/v2/shell.py b/cinderclient/v2/shell.py
+index 3a2c103..79a68ec 100644
+--- a/cinderclient/v2/shell.py
++++ b/cinderclient/v2/shell.py
+@@ -213,10 +213,12 @@ def do_list(cs, args):
+ 
+     if all_tenants:
+         key_list = ['ID', 'Tenant ID', 'Status', 'Name',
+-                    'Size', 'Volume Type', 'Bootable', 'Attached to']
++                    'Size', 'Volume Type', 'Bootable', 'Multiattach',
++                    'Attached to']
+     else:
+         key_list = ['ID', 'Status', 'Name',
+-                    'Size', 'Volume Type', 'Bootable', 'Attached to']
++                    'Size', 'Volume Type', 'Bootable',
++                    'Multiattach', 'Attached to']
+     utils.print_list(volumes, key_list)
+ 
+ 
+@@ -317,6 +319,12 @@ class CheckSizeArgForCreate(argparse.Action):
+            action='append',
+            default=[],
+            help='Scheduler hint, like in nova.')
++@utils.arg('--allow-multiattach',
++           dest='multiattach',
++           action="store_true",
++           help=('Allow volume to be attached more than once.'
++                 ' Default=False'),
++           default=False)
+ @utils.service_type('volumev2')
+ def do_create(cs, args):
+     """Creates a volume."""
+@@ -357,7 +365,8 @@ def do_create(cs, args):
+                                imageRef=args.image_id,
+                                metadata=volume_metadata,
+                                scheduler_hints=hints,
+-                               source_replica=args.source_replica)
++                               source_replica=args.source_replica,
++                               multiattach=args.multiattach)
+ 
+     info = dict()
+     volume = cs.volumes.get(volume.id)
+diff --git a/cinderclient/v2/volumes.py b/cinderclient/v2/volumes.py
+index ae8ed29..6eeec3f 100644
+--- a/cinderclient/v2/volumes.py
++++ b/cinderclient/v2/volumes.py
+@@ -170,8 +170,8 @@ class VolumeManager(base.ManagerWithFind):
+                volume_type=None, user_id=None,
+                project_id=None, availability_zone=None,
+                metadata=None, imageRef=None, scheduler_hints=None,
+-               source_replica=None):
+-        """Creates a volume.
++               source_replica=None, multiattach=False):
++        """Create a volume.
+ 
+         :param size: Size of volume in GB
+         :param consistencygroup_id: ID of the consistencygroup
+@@ -188,6 +188,8 @@ class VolumeManager(base.ManagerWithFind):
+         :param source_replica: ID of source volume to clone replica
+         :param scheduler_hints: (optional extension) arbitrary key-value pairs
+                             specified by the client to help boot an instance
++        :param multiattach: Allow the volume to be attached to more than
++                            one instance
+         :rtype: :class:`Volume`
+        """
+ 
+@@ -211,6 +213,7 @@ class VolumeManager(base.ManagerWithFind):
+                            'imageRef': imageRef,
+                            'source_volid': source_volid,
+                            'source_replica': source_replica,
++                           'multiattach': multiattach,
+                            }}
+ 
+         if scheduler_hints:
+@@ -325,13 +328,15 @@ class VolumeManager(base.ManagerWithFind):
+                              'mountpoint': mountpoint,
+                              'mode': mode})
+ 
+-    def detach(self, volume):
++    def detach(self, volume, attachment_uuid=None):
+         """Clear attachment metadata.
+ 
+         :param volume: The :class:`Volume` (or its ID)
+                        you would like to detach.
++        :param attachment_uuid: The uuid of the volume attachment.
+         """
+-        return self._action('os-detach', volume)
++        return self._action('os-detach', volume,
++                            {'attachment_id': attachment_uuid})
+ 
+     def reserve(self, volume):
+         """Reserve this volume.
+-- 
+2.6.4
+
