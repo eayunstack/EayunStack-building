@@ -2,11 +2,11 @@
 
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 
-%global dist_eayunstack .eayunstack.1.0.1
+%global dist_eayunstack .eayunstack.1.1
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          4%{?dist_eayunstack}
+Release:          5%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -32,6 +32,9 @@ Patch0007: 0007-private-type-fix-db-scripts.patch
 Patch0008: 0008-usd-is_uuid_like-from-oslo_utils.patch
 Patch0009: 0009-fix-None-object-issue.patch
 Patch0010: 0010-Choose-volume-type-belong-to-project.patch
+Patch0011: 0011-Split-volume-driver-into-ABC-classes.patch
+Patch0012: 0012-Add-volume-multi-attach-support.patch
+Patch0013: 0013-output-log-to-cinder-all-log-file.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -164,6 +167,9 @@ This package contains documentation files for cinder.
 %patch0008 -p1
 %patch0009 -p1
 %patch0010 -p1
+%patch0011 -p1
+%patch0012 -p1
+%patch0013 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -304,6 +310,11 @@ exit 0
 %endif
 
 %changelog
+* Wed Jan 06 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-5.eayunstack.1.1
+- add 0011-Split-volume-driver-into-ABC-classes.patch
+- add 0012-Add-volume-multi-attach-support.patch
+- add 0013-output-log-to-cinder-all-log-file.patch
+
 * Fri Dec 11 2015 Dunrong Huang <dunrong.huang@eayun.com> - 2014.2.1-4.eayunstack.1.0.1
 - add Patch0006: 0006-Volume-type-access-extension.patch
 - add Patch0007: 0007-private-type-fix-db-scripts.patch
