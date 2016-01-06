@@ -1,0 +1,39 @@
+From 9a33208df99731d1ec9e40d4f7fd4b9746650949 Mon Sep 17 00:00:00 2001
+From: James Saryerwinnie <js@jamesls.com>
+Date: Thu, 21 Mar 2013 14:19:21 -0700
+Subject: [PATCH 3/7] Add the defaults back to SQS
+
+Conflicts:
+	kombu/transport/SQS.py
+---
+ kombu/transport/SQS.py | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/kombu/transport/SQS.py b/kombu/transport/SQS.py
+index f06f596..839979d 100644
+--- a/kombu/transport/SQS.py
++++ b/kombu/transport/SQS.py
+@@ -132,8 +132,7 @@ class Channel(virtual.Channel):
+ 
+     default_region = 'us-east-1'
+     default_visibility_timeout = 1800  # 30 minutes.
+-    # 20 seconds is the max value currently supported by SQS.
+-    default_wait_time_seconds = 1  # disabled: see Issue #198
++    default_wait_time_seconds = 0  # disabled see #198
+     domain_format = 'kombu%(vhost)s'
+     _sdb = None
+     _sqs = None
+@@ -378,8 +377,8 @@ class Channel(virtual.Channel):
+ class Transport(virtual.Transport):
+     Channel = Channel
+ 
+-    polling_interval = 0
+-    wait_time_seconds = 20
++    polling_interval = 1
++    wait_time_seconds = 0
+     default_port = None
+     connection_errors = (StdConnectionError, exception.SQSError, socket.error)
+     channel_errors = (exception.SQSDecodeError, StdChannelError)
+-- 
+1.9.3
+
