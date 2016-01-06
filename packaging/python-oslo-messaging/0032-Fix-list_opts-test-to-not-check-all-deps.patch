@@ -1,7 +1,7 @@
-From a274bda8314fd301651cd96414bdf4ff42c9270e Mon Sep 17 00:00:00 2001
+From ed906f70c0f000563adaef03019ff802d0ded651 Mon Sep 17 00:00:00 2001
 From: Victor Sergeyev <vsergeyev@mirantis.com>
 Date: Fri, 22 May 2015 16:08:59 +0300
-Subject: [PATCH 9/9] Fix list_opts test to not check all deps
+Subject: [PATCH 32/33] Fix list_opts test to not check all deps
 
 The list_opts entrypoint test failed unnecessarily when the
 dependencies in the packages were inconsistent. This test doesn't

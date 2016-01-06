@@ -1,7 +1,7 @@
-From 831283fe360fbaa8251957cf396a8e2c4b10875f Mon Sep 17 00:00:00 2001
+From 08302e4340ac0721357e38014a9092ca9c35ef66 Mon Sep 17 00:00:00 2001
 From: apporc <appleorchard2000@gmail.com>
 Date: Wed, 19 Aug 2015 15:30:03 +0800
-Subject: [PATCH 5/9] update requirements to pass unittest
+Subject: [PATCH 01/33] update requirements to pass unittest
 
 Signed-off-by: apporc <appleorchard2000@gmail.com>
 ---

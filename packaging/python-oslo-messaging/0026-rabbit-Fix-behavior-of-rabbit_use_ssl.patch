@@ -1,0 +1,148 @@
+From 47967974397594ff4d52a8531737ce941fb1bb54 Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Tue, 10 Feb 2015 13:32:22 +0100
+Subject: [PATCH 26/33] rabbit: Fix behavior of rabbit_use_ssl
+
+The regression around rabbit_use_ssl have been introduce when we
+have moved from the custom broker connection to the kombu one in:
+
+ 973301aa70527171749fa34897276c43898aeeb2
+
+This change fix the regression, it's now possible to use rabbit
+with ssl without having to set a version or a certificat again.
+
+Closes-bug: #1420164
+
+Change-Id: I8a2068cc433df0441e3c2b57c22c9b4558f8a29d
+(cherry picked from commit 68cd8cfecc12a40b61a7b8557aad7b5a4e1f1c6d)
+
+Conflicts:
+	oslo/messaging/_drivers/impl_rabbit.py
+	oslo_messaging/tests/drivers/test_impl_rabbit.py
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 42 ++++++++++++++++++----------------
+ tests/drivers/test_impl_rabbit.py      | 34 +++++++++++++++++++++++++++
+ 2 files changed, 56 insertions(+), 20 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 0623e08..27896c1 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -453,7 +453,6 @@ class Connection(object):
+         # max retry-interval = 30 seconds
+         self.interval_max = 30
+ 
+-        self._ssl_params = self._fetch_ssl_params()
+         self._login_method = self.conf.rabbit_login_method
+ 
+         if url.virtual_host is not None:
+@@ -499,7 +498,8 @@ class Connection(object):
+ 
+         self.channel = None
+         self.connection = kombu.connection.Connection(
+-            self._url, ssl=self._ssl_params, login_method=self._login_method,
++            self._url, ssl=self._fetch_ssl_params(),
++            login_method=self._login_method,
+             failover_strategy="shuffle")
+ 
+         LOG.info(_('Connecting to AMQP server on %(hostname)s:%(port)d'),
+@@ -540,24 +540,26 @@ class Connection(object):
+         """Handles fetching what ssl params should be used for the connection
+         (if any).
+         """
+-        ssl_params = dict()
+-
+-        # http://docs.python.org/library/ssl.html - ssl.wrap_socket
+-        if self.conf.kombu_ssl_version:
+-            ssl_params['ssl_version'] = self.validate_ssl_version(
+-                self.conf.kombu_ssl_version)
+-        if self.conf.kombu_ssl_keyfile:
+-            ssl_params['keyfile'] = self.conf.kombu_ssl_keyfile
+-        if self.conf.kombu_ssl_certfile:
+-            ssl_params['certfile'] = self.conf.kombu_ssl_certfile
+-        if self.conf.kombu_ssl_ca_certs:
+-            ssl_params['ca_certs'] = self.conf.kombu_ssl_ca_certs
+-            # We might want to allow variations in the
+-            # future with this?
+-            ssl_params['cert_reqs'] = ssl.CERT_REQUIRED
+-
+-        # Return the extended behavior or just have the default behavior
+-        return ssl_params or None
++        if self.conf.rabbit_use_ssl:
++            ssl_params = dict()
++
++            # http://docs.python.org/library/ssl.html - ssl.wrap_socket
++            if self.conf.kombu_ssl_version:
++                ssl_params['ssl_version'] = self.validate_ssl_version(
++                    self.conf.kombu_ssl_version)
++            if self.conf.kombu_ssl_keyfile:
++                ssl_params['keyfile'] = self.conf.kombu_ssl_keyfile
++            if self.conf.kombu_ssl_certfile:
++                ssl_params['certfile'] = self.conf.kombu_ssl_certfile
++            if self.conf.kombu_ssl_ca_certs:
++                ssl_params['ca_certs'] = self.conf.kombu_ssl_ca_certs
++                # We might want to allow variations in the
++                # future with this?
++                ssl_params['cert_reqs'] = ssl.CERT_REQUIRED
++
++            # Return the extended behavior or just have the default behavior
++            return ssl_params or True
++        return False
+ 
+     def ensure(self, error_callback, method, retry=None,
+                timeout_is_error=True):
+diff --git a/tests/drivers/test_impl_rabbit.py b/tests/drivers/test_impl_rabbit.py
+index 3403542..80fd372 100644
+--- a/tests/drivers/test_impl_rabbit.py
++++ b/tests/drivers/test_impl_rabbit.py
+@@ -13,6 +13,7 @@
+ #    under the License.
+ 
+ import datetime
++import ssl
+ import sys
+ import threading
+ import time
+@@ -67,6 +68,39 @@ class TestRabbitDriverLoad(test_utils.BaseTestCase):
+         self.assertIsInstance(transport._driver, rabbit_driver.RabbitDriver)
+ 
+ 
++class TestRabbitDriverLoadSSL(test_utils.BaseTestCase):
++    scenarios = [
++        ('no_ssl', dict(options=dict(), expected=False)),
++        ('no_ssl_with_options', dict(options=dict(kombu_ssl_version='TLSv1'),
++                                     expected=False)),
++        ('just_ssl', dict(options=dict(rabbit_use_ssl=True),
++                          expected=True)),
++        ('ssl_with_options', dict(options=dict(rabbit_use_ssl=True,
++                                               kombu_ssl_version='TLSv1',
++                                               kombu_ssl_keyfile='foo',
++                                               kombu_ssl_certfile='bar',
++                                               kombu_ssl_ca_certs='foobar'),
++                                  expected=dict(ssl_version=3,
++                                                keyfile='foo',
++                                                certfile='bar',
++                                                ca_certs='foobar',
++                                                cert_reqs=ssl.CERT_REQUIRED))),
++    ]
++
++    @mock.patch('oslo.messaging._drivers.impl_rabbit.Connection.ensure')
++    @mock.patch('kombu.connection.Connection')
++    def test_driver_load(self, connection_klass, fake_ensure):
++        self.config(**self.options)
++        transport = messaging.get_transport(self.conf,
++                                            'kombu+memory:////')
++        self.addCleanup(transport.cleanup)
++
++        transport._driver._get_connection()
++        connection_klass.assert_called_once_with(
++            'memory:///', ssl=self.expected,
++            login_method='AMQPLAIN', failover_strategy="shuffle")
++
++
+ class TestRabbitIterconsume(test_utils.BaseTestCase):
+ 
+     def test_iterconsume_timeout(self):
+-- 
+2.4.3
+

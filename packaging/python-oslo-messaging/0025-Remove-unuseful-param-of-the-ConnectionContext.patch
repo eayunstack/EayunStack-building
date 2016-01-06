@@ -1,0 +1,67 @@
+From 18f08cec608a523e3f1456bdb1f653f83b954fef Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Wed, 17 Sep 2014 10:58:08 +0200
+Subject: [PATCH 25/33] Remove unuseful param of the ConnectionContext
+
+The ConnectionContext depends on the ConnectionPool.
+A ConnectionPool already known the connection classes,
+the configuration object and the url needed to create a new connection.
+
+But we pass again thoses informations when we create a ConnectionContext.
+This is unuseful, we can reuse thoses in the connection pool even we
+want a not pooled connection.
+
+This change removes the unuseful ConnectionContext parameters,
+this also ensures that connection created with or without the pool
+are created in the same ways and only at one place (the create method
+of the connection pool).
+
+Change-Id: I4bd43d202fa2774ad5dcb0f8dd05e58ba60c6009
+(cherry picked from commit 7306680bfa4daa682f307752339ffd42959b9c61)
+---
+ oslo/messaging/_drivers/amqp.py       | 7 +++----
+ oslo/messaging/_drivers/amqpdriver.py | 4 +---
+ 2 files changed, 4 insertions(+), 7 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/amqp.py b/oslo/messaging/_drivers/amqp.py
+index 9292a11..fea5126 100644
+--- a/oslo/messaging/_drivers/amqp.py
++++ b/oslo/messaging/_drivers/amqp.py
+@@ -107,16 +107,15 @@ class ConnectionContext(rpc_common.Connection):
+     If possible the function makes sure to return a connection to the pool.
+     """
+ 
+-    def __init__(self, conf, url, connection_pool, pooled=True):
++    def __init__(self, connection_pool, pooled=True):
+         """Create a new connection, or get one from the pool."""
+         self.connection = None
+-        self.conf = conf
+-        self.url = url
+         self.connection_pool = connection_pool
+         if pooled:
+             self.connection = connection_pool.get()
+         else:
+-            self.connection = connection_pool.connection_cls(conf, url)
++            # a non-pooled connection is requested, so create a new connection
++            self.connection = connection_pool.create()
+         self.pooled = pooled
+ 
+     def __enter__(self):
+diff --git a/oslo/messaging/_drivers/amqpdriver.py b/oslo/messaging/_drivers/amqpdriver.py
+index 96de0ec..2ce9ad0 100644
+--- a/oslo/messaging/_drivers/amqpdriver.py
++++ b/oslo/messaging/_drivers/amqpdriver.py
+@@ -262,9 +262,7 @@ class AMQPDriverBase(base.BaseDriver):
+         return target.exchange or self._default_exchange
+ 
+     def _get_connection(self, pooled=True):
+-        return rpc_amqp.ConnectionContext(self.conf,
+-                                          self._url,
+-                                          self._connection_pool,
++        return rpc_amqp.ConnectionContext(self._connection_pool,
+                                           pooled=pooled)
+ 
+     def _get_reply_q(self):
+-- 
+2.4.3
+
