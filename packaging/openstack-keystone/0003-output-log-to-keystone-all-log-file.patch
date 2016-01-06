@@ -1,0 +1,32 @@
+From 44562b0abf22e34af470ae5722ddb5aae29315ff Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Fri, 20 Nov 2015 17:50:47 +0800
+Subject: [PATCH] output log to keystone-all log file LMA monitor platform need
+ get HTTP response infomation from keystone-all.log
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ keystone/openstack/common/log.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/keystone/openstack/common/log.py b/keystone/openstack/common/log.py
+index 8916e68..6cf6492 100644
+--- a/keystone/openstack/common/log.py
++++ b/keystone/openstack/common/log.py
+@@ -549,9 +549,11 @@ def _setup_logging_from_conf(project, version):
+             # TODO(bogdando) use the format provided by RFCSysLogHandler
+             #   after existing syslog format deprecation in J
+             if CONF.use_syslog_rfc_format:
+-                syslog = RFCSysLogHandler(facility=facility)
++                syslog = RFCSysLogHandler(address='/dev/log',
++                                        facility=facility)
+             else:
+-                syslog = logging.handlers.SysLogHandler(facility=facility)
++                syslog = logging.handlers.SysLogHandler(address='/dev/log',
++                                                        facility=facility)
+             log_root.addHandler(syslog)
+         except socket.error:
+             log_root.error('Unable to add syslog handler. Verify that syslog'
+-- 
+1.8.3.1
+
