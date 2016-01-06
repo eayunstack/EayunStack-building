@@ -1,28 +1,28 @@
-From a69695ecede283b653ccee8dd2cd66a06303c693 Mon Sep 17 00:00:00 2001
-From: Jie Li <jie.li@easystack.cn>
-Date: Wed, 4 Mar 2015 15:47:59 +0800
-Subject: [PATCH 6/9] Fix _poll_connection not timeout issue (2/2)
+From b72a769a5cc6d37b0f0942abaf2eddf2ddaf3574 Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Wed, 7 Jan 2015 15:49:54 +0100
+Subject: [PATCH 20/33] rabbit: fix timeout timer when duration is None
 
-Backport bugfix about the last cherry-pick.
+When the duration of the timeout timer used in the rabbit driver.is
+None and we want that the timer return a maximum of N secs it return None
+(infinite) instead of N.
 
-The title of the commit in master was:
-  rabbit: fix timeout timer when duration is None
+This change fixes that.
 
-but this was changed since it didn't describe the actual change.
+Closes-bug: #1408370
 
 Change-Id: I7f4cb3075f776c63aa7dc497173677f92b68c16d
 (cherry picked from commit 44132d4344902f98007e6e58ea3bee56c701b400)
-(cherry picked from commit 2bb31d179345802e50fb0ed0042e296a39b41585)
 ---
  oslo/messaging/_drivers/common.py |  4 ++--
  tests/test_utils.py               | 15 +++++++++++++++
  2 files changed, 17 insertions(+), 2 deletions(-)
 
 diff --git a/oslo/messaging/_drivers/common.py b/oslo/messaging/_drivers/common.py
-index 24fee5e..a8137bd 100644
+index 0a3ad0c..b4483b9 100644
 --- a/oslo/messaging/_drivers/common.py
 +++ b/oslo/messaging/_drivers/common.py
-@@ -360,13 +360,13 @@ class DecayingTimer(object):
+@@ -348,13 +348,13 @@ class DecayingTimer(object):
              self._ends_at = time.time() + max(0, self._duration)
  
      def check_return(self, timeout_callback, *args, **kwargs):

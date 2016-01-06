@@ -1,0 +1,58 @@
+From ffdc8872557b76ac4e7177ab3fd72c161fb77a36 Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Wed, 21 Jan 2015 10:45:50 +0100
+Subject: [PATCH 27/33] Speedup the rabbit tests
+
+Change-Id: I29004f8f611babea0e457cd1ea09a7a21c87807f
+(cherry picked from commit 563376c92a4789e705f8fcd2411f0ed754e1403d)
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 27896c1..671452a 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -512,9 +512,15 @@ class Connection(object):
+                  {'hostname': self.connection.hostname,
+                   'port': self.connection.port})
+ 
++        # NOTE(sileht):
++        # value choosen according the best practice from kombu:
++        # http://kombu.readthedocs.org/en/latest/reference/kombu.common.html#kombu.common.eventloop
++        self._poll_timeout = 1
++
+         if self._url.startswith('memory://'):
+             # Kludge to speed up tests.
+             self.connection.transport.polling_interval = 0.0
++            self._poll_timeout = 0.05
+ 
+     # FIXME(markmc): use oslo sslutils when it is available as a library
+     _SSL_PROTOCOLS = {
+@@ -709,10 +715,8 @@ class Connection(object):
+                 queues_tail.consume(nowait=False)
+                 self.do_consume = False
+ 
+-            # NOTE(sileht):
+-            # maximun value choosen according the best practice from kombu:
+-            # http://kombu.readthedocs.org/en/latest/reference/kombu.common.html#kombu.common.eventloop
+-            poll_timeout = 1 if timeout is None else min(timeout, 1)
++            poll_timeout = (self._poll_timeout if timeout is None
++                            else min(timeout, self._poll_timeout))
+             while True:
+                 if self._consume_loop_stopped:
+                     self._consume_loop_stopped = False
+@@ -721,8 +725,8 @@ class Connection(object):
+                 try:
+                     return self.connection.drain_events(timeout=poll_timeout)
+                 except socket.timeout as exc:
+-                    poll_timeout = timer.check_return(_raise_timeout, exc,
+-                                                      maximum=1)
++                    poll_timeout = timer.check_return(
++                        _raise_timeout, exc, maximum=self._poll_timeout)
+ 
+         for iteration in itertools.count(0):
+             if limit and iteration >= limit:
+-- 
+2.4.3
+

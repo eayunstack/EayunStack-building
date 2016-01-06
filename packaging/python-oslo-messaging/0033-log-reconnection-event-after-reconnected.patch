@@ -1,0 +1,29 @@
+From a1a0fb64d2557a820de257bbb757fe25146c3699 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Fri, 13 Nov 2015 16:59:02 +0800
+Subject: [PATCH 33/33] log reconnection event after reconnected
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 73bdf34..b977607 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -773,6 +773,11 @@ class Connection(object):
+             self.consumer_num = itertools.count(1)
+             for consumer in self.consumers:
+                 consumer.reconnect(new_channel)
++            msg = _('Connected to AMQP server on '
++                    '%(hostname)s:%(port)s') % {
++                        'hostname': self.connection.hostname,
++                        'port': self.connection.port}
++            LOG.info(msg)
+ 
+         def execute_method(channel):
+             self._set_current_channel(channel)
+-- 
+2.4.3
+
