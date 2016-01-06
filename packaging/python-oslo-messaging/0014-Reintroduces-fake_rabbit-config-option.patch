@@ -1,0 +1,97 @@
+From 06e8c6ca7a7ab09aef8e3bb2c53a84ca70287aac Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Thu, 4 Dec 2014 08:10:13 +0100
+Subject: [PATCH 14/33] Reintroduces fake_rabbit config option
+
+This change reintroduces the fake_rabbit only for backward compatibility,
+but mark it as deprecated.
+
+Now, to use the kombu in-memory driver (that is not thread safe) we must
+set the transport_url config option to 'kombu+memory:////" or the
+rpc_backend to kombu+memory.
+
+Or we can use the fake driver of oslo.messaging by setting the
+transport_url to 'fake:///' or the rpc_backend to 'fake'
+
+This is effectively reverting commit bcb3b23b8f6e7d01e38fdc031982558711bb7586.
+
+Closes-bug: #1399085
+
+Change-Id: I7b6fb3811fc6f695f75ecd350e04e69afd26c428
+(cherry picked from commit 712f6e3c5e48110d9d2e3c6fe5eb76ce10898728)
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 13 ++++++++++++-
+ tests/drivers/test_impl_rabbit.py      | 19 +++++++++++++++++++
+ 2 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 16546bb..14b240c 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -100,6 +100,12 @@ rabbit_opts = [
+                 help='Use HA queues in RabbitMQ (x-ha-policy: all). '
+                      'If you change this option, you must wipe the '
+                      'RabbitMQ database.'),
++
++    # NOTE(sileht): deprecated option since oslo.messaging 1.5.0,
++    cfg.BoolOpt('fake_rabbit',
++                default=False,
++                help='Deprecated, use rpc_backend=kombu+memory or '
++                'rpc_backend=fake'),
+ ]
+ 
+ LOG = logging.getLogger(__name__)
+@@ -454,7 +460,12 @@ class Connection(object):
+             virtual_host = self.conf.rabbit_virtual_host
+ 
+         self._url = ''
+-        if url.hosts:
++        if self.conf.fake_rabbit:
++            LOG.warn("Deprecated: fake_rabbit option is deprecated, set "
++                     "rpc_backend to kombu+memory or use the fake "
++                     "driver instead.")
++            self._url = 'memory://%s/' % virtual_host
++        elif url.hosts:
+             for host in url.hosts:
+                 transport = url.transport.replace('kombu+', '')
+                 transport = url.transport.replace('rabbit', 'amqp')
+diff --git a/tests/drivers/test_impl_rabbit.py b/tests/drivers/test_impl_rabbit.py
+index 185fb32..3f109c7 100644
+--- a/tests/drivers/test_impl_rabbit.py
++++ b/tests/drivers/test_impl_rabbit.py
+@@ -24,6 +24,7 @@ import mock
+ from oslotest import mockpatch
+ import testscenarios
+ 
++from oslo.config import cfg
+ from oslo import messaging
+ from oslo.messaging._drivers import amqpdriver
+ from oslo.messaging._drivers import common as driver_common
+@@ -34,6 +35,24 @@ from tests import utils as test_utils
+ load_tests = testscenarios.load_tests_apply_scenarios
+ 
+ 
++class TestDeprecatedRabbitDriverLoad(test_utils.BaseTestCase):
++
++    def setUp(self):
++        super(TestDeprecatedRabbitDriverLoad, self).setUp(
++            conf=cfg.ConfigOpts())
++        self.messaging_conf.transport_driver = 'rabbit'
++        self.config(fake_rabbit=True)
++
++    def test_driver_load(self):
++        transport = messaging.get_transport(self.conf)
++        self.addCleanup(transport.cleanup)
++        driver = transport._driver
++        url = driver._get_connection()._url
++
++        self.assertIsInstance(driver, rabbit_driver.RabbitDriver)
++        self.assertEqual('memory:////', url)
++
++
+ class TestRabbitDriverLoad(test_utils.BaseTestCase):
+ 
+     def setUp(self):
+-- 
+2.4.3
+

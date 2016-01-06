@@ -1,0 +1,73 @@
+From 4a192409e92265d85f66b488e1f251781cf698ad Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Thu, 19 Mar 2015 09:33:00 +0100
+Subject: [PATCH 30/33] Reconnect on connection lost in heartbeat thread
+
+During the log refactoring of the big heartbeat patch,
+one line have been squashed (line 936):
+
+https://review.openstack.org/#/c/146047/29..30/oslo_messaging/_drivers/impl_rabbit.py
+
+This change reintroduces it, and improve the test to cover it.
+
+Change-Id: I5e7162f37527580c14a809f9945114dc81451c1a
+(cherry picked from commit cc618a42db8ba6249288efab9af8b87cc282c432)
+
+Conflicts:
+	oslo/messaging/_drivers/impl_rabbit.py
+	oslo_messaging/tests/drivers/test_impl_rabbit.py
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 1 +
+ tests/drivers/test_impl_rabbit.py      | 8 +++++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index bd735de..abc45b5 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -893,6 +893,7 @@ class Connection(object):
+                     except recoverable_errors as exc:
+                         LOG.info(_("A recoverable connection/channel error "
+                                    "occurs, try to reconnect: %s"), exc)
++                        self.ensure_connection()
+                 except Exception:
+                     LOG.exception(_("Unexpected error during heartbeart "
+                                     "thread processing, retrying..."))
+diff --git a/tests/drivers/test_impl_rabbit.py b/tests/drivers/test_impl_rabbit.py
+index fc5eb5d..b7a51a5 100644
+--- a/tests/drivers/test_impl_rabbit.py
++++ b/tests/drivers/test_impl_rabbit.py
+@@ -63,7 +63,10 @@ class TestHeartbeat(test_utils.BaseTestCase):
+     @mock.patch('kombu.connection.Connection.heartbeat_check')
+     @mock.patch('oslo.messaging._drivers.impl_rabbit.Connection.'
+                 '_heartbeat_supported_and_enabled', return_value=True)
+-    def _do_test_heartbeat_sent(self, fake_heartbeat_support, fake_heartbeat,
++    @mock.patch('oslo.messaging._drivers.impl_rabbit.Connection.'
++                'ensure_connection')
++    def _do_test_heartbeat_sent(self, fake_ensure_connection,
++                                fake_heartbeat_support, fake_heartbeat,
+                                 fake_logger, heartbeat_side_effect=None,
+                                 info=None):
+ 
+@@ -80,6 +83,7 @@ class TestHeartbeat(test_utils.BaseTestCase):
+                                             'kombu+memory:////')
+         self.addCleanup(transport.cleanup)
+         conn = transport._driver._get_connection()
++        conn.ensure(error_callback=None, method=lambda: True)
+         event.wait()
+         conn._heartbeat_stop()
+ 
+@@ -87,8 +91,10 @@ class TestHeartbeat(test_utils.BaseTestCase):
+         self.assertLess(0, fake_heartbeat.call_count)
+ 
+         if not heartbeat_side_effect:
++            self.assertEqual(1, fake_ensure_connection.call_count)
+             self.assertEqual(2, fake_logger.info.call_count)
+         else:
++            self.assertEqual(2, fake_ensure_connection.call_count)
+             self.assertEqual(3, fake_logger.info.call_count)
+             self.assertIn(mock.call(info, mock.ANY),
+                           fake_logger.info.mock_calls)
+-- 
+2.4.3
+

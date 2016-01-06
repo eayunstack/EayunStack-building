@@ -1,0 +1,74 @@
+From 8fb6a42bf148cfaab2a208390380dbab7caa9db3 Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Fri, 28 Nov 2014 14:32:27 +0100
+Subject: [PATCH 11/33] Set correctly the messaging driver to use in tests
+
+Depending of the order of the tests executions, the driver can be the
+previous configured one. But some tests are written to work on a
+specific driver
+
+This change sets the fake driver by default.
+
+It also removes useless mock in test_log_handler.
+
+Change-Id: Ic49bb9aec2e537e55a98315eba8dc97fbb18f96b
+(cherry picked from commit b369826e428de3dfc1a2cf506c90ff55767ac755)
+---
+ tests/drivers/test_impl_rabbit.py |  1 +
+ tests/notify/test_log_handler.py  | 18 +++++-------------
+ tests/utils.py                    |  1 +
+ 3 files changed, 7 insertions(+), 13 deletions(-)
+
+diff --git a/tests/drivers/test_impl_rabbit.py b/tests/drivers/test_impl_rabbit.py
+index 75a9938..c08303f 100644
+--- a/tests/drivers/test_impl_rabbit.py
++++ b/tests/drivers/test_impl_rabbit.py
+@@ -78,6 +78,7 @@ class TestRabbitTransportURL(test_utils.BaseTestCase):
+ 
+     @mock.patch('oslo.messaging._drivers.impl_rabbit.Connection.ensure')
+     def test_transport_url(self, fake_ensure):
++        self.messaging_conf.transport_driver = 'rabbit'
+         self.messaging_conf.in_memory = False
+ 
+         transport = messaging.get_transport(self.conf, self.url)
+diff --git a/tests/notify/test_log_handler.py b/tests/notify/test_log_handler.py
+index f17a287..4e676f2 100644
+--- a/tests/notify/test_log_handler.py
++++ b/tests/notify/test_log_handler.py
+@@ -51,16 +51,8 @@ class PublishErrorsHandlerTestCase(test_utils.BaseTestCase):
+         logrecord = logging.LogRecord(name='name', level='ERROR',
+                                       pathname='/tmp', lineno=1, msg='Message',
+                                       args=None, exc_info=None)
+-        mock_init = mock.Mock(return_value=None)
+-        with mock.patch.object(messaging.notify.notifier.Notifier,
+-                               '__init__', mock_init):
+-            # Recreate the handler so the __init__ mock takes effect.
+-            self.publisherrorshandler = (log_handler.
+-                                         PublishErrorsHandler(logging.ERROR))
+-            self.publisherrorshandler.emit(logrecord)
+-            mock_init.assert_called_with(mock.ANY,
+-                                         publisher_id='error.publisher')
+-            mock_notify.assert_called_with(None,
+-                                           'error_notification',
+-                                           {'error': 'Message'},
+-                                           'ERROR')
++        self.publisherrorshandler.emit(logrecord)
++        self.assertEqual('error.publisher',
++                         self.publisherrorshandler._notifier.publisher_id)
++        mock_notify.assert_called_with(None, 'error_notification',
++                                       {'error': 'Message'}, 'ERROR')
+diff --git a/tests/utils.py b/tests/utils.py
+index 7074ff2..886532c 100644
+--- a/tests/utils.py
++++ b/tests/utils.py
+@@ -36,6 +36,7 @@ class BaseTestCase(base.BaseTestCase):
+ 
+         from oslo.messaging import conffixture
+         self.messaging_conf = self.useFixture(conffixture.ConfFixture(conf))
++        self.messaging_conf.transport_driver = 'fake'
+         self.conf = self.messaging_conf.conf
+ 
+         moxfixture = self.useFixture(moxstubout.MoxStubout())
+-- 
+2.4.3
+
