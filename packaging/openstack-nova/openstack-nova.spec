@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          7%{?dist_eayunstack}
+Release:          8%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -76,9 +76,11 @@ Patch0028: 0028-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
 Patch0029: 0029-Update-network-resource-when-rescheduling-instance.patch
 Patch0030: 0030-Fix-nova-compute-start-issue-after-evacuate.patch
 Patch0031: 0031-output-log-to-nova-all-log-file.patch
-Patch0032: 0032-eayunstack-channel.patch
-Patch0033: 0033-network-fix-instance-cache-refresh-for-empty-list.patch
-Patch0034: 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
+Patch0032: 0032-network-fix-instance-cache-refresh-for-empty-list.patch   
+Patch0033: 0033-fix-unicode-issue-in-vm-resuming-procedure.patch          
+Patch0034: 0034-Fix-nova-evacuate-issues-for-RBD.patch                    
+Patch0035: 0035-Honor-shared-storage-on-resize-revert.patch               
+Patch0036: 0036-eayunstack-channel.patch                                  
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -515,6 +517,8 @@ This package contains documentation files for nova.
 %patch0032 -p1
 %patch0033 -p1
 %patch0034 -p1
+%patch0035 -p1
+%patch0036 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -872,6 +876,15 @@ exit 0
 %endif
 
 %changelog
+* Tue Jan 19 2016 apporc <appleorchard2000@gmail.com> - 2014.2-8.eayunstack.1.1
+- delete patch 0032-eayunstack-channel.patch
+- delete patch 0033-network-fix-instance-cache-refresh-for-empty-list.patch
+- delete patch 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
+- add patch 0032-network-fix-instance-cache-refresh-for-empty-list.patch   
+- add patch 0033-fix-unicode-issue-in-vm-resuming-procedure.patch          
+- add patch 0034-Fix-nova-evacuate-issues-for-RBD.patch                    
+- add patch 0035-Honor-shared-storage-on-resize-revert.patch               
+- add patch 0036-eayunstack-channel.patch                                  
 
 * Mon Jan 04 2016 apporc <appleorchard2000@gmail.com> - 2014.2-7.eayunstack.1.1
 - delete patch 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
