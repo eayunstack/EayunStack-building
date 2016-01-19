@@ -1,7 +1,7 @@
-From 6776755cc656f0b42e30e9bb00af471b40fc5c69 Mon Sep 17 00:00:00 2001
+From 48e82996a302379a5b7ebbb499cf1177f4087efd Mon Sep 17 00:00:00 2001
 From: Sahid Orentino Ferdjaoui <sahid.ferdjaoui@redhat.com>
 Date: Thu, 28 May 2015 04:31:53 -0400
-Subject: [PATCH 33/34] network: fix instance cache refresh for empty list
+Subject: [PATCH 32/36] network: fix instance cache refresh for empty list
 
 The bug introduce a race condition makes network_info as an
 empty value. When trying to refresh cache we should use data
