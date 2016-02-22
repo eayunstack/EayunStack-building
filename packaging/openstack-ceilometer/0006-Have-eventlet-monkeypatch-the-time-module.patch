@@ -1,0 +1,36 @@
+From ca2bea2e0c8a7003a4564c9edbce717cabb5c7c3 Mon Sep 17 00:00:00 2001
+From: Chris Dent <chdent@redhat.com>
+Date: Thu, 23 Apr 2015 14:01:35 +0000
+Subject: [PATCH] Have eventlet monkeypatch the time module
+
+Without this, mongod retry logic in the various services started as
+commands fails to behave as expected and does not reconnect as soon as
+the mongod service has returned to availability.
+
+In addition to the mongod sleep there are two other time.sleep calls
+that may be reached by this change. Review and discussion with others
+indicates that their behavior will continue to be correct with the
+monkeypatch in place.
+
+Cherry-pick from https://review.openstack.org/#/c/176751/
+
+Change-Id: I4eca290acc3b06658951f070935ebb39936e13d3
+Closes-Bug: #1447599
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ ceilometer/cmd/__init__.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ceilometer/cmd/__init__.py b/ceilometer/cmd/__init__.py
+index 0f74ba2..99efcc4 100644
+--- a/ceilometer/cmd/__init__.py
++++ b/ceilometer/cmd/__init__.py
+@@ -19,4 +19,4 @@ import eventlet
+ # at least, oslo.messaging, otherwise everything's blocked on its
+ # first read() or select(), thread need to be patched too, because
+ # oslo.messaging use threading.local
+-eventlet.monkey_patch(socket=True, select=True, thread=True)
++eventlet.monkey_patch(socket=True, select=True, thread=True, time=True)
+-- 
+2.1.0
+
