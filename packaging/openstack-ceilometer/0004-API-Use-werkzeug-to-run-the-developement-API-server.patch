@@ -1,0 +1,273 @@
+From ac8aa79e1215862606c92277e09e9e312f1f0a3d Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <sileht@redhat.com>
+Date: Tue, 10 Feb 2015 09:41:05 +0100
+Subject: [PATCH 1/2] Use werkzeug to run the developement API server
+
+wsgi.simple_server in a mono threaded process that can handle only
+5 requests at a time.
+
+Even the doc recommands to setup Ceilometer through an other WSGI services
+like Apache 'mod_wsgi', we can provide a better testing API server.
+
+So this patch changes the default HTTP server to the werkzeug one with
+a autodiscovery of number of workers that we can use.
+
+The client queue of werkzeug is 128, so on a 4 cpus machine, ceilometer-api
+can now handle 512 connections instead of 5.
+
+Also the change adds references of how to deploy pecan application in
+the documentation.
+
+The config option enable_reverse_dns_lookup can be safely removed,
+because werkzeug doesn't do any reverse dns lookup.
+
+DocImpact: configuration options changed:
+enable_reverse_dns_lookup removed, api_workers added
+
+Note:This Patch do not use i18n.py
+    (Yuanbing Chen<cybing4@gmail.com>Update)
+
+Change-Id: If7450b393ea88bc185e5c82b706ace9c38ce350e
+(cherry picked from commit 09a2f0994fd284412e57fd42ac91ae980f166d11)
+
+Conflicts:
+	ceilometer/api/__init__.py
+	ceilometer/api/app.py
+	ceilometer/tests/api/test_app.py
+
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ ceilometer/api/__init__.py       |  6 -----
+ ceilometer/api/app.py            | 58 +++++++++++++---------------------------
+ ceilometer/cmd/api.py            |  3 +--
+ ceilometer/tests/api/test_app.py | 38 +++++++++++++++-----------
+ doc/source/install/mod_wsgi.rst  |  3 +++
+ requirements.txt                 |  1 +
+ 6 files changed, 46 insertions(+), 63 deletions(-)
+
+diff --git a/ceilometer/api/__init__.py b/ceilometer/api/__init__.py
+index 87ef84c..93effce 100644
+--- a/ceilometer/api/__init__.py
++++ b/ceilometer/api/__init__.py
+@@ -29,12 +29,6 @@ API_SERVICE_OPTS = [
+                default='0.0.0.0',
+                help='The listen IP for the ceilometer API server.',
+                ),
+-    cfg.BoolOpt('enable_reverse_dns_lookup',
+-                default=False,
+-                help=('Set it to False if your environment does not need '
+-                      'or have dns server, otherwise it will delay the '
+-                      'response from api.')
+-                ),
+ ]
+ 
+ CONF = cfg.CONF
+diff --git a/ceilometer/api/app.py b/ceilometer/api/app.py
+index e72dd4e..49786af 100644
+--- a/ceilometer/api/app.py
++++ b/ceilometer/api/app.py
+@@ -17,18 +17,20 @@
+ 
+ import logging
+ import os
+-import socket
+-from wsgiref import simple_server
+ 
+-import netaddr
+ from oslo.config import cfg
++
++from oslo_config import cfg
+ from paste import deploy
+ import pecan
++from werkzeug import serving
+ 
+ from ceilometer.api import config as api_config
+ from ceilometer.api import hooks
+ from ceilometer.api import middleware
+ from ceilometer.openstack.common import log
++from ceilometer.openstack.commoncommoncommon.gettextutils import _
++from ceilometer import service
+ from ceilometer import storage
+ 
+ LOG = log.getLogger(__name__)
+@@ -41,6 +43,8 @@ auth_opts = [
+                default="api_paste.ini",
+                help="Configuration file for WSGI definition of API."
+                ),
++    cfg.IntOpt('api_workers', default=1,
++               help='Number of workers for Ceilometer API server.'),
+ ]
+ 
+ api_opts = [
+@@ -77,11 +81,16 @@ def setup_app(pecan_config=None, extra_hooks=None):
+ 
+     pecan.configuration.set_config(dict(pecan_config), overwrite=True)
+ 
++    # NOTE(sileht): pecan debug won't work in multi-process environment
++    pecan_debug = CONF.api.pecan_debug
++    if service.get_workers('api') != 1 and pecan_debug:
++        pecan_debug = False
++        LOG.warning(_LW('pecan_debug cannot be enabled, if workers is > 1, '
++                        'the value is overrided with False'))
++
+     app = pecan.make_app(
+         pecan_config.app.root,
+-        static_root=pecan_config.app.static_root,
+-        template_path=pecan_config.app.template_path,
+-        debug=CONF.api.pecan_debug,
++        debug=pecan_debug,
+         force_canonical=getattr(pecan_config.app, 'force_canonical', True),
+         hooks=app_hooks,
+         wrap_app=middleware.ParsableErrorMiddleware,
+@@ -109,35 +118,6 @@ class VersionSelectorApplication(object):
+         return self.v2(environ, start_response)
+ 
+ 
+-def get_server_cls(host):
+-    """Return an appropriate WSGI server class base on provided host
+-
+-    :param host: The listen host for the ceilometer API server.
+-    """
+-    server_cls = simple_server.WSGIServer
+-    if netaddr.valid_ipv6(host):
+-        # NOTE(dzyu) make sure use IPv6 sockets if host is in IPv6 pattern
+-        if getattr(server_cls, 'address_family') == socket.AF_INET:
+-            class server_cls(server_cls):
+-                address_family = socket.AF_INET6
+-    return server_cls
+-
+-
+-def get_handler_cls():
+-    cls = simple_server.WSGIRequestHandler
+-
+-    # old-style class doesn't support super
+-    class CeilometerHandler(cls, object):
+-        def address_string(self):
+-            if cfg.CONF.api.enable_reverse_dns_lookup:
+-                return super(CeilometerHandler, self).address_string()
+-            else:
+-                # disable reverse dns lookup, directly return ip address
+-                return self.client_address[0]
+-
+-    return CeilometerHandler
+-
+-
+ def load_app():
+     # Build the WSGI app
+     cfg_file = None
+@@ -157,10 +137,6 @@ def build_server():
+     app = load_app()
+     # Create the WSGI server and start it
+     host, port = cfg.CONF.api.host, cfg.CONF.api.port
+-    server_cls = get_server_cls(host)
+-
+-    srv = simple_server.make_server(host, port, app,
+-                                    server_cls, get_handler_cls())
+ 
+     LOG.info(_('Starting server in PID %s') % os.getpid())
+     LOG.info(_("Configuration:"))
+@@ -174,7 +150,9 @@ def build_server():
+         LOG.info(_("serving on http://%(host)s:%(port)s") % (
+                  {'host': host, 'port': port}))
+ 
+-    return srv
++    workers = service.get_workers('api')
++    serving.run_simple(cfg.CONF.api.host, cfg.CONF.api.port,
++                       app, processes=workers)
+ 
+ 
+ def app_factory(global_config, **local_conf):
+diff --git a/ceilometer/cmd/api.py b/ceilometer/cmd/api.py
+index 464f970..cdcdb46 100644
+--- a/ceilometer/cmd/api.py
++++ b/ceilometer/cmd/api.py
+@@ -20,5 +20,4 @@ from ceilometer import service
+ 
+ def main():
+     service.prepare_service()
+-    srv = app.build_server()
+-    srv.serve_forever()
++    app.build_server()
+diff --git a/ceilometer/tests/api/test_app.py b/ceilometer/tests/api/test_app.py
+index 5fb4833..605efcf 100644
+--- a/ceilometer/tests/api/test_app.py
++++ b/ceilometer/tests/api/test_app.py
+@@ -15,8 +15,6 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
+-import socket
+-
+ import mock
+ from oslo.config import cfg
+ from oslo.config import fixture as fixture_config
+@@ -31,21 +29,31 @@ class TestApp(base.BaseTestCase):
+         super(TestApp, self).setUp()
+         self.CONF = self.useFixture(fixture_config.Config()).conf
+ 
+-    def test_WSGI_address_family(self):
+-        self.CONF.set_override('host', '::', group='api')
+-        server_cls = app.get_server_cls(cfg.CONF.api.host)
+-        self.assertEqual(server_cls.address_family, socket.AF_INET6)
+-
+-        self.CONF.set_override('host', '127.0.0.1', group='api')
+-        server_cls = app.get_server_cls(cfg.CONF.api.host)
+-        self.assertEqual(server_cls.address_family, socket.AF_INET)
+-
+-        self.CONF.set_override('host', 'ddddd', group='api')
+-        server_cls = app.get_server_cls(cfg.CONF.api.host)
+-        self.assertEqual(server_cls.address_family, socket.AF_INET)
+-
+     def test_api_paste_file_not_exist(self):
+         self.CONF.set_override('api_paste_config', 'non-existent-file')
+         with mock.patch.object(self.CONF, 'find_file') as ff:
+             ff.return_value = None
+             self.assertRaises(cfg.ConfigFilesNotFoundError, app.load_app)
++
++    @mock.patch('ceilometer.storage.get_connection_from_config',
++                mock.MagicMock())
++    @mock.patch('ceilometer.api.hooks.PipelineHook', mock.MagicMock())
++    @mock.patch('pecan.make_app')
++    def test_pecan_debug(self, mocked):
++        def _check_pecan_debug(g_debug, p_debug, expected, workers=1):
++            self.CONF.set_override('debug', g_debug)
++            if p_debug is not None:
++                self.CONF.set_override('pecan_debug', p_debug, group='api')
++            self.CONF.set_override('api_workers', workers)
++            app.setup_app()
++            args, kwargs = mocked.call_args
++            self.assertEqual(expected, kwargs.get('debug'))
++
++        _check_pecan_debug(g_debug=False, p_debug=None, expected=False)
++        _check_pecan_debug(g_debug=True, p_debug=None, expected=True)
++        _check_pecan_debug(g_debug=True, p_debug=False, expected=False)
++        _check_pecan_debug(g_debug=False, p_debug=True, expected=True)
++        _check_pecan_debug(g_debug=True, p_debug=None, expected=False,
++                           workers=5)
++        _check_pecan_debug(g_debug=False, p_debug=True, expected=False,
++                           workers=5)
+diff --git a/doc/source/install/mod_wsgi.rst b/doc/source/install/mod_wsgi.rst
+index 2defcb5..5f24a8b 100644
+--- a/doc/source/install/mod_wsgi.rst
++++ b/doc/source/install/mod_wsgi.rst
+@@ -63,3 +63,6 @@ multiple processes, there is no way to set debug mode in the multiprocessing
+ case. To allow multiple processes the DebugMiddleware may be turned off by
+ setting ``pecan_debug`` to ``False`` in the ``api`` section of
+ ``ceilometer.conf``.
++
++For other WSGI setup you can refer to the `pecan deployement`_ documentation.
++.. _`pecan deployement`: http://pecan.readthedocs.org/en/latest/deployment.html#deployment
+diff --git a/requirements.txt b/requirements.txt
+index b22d552..a75cd18 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -43,5 +43,6 @@ SQLAlchemy>=0.8.4,<=0.9.99,!=0.9.0,!=0.9.1,!=0.9.2,!=0.9.3,!=0.9.4,!=0.9.5,!=0.9
+ sqlalchemy-migrate==0.9.1
+ stevedore>=1.0.0  # Apache-2.0
+ tooz>=0.3 # Apache-2.0
++werkzeug>=0.7  # BSD License
+ WebOb>=1.2.3
+ WSME>=0.6
+-- 
+2.1.0
+

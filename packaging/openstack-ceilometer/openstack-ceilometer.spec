@@ -6,7 +6,7 @@
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
-Release:          3%{?dist_eayunstack}
+Release:          4%{?dist_eayunstack}
 Summary:          OpenStack measurement collection service
 
 Group:            Applications/System
@@ -49,6 +49,9 @@ Source17:         %{name}-ipmi.service
 Patch001:            0001-BUG-1433924-Fix-resource-list-error-MongoDB-Refactor.patch
 Patch002:            0002-Add-Memory-Stats-meter-to-libvirt-inspector.patch
 Patch003:            0003-Add-Memory-Return-a-meaningful-value-or-raise.patch
+Patch004:            0004-API-Use-werkzeug-to-run-the-developement-API-server.patch
+Patch005:            0005-API-Remove-unused-pecan-configuration-options.patch
+
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -294,6 +297,8 @@ This package contains documentation files for ceilometer.
 %patch001 -p1
 %patch002 -p1
 %patch003 -p1
+%patch004 -p1
+%patch005 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -766,6 +771,10 @@ fi
 
 
 %changelog
+* Fri Feb 19 2016 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-4.eayunstack.1.1
+- Update API Usage 0004-API-Use-werkzeug-to-run-the-developement-API-server.patch
+- Remove Pecan configuration Usage 0005-API-Remove-unused-pecan-configuration-options.patch
+
 * Sat Dec 29 2015 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-3.eayunstack.1.1
 - Added Memory Monitor Usage 0002-Add-Memory-Stats-meter-to-libvirt-inspector.patch
 - Added Memory Return Check Usage 0003-Add-Memory-Return-a-meaningful-value-or-raise.patch
