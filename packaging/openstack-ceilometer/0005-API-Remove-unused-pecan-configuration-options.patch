@@ -1,0 +1,96 @@
+From 47dcf5cce1cc9f80bdf9abd68cb349bcfaf369bb Mon Sep 17 00:00:00 2001
+From: ZhiQiang Fan <aji.zqfan@gmail.com>
+Date: Sun, 11 Jan 2015 02:48:11 +0800
+Subject: [PATCH 2/2] Remove unused pecan configuration options
+
+The pecan configuration options `static_root` and `template_path`
+in ceilometer/api/config.py has never take effect since the files
+which have specified don't exist. The two options actually is not
+required according to:
+http://pecan.readthedocs.org/en/latest/configuration.html#application-configuration
+
+This patch removes the two pecan configuration options.
+
+Note:Update by Yuanbing Chen<cybing4@gmail.com>
+Change-Id: If7e7b264145544c1ff5359d108581320ee942b4d
+Closes-Bug: #1408858
+(cherry picked from commit 75b1c9a3aba389235be9d556b702103e3923a721
+and this patch don't use i18n.py)
+
+Conflicts:
+	ceilometer/api/app.py
+
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ ceilometer/api/app.py            | 6 ++----
+ ceilometer/api/config.py         | 2 --
+ ceilometer/tests/api/__init__.py | 5 -----
+ 3 files changed, 2 insertions(+), 11 deletions(-)
+
+diff --git a/ceilometer/api/app.py b/ceilometer/api/app.py
+index 49786af..fc8f523 100644
+--- a/ceilometer/api/app.py
++++ b/ceilometer/api/app.py
+@@ -19,8 +19,6 @@ import logging
+ import os
+ 
+ from oslo.config import cfg
+-
+-from oslo_config import cfg
+ from paste import deploy
+ import pecan
+ from werkzeug import serving
+@@ -29,7 +27,7 @@ from ceilometer.api import config as api_config
+ from ceilometer.api import hooks
+ from ceilometer.api import middleware
+ from ceilometer.openstack.common import log
+-from ceilometer.openstack.commoncommoncommon.gettextutils import _
++from ceilometer.openstack.common.gettextutils import _
+ from ceilometer import service
+ from ceilometer import storage
+ 
+@@ -85,7 +83,7 @@ def setup_app(pecan_config=None, extra_hooks=None):
+     pecan_debug = CONF.api.pecan_debug
+     if service.get_workers('api') != 1 and pecan_debug:
+         pecan_debug = False
+-        LOG.warning(_LW('pecan_debug cannot be enabled, if workers is > 1, '
++        LOG.warning(_('pecan_debug cannot be enabled, if workers is > 1, '
+                         'the value is overrided with False'))
+ 
+     app = pecan.make_app(
+diff --git a/ceilometer/api/config.py b/ceilometer/api/config.py
+index 083c465..ab73563 100644
+--- a/ceilometer/api/config.py
++++ b/ceilometer/api/config.py
+@@ -20,8 +20,6 @@ server = {
+ app = {
+     'root': 'ceilometer.api.controllers.root.RootController',
+     'modules': ['ceilometer.api'],
+-    'static_root': '%(confdir)s/public',
+-    'template_path': '%(confdir)s/ceilometer/api/templates',
+ }
+ 
+ # Custom Configurations must be in Python dictionary format::
+diff --git a/ceilometer/tests/api/__init__.py b/ceilometer/tests/api/__init__.py
+index 7d1000c..9152f85 100644
+--- a/ceilometer/tests/api/__init__.py
++++ b/ceilometer/tests/api/__init__.py
+@@ -50,15 +50,10 @@ class FunctionalTest(db_test_base.TestBase):
+         self.app = self._make_app()
+ 
+     def _make_app(self, enable_acl=False):
+-        # Determine where we are so we can set up paths in the config
+-        root_dir = self.path_get()
+-
+         self.config = {
+             'app': {
+                 'root': 'ceilometer.api.controllers.root.RootController',
+                 'modules': ['ceilometer.api'],
+-                'static_root': '%s/public' % root_dir,
+-                'template_path': '%s/ceilometer/api/templates' % root_dir,
+                 'enable_acl': enable_acl,
+             },
+             'wsme': {
+-- 
+2.1.0
+
