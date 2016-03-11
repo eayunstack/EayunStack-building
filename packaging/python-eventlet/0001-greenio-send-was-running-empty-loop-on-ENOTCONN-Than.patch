@@ -1,0 +1,39 @@
+From b4b3f4d9ebc4bf2964d1412814f92fb2b363b72c Mon Sep 17 00:00:00 2001
+From: Sergey Shepelev <temotor@gmail.com>
+Date: Fri, 15 May 2015 03:56:04 +0300
+Subject: [PATCH] greenio: send() was running empty loop on ENOTCONN; Thanks to
+ Seyeong Kim
+
+https://github.com/eventlet/eventlet/issues/192
+(cherry picked from commit ed0655333007fe97624b745e92deb407d192022c)
+---
+ AUTHORS             | 1 +
+ eventlet/greenio.py | 3 ++-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/AUTHORS b/AUTHORS
+index c5437d0..ef59a47 100644
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -99,3 +99,4 @@ Thanks To
+ * Jan Grant, Michael Kerrin, second simultaneous read (Github #94)
+ * Simon Jagoe, Python3 octal literal fix
+ * Tushar Gohad, wsgi: Support optional headers w/ "100 Continue" responses
++* Seyeong Kim
+diff --git a/eventlet/greenio.py b/eventlet/greenio.py
+index 38e8168..886b217 100644
+--- a/eventlet/greenio.py
++++ b/eventlet/greenio.py
+@@ -341,7 +341,8 @@ class GreenSocket(object):
+             try:
+                 total_sent += fd.send(data[total_sent:], flags)
+             except socket.error as e:
+-                if get_errno(e) not in SOCKET_BLOCKING:
++                eno = get_errno(e)
++                if eno == errno.ENOTCONN or eno not in SOCKET_BLOCKING:
+                     raise
+ 
+             if total_sent == len_data:
+-- 
+2.7.0
+
