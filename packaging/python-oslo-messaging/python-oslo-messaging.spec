@@ -4,7 +4,7 @@
 
 Name:       python-oslo-messaging
 Version:    1.4.1
-Release:    5%{?dist_eayunstack}
+Release:    6%{?dist_eayunstack}
 Summary:    OpenStack common messaging library
 
 Group:      Development/Languages
@@ -45,6 +45,7 @@ Patch0030: 0030-Reconnect-on-connection-lost-in-heartbeat-thread.patch
 Patch0031: 0031-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
 Patch0032: 0032-Fix-list_opts-test-to-not-check-all-deps.patch
 Patch0033: 0033-log-reconnection-event-after-reconnected.patch
+Patch0034: 0034-check-the-connection-status-before-heartbeating.patch
 
 BuildArch:  noarch
 Requires:   python-setuptools
@@ -128,6 +129,7 @@ Documentation for the oslo.messaging library.
 %patch0031 -p1
 %patch0032 -p1
 %patch0033 -p1
+%patch0034 -p1
 
 # Remove bundled egg-info
 rm -rf %{sname}.egg-info
@@ -170,6 +172,9 @@ rm -fr doc/build/html/.buildinfo
 %doc doc/build/html LICENSE
 
 %changelog
+* Tue Mar 08 2016 apporc <appleorchard2000@gmail.com> - 1.4.1-6.eayunstack.1.1
+- 0034-check-the-connection-status-before-heartbeating.patch
+
 * Wed Jan 06 2016 apporc <appleorchard2000@gmail.com> - 1.4.1-5.eayunstack.1.1
 - delete patch 0001-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
 - delete patch 0002-Create-a-new-connection-when-a-process-fork-has-been.patch
