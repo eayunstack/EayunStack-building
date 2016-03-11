@@ -1,3 +1,42 @@
+* 2016年1月22日，13时51分14秒，赵超，<chao.zhao@eayun.com>
+- EayunStack-1.0.1-201601221351.iso
+- 1. Redmine Bugs:
+-   * #3741 [OpenStack] [nova] boot from image 的虚拟机迁移后 revert 失败
+-   * #4122 [OpenStack][nova] flavor 名称不能使用中文名
+-   * #4188 [OpenStack][nova]虚拟机动态迁移出错可能导致虚拟机状态不可追踪
+-   * #4391 [fuel] nova scheduler 默认开启 AggregateInstanceExtraSpecsFilter
+-   * #4541 [OpenStack][neutron] qos-agent 无法断线重连 rabbitmq-server
+-   * #4542 [neutron] qos 没有检查目标设备是否属于当前租户
+-   * #4544 [OpenStack][nova] nova image-list 时日志中报错 ImportError: cannot import name blockinfo 
+-   * #4648 [OpenStack][nova] nova evacuate 之后，故障机器上的 nova-compute 无法启动。
+-   * #4994 [neutron] dhcp-agent 停止时 dnsmasq 进程仍然存在
+-   * #5305 [OpenStack] [Ceilometer] 无法列出资源
+-   * #5360 [OpenStack] [Neutron] [FWaaS] 创建防火墙是没有检测租户 ID
+-   * #5500 [OpenStack] 虚拟机停止/端口删除时未清理资源而导致虚拟机启动速度变慢
+-   * #5504 [OpenStack] [Neutron] 创建网络太频繁时，可能创建失败
+-   * #5510 [OpenStack] 创建虚拟机时，如果第一台所选择的主机失败了，重新调度虚拟机失败
+-   * #5933 [fuel] ceilometer原因导致 multinode 方式部署失败
+-   * #6167 [Fuel] 为LMA监控打开Neutron的Verbose选项
+-   * #6168 [Fuel] 部署ceilometer时不为Neutron添加重复的notification_driver
+- 2. 其它更新：
+-   a）neutron-qos pull requests:
+-     * #9 Fix wrong class inheritance
+-   b) nova pull requests:
+-     * #8 Redmine #3566 unittest
+-     * #9 fix eayunstack-1.0 unittest
+-     * #20 This add eayunstack specific channel support.
+-   c）oslo.messaging pull requests:
+-     * #1 update requirements to pass unittest
+-     * #2 Improve stability
+-   d）cinder pull requests:
+-     * #3 [RFC] Private volume type
+-   e) python-cinderclient pull requests:
+-     * #3 Add support for os-volume-type-access extension
+-   f）neutron-qos pull requests:
+-     * #11 Refine database relationships.
+-   g）fuel-web pull requests:
+-     * #10 networks: bonded PXE and ceph cluster
+
 * 2015年6月30日，15时31分51秒，赵超，<chao.zhao@eayun.com>
 - EayunStack-1.0-201506292154-update-001.iso
 - 1. Redmine Bugs:
