@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          8%{?dist_eayunstack}
+Release:          9%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -81,6 +81,8 @@ Patch0033: 0033-fix-unicode-issue-in-vm-resuming-procedure.patch
 Patch0034: 0034-Fix-nova-evacuate-issues-for-RBD.patch                    
 Patch0035: 0035-Honor-shared-storage-on-resize-revert.patch               
 Patch0036: 0036-eayunstack-channel.patch                                  
+Patch0037: 0037-construct-auth-plugin-for-admin-specifically.patch
+Patch0038: 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -519,6 +521,8 @@ This package contains documentation files for nova.
 %patch0034 -p1
 %patch0035 -p1
 %patch0036 -p1
+%patch0037 -p1
+%patch0038 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -876,6 +880,10 @@ exit 0
 %endif
 
 %changelog
+* Wed Mar 09 2016 apporc <appleorchard2000@gmail.com> - 2014.2-9.eayunstack.1.1
+- 0037-construct-auth-plugin-for-admin-specifically.patch
+- 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
+
 * Tue Jan 19 2016 apporc <appleorchard2000@gmail.com> - 2014.2-8.eayunstack.1.1
 - delete patch 0032-eayunstack-channel.patch
 - delete patch 0033-network-fix-instance-cache-refresh-for-empty-list.patch
