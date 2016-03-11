@@ -1,0 +1,27 @@
+From bdb6b23d2ffc143d6de40aec767d62f4f450274b Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Tue, 8 Mar 2016 17:28:12 +0800
+Subject: [PATCH 34/34] check the connection status before heartbeating
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index b977607..73290a7 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -883,6 +883,9 @@ class Connection(object):
+ 
+                 try:
+                     try:
++                        if not self.connection.connected:
++                            raise self.connection.recoverable_connection_errors[0]
++
+                         self.connection.heartbeat_check(
+                             rate=self.conf.heartbeat_rate)
+                         # NOTE(sileht): We need to drain event to receive
+-- 
+2.4.3
+
