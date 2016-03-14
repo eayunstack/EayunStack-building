@@ -1,0 +1,26 @@
+From b08cf30414447881c9ac4f319419c86a713d2c4e Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Mon, 14 Mar 2016 13:36:17 +0800
+Subject: [PATCH 32/33] Fix KeyError when updating firewall
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+---
+ neutron/services/firewall/fwaas_plugin.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/firewall/fwaas_plugin.py b/neutron/services/firewall/fwaas_plugin.py
+index fbf759e..e79fd81 100644
+--- a/neutron/services/firewall/fwaas_plugin.py
++++ b/neutron/services/firewall/fwaas_plugin.py
+@@ -223,7 +223,7 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin,
+         LOG.debug(_("update_firewall() called"))
+         self._ensure_update_firewall(context, id)
+         firewall['firewall']['status'] = const.PENDING_UPDATE
+-        new_targets = firewall['firewall'].pop(FW_TARGET_ROUTERS)
++        new_targets = firewall['firewall'].pop(FW_TARGET_ROUTERS, None)
+         fw = super(FirewallPlugin, self).update_firewall(context, id, firewall)
+         if (
+             attr.is_attr_set(new_targets) and
+-- 
+2.7.3
+

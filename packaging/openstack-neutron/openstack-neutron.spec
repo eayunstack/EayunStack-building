@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	19%{?dist_eayunstack}
+Release:	20%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -72,6 +72,10 @@ Patch0026: 0026-Implement-portmapping-feature.patch
 Patch0027: 0027-Implement-firewall-target-routers.patch
 Patch0028: 0028-Implement-PPTP-VPN-feature.patch
 Patch0029: 0029-Catch-broad-exception-in-methods-used-in-FixedInterv.patch
+Patch0030: 0030-Fix-redmine-issue-6277.patch
+Patch0031: 0031-Allow-multiple-firewalls-for-a-tenant.patch
+Patch0032: 0032-Fix-KeyError-when-updating-firewall.patch
+Patch0033: 0033-Correctly-calculate-bandwidth-occupied-by-queues.patch
 
 BuildArch:	noarch
 
@@ -578,6 +582,10 @@ IPSec.
 %patch0027 -p1
 %patch0028 -p1
 %patch0029 -p1
+%patch0030 -p1
+%patch0031 -p1
+%patch0032 -p1
+%patch0033 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1038,6 +1046,12 @@ exit 0
 
 
 %changelog
+* Mon Mar 14 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-20.eayunstack.1.1
+- add patch 0030 from github pull request #22 (redmine#6277)
+- add patch 0031 from github pull request #23 (redmine#6329)
+- add patch 0032 from github pull request #24 (redmine#6332)
+- add patch 0033 from github pull request #25 (redmine#5965)
+
 * Mon Dec 14 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-19.eayunstack.1.1
 - add patch 0026 from github pull request #10, #16 (redemine#4543)
 - add patch 0027 from github pull request #11, #19 (redemine#4674)
