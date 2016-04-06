@@ -1,0 +1,41 @@
+From 8e829d0f5a965d57b2fc0c9fb56756bc31f992e3 Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Thu, 31 Mar 2016 16:23:01 +0800
+Subject: [PATCH 41/42] allow rbd imagebackend to operate on volume pool
+
+Change-Id: I68443ac378719ae663491ccd37fb0804ffa63f28
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/virt/libvirt/imagebackend.py | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/nova/virt/libvirt/imagebackend.py b/nova/virt/libvirt/imagebackend.py
+index a539335..2c3b311 100644
+--- a/nova/virt/libvirt/imagebackend.py
++++ b/nova/virt/libvirt/imagebackend.py
+@@ -613,12 +613,7 @@ class Rbd(Image):
+ 
+     def __init__(self, instance=None, disk_name=None, path=None, **kwargs):
+         super(Rbd, self).__init__("block", "rbd", is_block_dev=False)
+-        if path:
+-            try:
+-                self.rbd_name = path.split('/')[1]
+-            except IndexError:
+-                raise exception.InvalidDevicePath(path=path)
+-        else:
++        if not path:
+             self.rbd_name = '%s_%s' % (instance['uuid'], disk_name)
+ 
+         if not CONF.libvirt.images_rbd_pool:
+@@ -636,7 +631,7 @@ class Rbd(Image):
+             ceph_conf=self.ceph_conf,
+             rbd_user=self.rbd_user)
+ 
+-        self.path = 'rbd:%s/%s' % (self.pool, self.rbd_name)
++        self.path = path or 'rbd:%s/%s' % (self.pool, self.rbd_name)
+         if self.rbd_user:
+             self.path += ':id=' + self.rbd_user
+         if self.ceph_conf:
+-- 
+2.4.3
+
