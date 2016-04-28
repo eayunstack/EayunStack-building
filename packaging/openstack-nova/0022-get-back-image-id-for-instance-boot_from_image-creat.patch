@@ -1,0 +1,58 @@
+From 3aed735d555d6886d1b1ef84fee6141b01736b4f Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Wed, 30 Mar 2016 17:50:29 +0800
+Subject: [PATCH 22/24] get back image id for instance
+ boot_from_image(create_a_new_volume) and remove duplicate image args
+
+Change-Id: I77ffa44f066e60b746a7c969baf8a91afd79b55d
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+(cherry picked from commit 0e841b5c838f1494703f4af624777b7012641325)
+---
+ nova/compute/api.py | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/nova/compute/api.py b/nova/compute/api.py
+index 4b71257..eba793f 100644
+--- a/nova/compute/api.py
++++ b/nova/compute/api.py
+@@ -719,7 +719,7 @@ class API(base.Base):
+         self._check_requested_image(context, image_id, image, instance_type)
+ 
+     def _validate_and_build_base_options(self, context, instance_type,
+-                                         boot_meta, image_href, image_id,
++                                         boot_meta, image_id,
+                                          kernel_id, ramdisk_id, display_name,
+                                          display_description, key_name,
+                                          key_data, security_groups,
+@@ -805,7 +805,7 @@ class API(base.Base):
+ 
+         base_options = {
+             'reservation_id': reservation_id,
+-            'image_ref': image_href,
++            'image_ref': image_id,
+             'kernel_id': kernel_id or '',
+             'ramdisk_id': ramdisk_id or '',
+             'power_state': power_state.NOSTATE,
+@@ -1047,9 +1047,9 @@ class API(base.Base):
+         if image_href:
+             image_id, boot_meta = self._get_image(context, image_href)
+         else:
+-            image_id = None
+             boot_meta = self._get_bdm_image_metadata(
+                 context, block_device_mapping, legacy_bdm)
++            image_id = boot_meta.get('id', None)
+ 
+         self._check_auto_disk_config(image=boot_meta,
+                                      auto_disk_config=auto_disk_config)
+@@ -1060,7 +1060,7 @@ class API(base.Base):
+ 
+         base_options, max_net_count = self._validate_and_build_base_options(
+                 context,
+-                instance_type, boot_meta, image_href, image_id, kernel_id,
++                instance_type, boot_meta, image_id, kernel_id,
+                 ramdisk_id, display_name, display_description,
+                 key_name, key_data, security_groups, availability_zone,
+                 forced_host, user_data, metadata, injected_files, access_ip_v4,
+-- 
+2.4.3
+
