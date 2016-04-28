@@ -1,0 +1,63 @@
+From feddf40048839bacab155abfe93cefe0ddd38b9a Mon Sep 17 00:00:00 2001
+From: wanghao <wanghao749@huawei.com>
+Date: Fri, 27 Feb 2015 12:09:49 +0800
+Subject: [PATCH] Fix the unicode encode error when create volume
+
+Using six.text_type(value) to set image_name to
+avoid UnicodeEncodeError.
+
+Change-Id: I30542df18f31a3e07cb4b9a61521ebded62ffbc4
+Closes-Bug: #1426203
+(cherry picked from commit 72bcebf88ef8b5f7a6b1d712b0e9328e5447af8f)
+---
+ cinder/db/sqlalchemy/api.py |  4 ++--
+ cinder/tests/test_db_api.py | 11 +++++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/cinder/db/sqlalchemy/api.py b/cinder/db/sqlalchemy/api.py
+index f7c502c..845db3f 100644
+--- a/cinder/db/sqlalchemy/api.py
++++ b/cinder/db/sqlalchemy/api.py
+@@ -31,6 +31,7 @@ from oslo.db import exception as db_exc
+ from oslo.db import options
+ from oslo.db.sqlalchemy import session as db_session
+ import osprofiler.sqlalchemy
++import six
+ import sqlalchemy
+ from sqlalchemy import or_
+ from sqlalchemy.orm import joinedload, joinedload_all
+@@ -2879,8 +2880,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
+         vol_glance_metadata = models.VolumeGlanceMetadata()
+         vol_glance_metadata.volume_id = volume_id
+         vol_glance_metadata.key = key
+-        vol_glance_metadata.value = str(value)
+-
++        vol_glance_metadata.value = six.text_type(value)
+         session.add(vol_glance_metadata)
+ 
+     return
+diff --git a/cinder/tests/test_db_api.py b/cinder/tests/test_db_api.py
+index 2a0f53c..0cdd8ef9 100644
+--- a/cinder/tests/test_db_api.py
++++ b/cinder/tests/test_db_api.py
+@@ -737,6 +737,17 @@ class DBAPIVolumeTestCase(BaseTest):
+         metadata.pop('c')
+         self.assertEqual(metadata, db.volume_metadata_get(self.ctxt, 1))
+ 
++    def test_volume_glance_metadata_create(self):
++        volume = db.volume_create(self.ctxt, {'host': 'h1'})
++        db.volume_glance_metadata_create(self.ctxt, volume['id'],
++                                         'image_name',
++                                         u'\xe4\xbd\xa0\xe5\xa5\xbd')
++        glance_meta = db.volume_glance_metadata_get(self.ctxt, volume['id'])
++        for meta_entry in glance_meta:
++            if meta_entry.key == 'image_name':
++                image_name = meta_entry.value
++        self.assertEqual(u'\xe4\xbd\xa0\xe5\xa5\xbd', image_name)
++
+ 
+ class DBAPISnapshotTestCase(BaseTest):
+ 
+-- 
+2.8.1
+
