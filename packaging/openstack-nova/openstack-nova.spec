@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          9%{?dist_eayunstack}
+Release:          10%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -83,6 +83,10 @@ Patch0035: 0035-Honor-shared-storage-on-resize-revert.patch
 Patch0036: 0036-eayunstack-channel.patch                                  
 Patch0037: 0037-construct-auth-plugin-for-admin-specifically.patch
 Patch0038: 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
+patch0039: 0039-use-same-snapshot-method-for-both-instances-booted-f.patch
+patch0040: 0040-get-back-image-id-for-instance-boot_from_image-creat.patch
+patch0041: 0041-allow-rbd-imagebackend-to-operate-on-volume-pool.patch
+patch0042: 0042-Move-the-original-createImage-for-volume-backed-inst.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -523,6 +527,10 @@ This package contains documentation files for nova.
 %patch0036 -p1
 %patch0037 -p1
 %patch0038 -p1
+%patch0039 -p1
+%patch0040 -p1
+%patch0041 -p1
+%patch0042 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -880,6 +888,12 @@ exit 0
 %endif
 
 %changelog
+* Wed Apr 06 2016 apporc <appleorchard2000@gmail.com> - 2014.2-10.eayunstack.1.1
+- 0039-use-same-snapshot-method-for-both-instances-booted-f.patch
+- 0040-get-back-image-id-for-instance-boot_from_image-creat.patch
+- 0041-allow-rbd-imagebackend-to-operate-on-volume-pool.patch
+- 0042-Move-the-original-createImage-for-volume-backed-inst.patch
+
 * Wed Mar 09 2016 apporc <appleorchard2000@gmail.com> - 2014.2-9.eayunstack.1.1
 - 0037-construct-auth-plugin-for-admin-specifically.patch
 - 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
