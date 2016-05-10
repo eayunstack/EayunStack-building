@@ -1,0 +1,126 @@
+From ab210380bff1ae604f1bf258acf0e9bc1c277fe8 Mon Sep 17 00:00:00 2001
+From: Xing Yang <xing.yang@emc.com>
+Date: Tue, 21 Jul 2015 15:06:39 -0400
+Subject: [PATCH] CLI: Non-disruptive backup
+
+This is the CLI change required to support non-disruptive backup
+for volumes in 'in-use' status. A force flag is added to the create
+backup CLI. The force flag needs to be True when backing up an
+'in-use' volume. By default it is False and it is not needed when
+backing up an 'available' volume.
+
+The Cinder server side change is merged:
+https://review.openstack.org/#/c/193937/
+
+Partial-implements blueprint non-disruptive-backup
+
+Change-Id: I53aff3973cc6365a5b1d40c21b0885c1d8166df5
+(cherry picked from commit 2c3169e55e533154bb24e9b1eb9aa94a3e01719a)
+
+Conflicts:
+      cinderclient/tests/v2/test_shell.py
+      cinderclient/tests/v2/test_volume_backups.py
+      cinderclient/v2/shell.py
+      cinderclient/v2/volume_backups.py
+
+(cherry picked from commit abae7f04748ac7dfae43baab6a383a88ceeaf4a3)
+---
+ cinderclient/tests/v2/test_shell.py          |  4 ++++
+ cinderclient/tests/v2/test_volume_backups.py |  5 +++++
+ cinderclient/v2/shell.py                     | 12 +++++++++++-
+ cinderclient/v2/volume_backups.py            |  7 +++++--
+ 4 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index 0d053da..bbb7dc0 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -170,6 +170,10 @@ class ShellTest(utils.TestCase):
+         self.run_command('backup-create 1234')
+         self.assert_called('POST', '/backups')
+ 
++    def test_backup_force(self):
++        self.run_command('backup-create 1234 --force')
++        self.assert_called('POST', '/backups')
++
+     def test_restore(self):
+         self.run_command('backup-restore 1234')
+         self.assert_called('POST', '/backups/1234/restore')
+diff --git a/cinderclient/tests/v2/test_volume_backups.py b/cinderclient/tests/v2/test_volume_backups.py
+index 916938d..150ee60 100644
+--- a/cinderclient/tests/v2/test_volume_backups.py
++++ b/cinderclient/tests/v2/test_volume_backups.py
+@@ -26,6 +26,11 @@ class VolumeBackupsTest(utils.TestCase):
+         cs.backups.create('2b695faf-b963-40c8-8464-274008fbcef4')
+         cs.assert_called('POST', '/backups')
+ 
++    def test_create_force(self):
++        cs.backups.create('2b695faf-b963-40c8-8464-274008fbcef4',
++                          None, None, True)
++        cs.assert_called('POST', '/backups')
++
+     def test_get(self):
+         backup_id = '76a17945-3c6f-435c-975b-b5685db10b62'
+         cs.backups.get(backup_id)
+diff --git a/cinderclient/v2/shell.py b/cinderclient/v2/shell.py
+index 3a2c103..bf0d527 100644
+--- a/cinderclient/v2/shell.py
++++ b/cinderclient/v2/shell.py
+@@ -1054,6 +1054,15 @@ def do_retype(cs, args):
+            metavar='<description>',
+            default=None,
+            help='Backup description. Default=None.')
++@utils.arg('--force',
++           action='store_true',
++           help='Allows or disallows backup of a volume '
++           'when the volume is attached to an instance. '
++           'If set to True, backs up the volume whether '
++           'its status is "available" or "in-use". The backup '
++           'of an "in-use" volume means your data is crash '
++           'consistent. Default=False.',
++           default=False)
+ @utils.service_type('volumev2')
+ def do_backup_create(cs, args):
+     """Creates a volume backup."""
+@@ -1067,7 +1076,8 @@ def do_backup_create(cs, args):
+     backup = cs.backups.create(volume.id,
+                                args.container,
+                                args.name,
+-                               args.description)
++                               args.description,
++                               args.force)
+ 
+     info = {"volume_id": volume.id}
+     info.update(backup._info)
+diff --git a/cinderclient/v2/volume_backups.py b/cinderclient/v2/volume_backups.py
+index a948b5e..5821bb5 100644
+--- a/cinderclient/v2/volume_backups.py
++++ b/cinderclient/v2/volume_backups.py
+@@ -35,19 +35,22 @@ class VolumeBackupManager(base.ManagerWithFind):
+     resource_class = VolumeBackup
+ 
+     def create(self, volume_id, container=None,
+-               name=None, description=None):
++               name=None, description=None,
++               force=False):
+         """Creates a volume backup.
+ 
+         :param volume_id: The ID of the volume to backup.
+         :param container: The name of the backup service container.
+         :param name: The name of the backup.
+         :param description: The description of the backup.
++        :param force: If True, allows an in-use volume to be backed up.
+         :rtype: :class:`VolumeBackup`
+         """
+         body = {'backup': {'volume_id': volume_id,
+                            'container': container,
+                            'name': name,
+-                           'description': description}}
++                           'description': description,
++                           'force': force, }}
+         return self._create('/backups', body, 'backup')
+ 
+     def get(self, backup_id):
+-- 
+2.9.3
+
