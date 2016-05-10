@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          4.1%{?dist_eayunstack}
+Release:          4.2%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -33,6 +33,12 @@ Patch0008: 0008-usd-is_uuid_like-from-oslo_utils.patch
 Patch0009: 0009-fix-None-object-issue.patch
 Patch0010: 0010-Choose-volume-type-belong-to-project.patch
 Patch0011: 0011-Fix-the-unicode-encode-error-when-create-volume.patch
+Patch0012: 0012-unittest-fix-test_migration_027.patch
+Patch0013: 0013-Non-disruptive-backup.patch
+Patch0014: 0014-Fix-cleanup_temp_volume_snapshots-for-missing-vol.patch
+Patch0015: 0015-Handle-missing-temp-volume-and-snapshot-during-clean.patch
+Patch0016: 0016-Fix-backup-init_host-volume-cleanup.patch
+Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -166,6 +172,12 @@ This package contains documentation files for cinder.
 %patch0009 -p1
 %patch0010 -p1
 %patch0011 -p1
+%patch0012 -p1
+%patch0013 -p1
+%patch0014 -p1
+%patch0015 -p1
+%patch0016 -p1
+%patch0017 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -306,6 +318,14 @@ exit 0
 %endif
 
 %changelog
+* Mon May 16 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.2.eayunstack.1.0.1
+- add Patch0012: 0012-unittest-fix-test_migration_027.patch
+- add Patch0013: 0013-Non-disruptive-backup.patch
+- add Patch0014: 0014-Fix-cleanup_temp_volume_snapshots-for-missing-vol.patch
+- add Patch0015: 0015-Handle-missing-temp-volume-and-snapshot-during-clean.patch
+- add Patch0016: 0016-Fix-backup-init_host-volume-cleanup.patch
+- add Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
+
 * Thu Apr 28 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.1.eayunstack.1.0.1
 - add Patch0011: 0011-Fix-the-unicode-encode-error-when-create-volume.patch
 

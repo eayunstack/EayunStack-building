@@ -1,0 +1,133 @@
+From 25a927a1691866c725f89c2c6b234d131d0bc0ef Mon Sep 17 00:00:00 2001
+From: Tom Barron <tpb@dyncloud.net>
+Date: Wed, 5 Aug 2015 17:19:37 -0600
+Subject: [PATCH 16/17] Fix backup init_host volume cleanup
+
+Backup service manager init_host method cleans up leftover volumes from
+interrupted backup and restore operations.  As the code is currently
+written, it only does this for volumes with attachments.
+
+This commit runs the volume cleanup for volumes in backing-up or restoring
+state even when they do not have attachments.
+
+Closes-bug: 1482548
+Change-Id: I753c72b7adcdf57745deafaad7de616eb6243aa9
+(cherry picked from commit 0faff1f6aca23920df2c1042b1831268ea2ae5c3)
+
+Conflicts:
+      cinder/tests/test_backup.py
+
+(cherry picked from commit 61226d694551171e18c44572ee40c364b0dc04c3)
+
+Conflicts:
+      cinder/backup/manager.py
+---
+ cinder/backup/manager.py    | 49 +++++++++++++++++++--------------------------
+ cinder/tests/test_backup.py | 15 ++++++++++++--
+ 2 files changed, 34 insertions(+), 30 deletions(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index d836dc7..4314a57 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -197,34 +197,21 @@ class BackupManager(manager.SchedulerDependentManager):
+         for volume in volumes:
+             volume_host = volume_utils.extract_host(volume['host'], 'backend')
+             backend = self._get_volume_backend(host=volume_host)
+-            if volume['attach_status'] == 'attached':
+-                if (volume['status'] == 'backing-up' and
+-                       volume['previous_status'] == 'available'):
+-                    LOG.info(_('Resetting volume %(vol_id)s to previous '
+-                                 'status %(status)s (was backing-up).'),
+-                             {'vol_id': volume['id'],
+-                              'status': volume['previous_status']})
+-                    mgr = self._get_manager(backend)
+-                    if (volume['attached_host'] == self.host and
+-                            volume['instance_uuid'] == None):
+-                        mgr.detach_volume(ctxt, volume['id'])
+-                elif (volume['status'] == 'backing-up' and
+-                        volume['previous_status'] == 'in-use'):
+-                    LOG.info(_('Resetting volume %(vol_id)s to previous '
+-                                 'status %(status)s (was backing-up).'),
+-                             {'vol_id': volume['id'],
+-                              'status': volume['previous_status']})
+-                    self.db.volume_update(ctxt, volume['id'],
+-                                          volume['previous_status'])
+-                elif volume['status'] == 'restoring-backup':
+-                    LOG.info(_('setting volume %s to error_restoring '
+-                                 '(was restoring-backup).'), volume['id'])
+-                    mgr = self._get_manager(backend)
+-                    if (volume['attached_host'] == self.host and
+-                            volume['instance_uuid'] == None):
+-                        mgr.detach_volume(ctxt, volume['id'])
+-                    self.db.volume_update(ctxt, volume['id'],
+-                                          {'status': 'error_restoring'})
++            mgr = self._get_manager(backend)
++            if volume['status'] == 'backing-up':
++                self._detach_volume(ctxt, mgr, volume)
++                LOG.info(_('Resetting volume %(vol_id)s to previous '
++                             'status %(status)s (was backing-up).'),
++                         {'vol_id': volume['id'],
++                          'status': volume['previous_status']})
++                self.db.volume_update(ctxt, volume['id'],
++                                      {'status': volume['previous_status']})
++            elif volume['status'] == 'restoring-backup':
++                self._detach_volume(ctxt, mgr, volume)
++                LOG.info(_('setting volume %s to error_restoring '
++                             '(was restoring-backup).'), volume['id'])
++                self.db.volume_update(ctxt, volume['id'],
++                                      {'status': 'error_restoring'})
+ 
+         # TODO(smulcahy) implement full resume of backup and restore
+         # operations on restart (rather than simply resetting)
+@@ -250,6 +237,12 @@ class BackupManager(manager.SchedulerDependentManager):
+ 
+         self._cleanup_temp_volumes_snapshots(backups)
+ 
++    def _detach_volume(self, ctxt, mgr, volume):
++        if (volume['attach_status'] == 'attached' and
++                volume['attached_host'] == self.host and
++                volume['instance_uuid'] == None):
++            mgr.detach_volume(ctxt, volume['id'])
++
+     def _cleanup_temp_volumes_snapshots(self, backups):
+         # NOTE(xyang): If the service crashes or gets restarted during the
+         # backup operation, there could be temporary volumes or snapshots
+diff --git a/cinder/tests/test_backup.py b/cinder/tests/test_backup.py
+index ba59e2a..914bc52 100644
+--- a/cinder/tests/test_backup.py
++++ b/cinder/tests/test_backup.py
+@@ -190,9 +190,12 @@ class BackupTestCase(BaseBackupTest):
+         temp_vol_id = self._create_volume_db_entry()
+         db.volume_update(self.ctxt, temp_vol_id, {'status': 'available'})
+         vol5_id = self._create_volume_db_entry()
+-        db.volume_update(self.ctxt, vol4_id, {'status': 'backing-up'})
++        db.volume_update(self.ctxt, vol5_id, {'status': 'backing-up'})
+         temp_snap_id = self._create_snapshot_db_entry()
+         db.snapshot_update(self.ctxt, temp_snap_id, {'status': 'available'})
++        vol6_id = self._create_volume_db_entry()
++        db.volume_update(self.ctxt, vol6_id, {'status': 'restoring-backup'})
++
+         backup1_id = self._create_backup_db_entry(status='creating',
+                                                   volume_id=vol1_id)
+         backup2_id = self._create_backup_db_entry(status='restoring',
+@@ -210,7 +213,15 @@ class BackupTestCase(BaseBackupTest):
+         vol1 = db.volume_get(self.ctxt, vol1_id)
+         self.assertEqual(vol1['status'], 'available')
+         vol2 = db.volume_get(self.ctxt, vol2_id)
+-        self.assertEqual(vol2['status'], 'error_restoring')
++        self.assertEqual('error_restoring', vol2['status'])
++        vol3 = db.volume_get(self.ctxt, vol3_id)
++        self.assertEqual('available', vol3['status'])
++        vol4 = db.volume_get(self.ctxt, vol4_id)
++        self.assertEqual('available', vol4['status'])
++        vol5 = db.volume_get(self.ctxt, vol5_id)
++        self.assertEqual('available', vol5['status'])
++        vol6 = db.volume_get(self.ctxt, vol6_id)
++        self.assertEqual('error_restoring', vol6['status'])
+ 
+         backup1 = db.backup_get(self.ctxt, backup1_id)
+         self.assertEqual(backup1['status'], 'error')
+-- 
+2.8.1
+
