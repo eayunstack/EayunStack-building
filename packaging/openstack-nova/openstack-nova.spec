@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6.1%{?dist_eayunstack}
+Release:          6.2%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -65,6 +65,8 @@ Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
 Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
 Patch0019: 0019-eayunstack-channel.patch
 Patch0020: 0020-fix-soft-delete-for-1.0.1.patch
+Patch0021: 0021-create-image-from-instance-redmine-6456.patch
+Patch0022: 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -487,6 +489,8 @@ This package contains documentation files for nova.
 %patch0018 -p1
 %patch0019 -p1
 %patch0020 -p1
+%patch0021 -p1
+%patch0022 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -844,6 +848,10 @@ exit 0
 %endif
 
 %changelog
+* Fri May 13 2016 blkart <blkart.org@gmail.com> - 2014.2-6.2.eayunstack.1.0.1
+- 0021-create-image-from-instance-redmine-6456.patch
+- 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+
 * Wed Mar 16 2016 apporc <appleorchard2000@gmail.com> - 2014.2-6.1.eayunstack.1.0.1
 - 0020-fix-soft-delete-for-1.0.1.patch
 

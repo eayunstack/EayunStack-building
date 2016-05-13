@@ -1,0 +1,492 @@
+From c1d6f006725ca2a09f1ab3d8f0324eac0be97426 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Mon, 9 May 2016 11:22:57 +0800
+Subject: [PATCH 22/22] libvirt: make snapshot use RBD snapshot/clone when
+ available
+
+When rbd is used for ephemeral disks and image storage, make snapshot use ceph directly, and update glance with the new location. In case of failure, it will gracefully fallback to the "generic" snapshot method.
+
+This requires changing the typical permissions for the nova ceph user (if using authx) to allow writing to the pool where vm images are stored, and it also requires configuring Glance to provide a v2 endpoint with direct_url support enabled (there are security implications to doing this).
+
+Spec: Ia3666d53e663eacf8c65dbffbd4bc847dd948171
+
+Implements: blueprint rbd-instance-snapshots
+Change-Id: If13d25b6c94e247d2505583b524ae3af9c34b5dc
+
+Related upstream commit: 824c3706a3ea691781f4fcc4453881517a9e1c55
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ nova/virt/libvirt/driver.py       | 118 +++++++++++++++++++++-----------
+ nova/virt/libvirt/imagebackend.py | 110 ++++++++++++++++++++++++++++++
+ nova/virt/libvirt/rbd_utils.py    | 139 ++++++++++++++++++++++++++++++++------
+ 3 files changed, 310 insertions(+), 57 deletions(-)
+
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index c7dcf79..35a9f4e 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -1635,6 +1635,8 @@ class LibvirtDriver(driver.ComputeDriver):
+             raise exception.InstanceNotRunning(instance_id=instance['uuid'])
+ 
+         base_image_ref = instance['image_ref']
++        if not base_image_ref:
++            base_image_ref = compute_utils.get_image_ref(context, instance)
+ 
+         base = compute_utils.get_image_metadata(
+             context, self._image_api, base_image_ref, instance)
+@@ -1714,46 +1716,86 @@ class LibvirtDriver(driver.ComputeDriver):
+                      instance=instance)
+ 
+         update_task_state(task_state=task_states.IMAGE_PENDING_UPLOAD)
+-        snapshot_directory = CONF.libvirt.snapshots_directory
+-        fileutils.ensure_tree(snapshot_directory)
+-        with utils.tempdir(dir=snapshot_directory) as tmpdir:
+-            try:
+-                out_path = os.path.join(tmpdir, snapshot_name)
+-                if live_snapshot:
+-                    # NOTE(xqueralt): libvirt needs o+x in the temp directory
+-                    os.chmod(tmpdir, 0o701)
+-                    self._live_snapshot(virt_dom, disk_path, out_path,
+-                                        image_format)
+-                else:
+-                    snapshot_backend.snapshot_extract(out_path, image_format)
+-            finally:
+-                new_dom = None
+-                # NOTE(dkang): because previous managedSave is not called
+-                #              for LXC, _create_domain must not be called.
+-                if CONF.libvirt.virt_type != 'lxc' and not live_snapshot:
+-                    if state == power_state.RUNNING:
+-                        new_dom = self._create_domain(domain=virt_dom)
+-                    elif state == power_state.PAUSED:
+-                        new_dom = self._create_domain(domain=virt_dom,
+-                                launch_flags=libvirt.VIR_DOMAIN_START_PAUSED)
+-                    if new_dom is not None:
+-                        self._attach_pci_devices(new_dom,
+-                            pci_manager.get_instance_pci_devs(instance))
+-                        self._attach_sriov_ports(context, instance, new_dom)
+-                LOG.info(_LI("Snapshot extracted, beginning image upload"),
+-                         instance=instance)
+-
+-            # Upload that image to the image service
+ 
++        try:
+             update_task_state(task_state=task_states.IMAGE_UPLOADING,
+-                     expected_state=task_states.IMAGE_PENDING_UPLOAD)
+-            with libvirt_utils.file_open(out_path) as image_file:
+-                self._image_api.update(context,
+-                                       image_id,
+-                                       metadata,
+-                                       image_file)
+-                LOG.info(_LI("Snapshot image upload complete"),
+-                         instance=instance)
++                              expected_state=task_states.IMAGE_PENDING_UPLOAD)
++            metadata['location'] = snapshot_backend.direct_snapshot(
++                context, snapshot_name, image_format, image_id,
++                base_image_ref)
++            self._snapshot_domain(context, live_snapshot, virt_dom, state,
++                                  instance)
++            self._image_api.update(context, image_id, metadata,
++                                   purge_props=False)
++        except (NotImplementedError, exception.ImageUnacceptable,
++                exception.Forbidden) as e:
++            if type(e) != NotImplementedError:
++                LOG.warning(_LW('Performing standard snapshot because direct '
++                                'snapshot failed: %(error)s'), {'error': e})
++            failed_snap = metadata.pop('location', None)
++            if failed_snap:
++                failed_snap = {'url': str(failed_snap)}
++            snapshot_backend.cleanup_direct_snapshot(failed_snap,
++                                                     also_destroy_volume=True,
++                                                     ignore_errors=True)
++            update_task_state(task_state=task_states.IMAGE_PENDING_UPLOAD,
++                              expected_state=task_states.IMAGE_UPLOADING)
++
++            snapshot_directory = CONF.libvirt.snapshots_directory
++            fileutils.ensure_tree(snapshot_directory)
++            with utils.tempdir(dir=snapshot_directory) as tmpdir:
++                try:
++                    out_path = os.path.join(tmpdir, snapshot_name)
++                    if live_snapshot:
++                        # NOTE(xqueralt): libvirt needs o+x in the temp
++                        # directory
++                        os.chmod(tmpdir, 0o701)
++                        self._live_snapshot(virt_dom, disk_path, out_path,
++                                            image_format)
++                    else:
++                        snapshot_backend.snapshot_extract(out_path,
++                                                          image_format)
++                finally:
++                    self._snapshot_domain(context, live_snapshot, virt_dom,
++                                          state, instance)
++                    LOG.info(_LI("Snapshot extracted, beginning image upload"),
++                             instance=instance)
++
++                # Upload that image to the image service
++                update_task_state(task_state=task_states.IMAGE_UPLOADING,
++                        expected_state=task_states.IMAGE_PENDING_UPLOAD)
++                with libvirt_utils.file_open(out_path) as image_file:
++                    self._image_api.update(context,
++                                           image_id,
++                                           metadata,
++                                           image_file)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception(_LE("Failed to snapshot image"))
++                failed_snap = metadata.pop('location', None)
++                if failed_snap:
++                    failed_snap = {'url': str(failed_snap)}
++                snapshot_backend.cleanup_direct_snapshot(
++                        failed_snap, also_destroy_volume=True,
++                        ignore_errors=True)
++
++        LOG.info(_LI("Snapshot image upload complete"), instance=instance)
++
++    def _snapshot_domain(self, context, live_snapshot, virt_dom, state,
++                         instance):
++        new_dom = None
++        # NOTE(dkang): because previous managedSave is not called
++        #              for LXC, _create_domain must not be called.
++        if CONF.libvirt.virt_type != 'lxc' and not live_snapshot:
++            if state == power_state.RUNNING:
++                new_dom = self._create_domain(domain=virt_dom)
++            elif state == power_state.PAUSED:
++                new_dom = self._create_domain(domain=virt_dom,
++                        launch_flags=libvirt.VIR_DOMAIN_START_PAUSED)
++            if new_dom is not None:
++                self._attach_pci_devices(new_dom,
++                    pci_manager.get_instance_pci_devs(instance))
++                self._attach_sriov_ports(context, instance, new_dom)
+ 
+     @staticmethod
+     def _wait_for_block_job(domain, disk_path, abort_on_error=False,
+diff --git a/nova/virt/libvirt/imagebackend.py b/nova/virt/libvirt/imagebackend.py
+index 93933e1..b4220f1 100644
+--- a/nova/virt/libvirt/imagebackend.py
++++ b/nova/virt/libvirt/imagebackend.py
+@@ -348,6 +348,25 @@ class Image(object):
+         raise exception.ImageUnacceptable(image_id=image_id_or_uri,
+                                           reason=reason)
+ 
++    def direct_snapshot(self, context, snapshot_name, image_format, image_id,
++                        base_image_id):
++        """Prepare a snapshot for direct reference from glance
++
++        :raises: exception.ImageUnacceptable if it cannot be
++                 referenced directly in the specified image format
++        :returns: URL to be given to glance
++        """
++        raise NotImplementedError(_('direct_snapshot() is not implemented'))
++
++    def cleanup_direct_snapshot(self, location, also_destroy_volume=False,
++                                ignore_errors=False):
++        """Performs any cleanup actions required after calling
++        direct_snapshot(), for graceful exception handling and the like.
++
++        This should be a no-op on any backend where it is not implemented.
++        """
++        pass
++
+ 
+ class Raw(Image):
+     def __init__(self, instance=None, disk_name=None, path=None):
+@@ -739,6 +758,97 @@ class Rbd(Image):
+         raise exception.ImageUnacceptable(image_id=image_id_or_uri,
+                                           reason=reason)
+ 
++    def _get_parent_pool(self, context, base_image_id, fsid):
++        parent_pool = None
++        try:
++            # The easy way -- the image is an RBD clone, so use the parent
++            # images' storage pool
++            parent_pool, _im, _snap = self.driver.parent_info(self.rbd_name)
++        except exception.ImageUnacceptable:
++            # The hard way -- the image is itself a parent, so ask Glance
++            # where it came from
++            LOG.debug('No parent info for %s; asking the Image API where its '
++                      'store is', base_image_id)
++            try:
++                image_meta = IMAGE_API.get(context, base_image_id,
++                                           include_locations=True)
++            except Exception as e:
++                LOG.debug('Unable to get image %(image_id)s; error: %(error)s',
++                          {'image_id': base_image_id, 'error': e})
++                image_meta = {}
++
++            # Find the first location that is in the same RBD cluster
++            for location in image_meta.get('locations', []):
++                try:
++                    parent_fsid, parent_pool, _im, _snap = \
++                        self.driver.parse_url(location['url'])
++                    if parent_fsid == fsid:
++                        break
++                    else:
++                        parent_pool = None
++                except exception.ImageUnacceptable:
++                    continue
++
++        if not parent_pool:
++            raise exception.ImageUnacceptable(
++                _('Cannot determine the parent storage pool for %s; '
++                  'cannot determine where to store images') %
++                base_image_id)
++
++        return parent_pool
++
++    def direct_snapshot(self, context, snapshot_name, image_format,
++                        image_id, base_image_id):
++        """Creates an RBD snapshot directly.
++        """
++        fsid = self.driver.get_fsid()
++        # NOTE(nic): Nova has zero comprehension of how Glance's image store
++        # is configured, but we can infer what storage pool Glance is using
++        # by looking at the parent image.  If using authx, write access should
++        # be enabled on that pool for the Nova user
++        parent_pool = self._get_parent_pool(context, base_image_id, fsid)
++
++        # Snapshot the disk and clone it into Glance's storage pool.  librbd
++        # requires that snapshots be set to "protected" in order to clone them
++        self.driver.create_snap(self.rbd_name, snapshot_name,
++                                pool=self.pool, protect=True)
++        location = {'url': 'rbd://%(fsid)s/%(pool)s/%(image)s/%(snap)s' %
++                    dict(fsid=fsid,
++                         pool=self.pool,
++                         image=self.rbd_name,
++                         snap=snapshot_name)}
++        try:
++            self.driver.clone(location, image_id, dest_pool=parent_pool)
++            # Flatten the image, which detaches it from the source snapshot
++            self.driver.flatten(image_id, pool=parent_pool)
++        finally:
++            # all done with the source snapshot, clean it up
++            self.cleanup_direct_snapshot(location)
++
++        # Glance makes a protected snapshot called 'snap' on uploaded
++        # images and hands it out, so we'll do that too.  The name of
++        # the snapshot doesn't really matter, this just uses what the
++        # glance-store rbd backend sets (which is not configurable).
++        self.driver.create_snap(image_id, 'snap', pool=parent_pool,
++                                protect=True)
++        return ('rbd://%(fsid)s/%(pool)s/%(image)s/snap' %
++                dict(fsid=fsid, pool=parent_pool, image=image_id))
++
++    def cleanup_direct_snapshot(self, location, also_destroy_volume=False,
++                                ignore_errors=False):
++        """Unprotects and destroys the name snapshot.
++
++        With also_destroy_volume=True, it will also cleanup/destroy the parent
++        volume.  This is useful for cleaning up when the target volume fails
++        to snapshot properly.
++        """
++        if location:
++            _fsid, _pool, _im, _snap = self.driver.parse_url(location['url'])
++            self.driver.remove_snap(_im, _snap, pool=_pool, force=True,
++                                    ignore_errors=ignore_errors)
++            if also_destroy_volume:
++                self.driver.destroy_volume(_im, pool=_pool)
++
+ 
+ class Backend(object):
+     def __init__(self, use_cow):
+diff --git a/nova/virt/libvirt/rbd_utils.py b/nova/virt/libvirt/rbd_utils.py
+index e638cf9..6f8fa89 100644
+--- a/nova/virt/libvirt/rbd_utils.py
++++ b/nova/virt/libvirt/rbd_utils.py
+@@ -16,6 +16,8 @@
+ 
+ import urllib
+ 
++from eventlet import tpool
++
+ try:
+     import rados
+     import rbd
+@@ -167,7 +169,7 @@ class RBDDriver(object):
+             raise exception.ImageUnacceptable(image_id=url, reason=reason)
+         return pieces
+ 
+-    def _get_fsid(self):
++    def get_fsid(self):
+         with RADOSClient(self) as client:
+             return client.cluster.get_fsid()
+ 
+@@ -179,7 +181,7 @@ class RBDDriver(object):
+             LOG.debug('not cloneable: %s', e)
+             return False
+ 
+-        if self._get_fsid() != fsid:
++        if self.get_fsid() != fsid:
+             reason = '%s is in a different ceph cluster' % url
+             LOG.debug(reason)
+             return False
+@@ -199,20 +201,25 @@ class RBDDriver(object):
+                       dict(loc=url, err=e))
+             return False
+ 
+-    def clone(self, image_location, dest_name):
++    def clone(self, image_location, dest_name, dest_pool=None):
+         _fsid, pool, image, snapshot = self.parse_url(
+                 image_location['url'])
+-        LOG.debug('cloning %(pool)s/%(img)s@%(snap)s' %
+-                  dict(pool=pool, img=image, snap=snapshot))
++        LOG.debug('cloning %(pool)s/%(img)s@%(snap)s to '
++                  '%(dest_pool)s/%(dest_name)s',
++                  dict(pool=pool, img=image, snap=snapshot,
++                       dest_pool=dest_pool, dest_name=dest_name))
+         with RADOSClient(self, str(pool)) as src_client:
+-            with RADOSClient(self) as dest_client:
+-                # pylint: disable E1101
+-                rbd.RBD().clone(src_client.ioctx,
+-                                     image.encode('utf-8'),
+-                                     snapshot.encode('utf-8'),
+-                                     dest_client.ioctx,
+-                                     dest_name,
+-                                     features=rbd.RBD_FEATURE_LAYERING)
++            with RADOSClient(self, dest_pool) as dest_client:
++                try:
++                    rbd.RBD().clone(src_client.ioctx,
++                                    image.encode('utf-8'),
++                                    snapshot.encode('utf-8'),
++                                    dest_client.ioctx,
++                                    str(dest_name),
++                                    features=rbd.RBD_FEATURE_LAYERING)
++                except rbd.PermissionError:
++                    raise exception.Forbidden(_('no write permission on '
++                                                'storage pool %s') % dest_pool)
+ 
+     def size(self, name):
+         with RBDVolumeProxy(self, name) as vol:
+@@ -228,6 +235,31 @@ class RBDDriver(object):
+         with RBDVolumeProxy(self, name) as vol:
+             vol.resize(size)
+ 
++    def parent_info(self, volume, pool=None):
++        """Returns the pool, image and snapshot name for the parent of an
++        RBD volume.
++
++        :volume: Name of RBD object
++        :pool: Name of pool
++        """
++        try:
++            with RBDVolumeProxy(self, str(volume), pool=pool) as vol:
++                return vol.parent_info()
++        except rbd.ImageNotFound:
++            raise exception.ImageUnacceptable(_("no usable parent snapshot "
++                                                "for volume %s") % volume)
++
++    def flatten(self, volume, pool=None):
++        """"Flattens" a snapshotted image with the parents' data,
++        effectively detaching it from the parent.
++
++        :volume: Name of RBD object
++        :pool: Name of pool
++        """
++        LOG.debug('flattening %(pool)s/%(vol)s', dict(pool=pool, vol=volume))
++        with RBDVolumeProxy(self, str(volume), pool=pool) as vol:
++            tpool.execute(vol.flatten)
++
+     def exists(self, name, pool=None, snapshot=None):
+         try:
+             with RBDVolumeProxy(self, name,
+@@ -253,6 +285,16 @@ class RBDDriver(object):
+         args += self.ceph_args()
+         utils.execute('rbd', 'import', *args)
+ 
++    def _destroy_volume(self, client, volume, pool=None):
++        """Destroy an RBD volume.
++        """
++        try:
++            rbd.RBD().remove(client.ioctx, volume)
++        except (rbd.ImageNotFound, rbd.ImageHasSnapshots):
++            LOG.warn(_LW('rbd remove %(volume)s in pool %(pool)s '
++                         'failed'),
++                     {'volume': volume, 'pool': self.pool})
++
+     def cleanup_volumes(self, instance):
+         with RADOSClient(self, self.pool) as client:
+ 
+@@ -262,12 +304,7 @@ class RBDDriver(object):
+             # pylint: disable=E1101
+             volumes = rbd.RBD().list(client.ioctx)
+             for volume in filter(belongs_to_instance, volumes):
+-                try:
+-                    rbd.RBD().remove(client.ioctx, volume)
+-                except (rbd.ImageNotFound, rbd.ImageHasSnapshots):
+-                    LOG.warn(_LW('rbd remove %(volume)s in pool %(pool)s '
+-                                 'failed'),
+-                             {'volume': volume, 'pool': self.pool})
++                self._destroy_volume(client, volume)
+ 
+     def get_pool_info(self):
+         with RADOSClient(self) as client:
+@@ -275,3 +312,67 @@ class RBDDriver(object):
+             return {'total': stats['kb'] * units.Ki,
+                     'free': stats['kb_avail'] * units.Ki,
+                     'used': stats['kb_used'] * units.Ki}
++
++    def create_snap(self, volume, name, pool=None, protect=False):
++        """Create a snapshot of an RBD volume.
++
++        :volume: Name of RBD object
++        :name: Name of snapshot
++        :pool: Name of pool
++        :protect: Set the snapshot to "protected"
++        """
++        LOG.debug('creating snapshot(%(snap)s) on rbd image(%(img)s)',
++                  {'snap': name, 'img': volume})
++        with RBDVolumeProxy(self, str(volume), pool=pool) as vol:
++            tpool.execute(vol.create_snap, name)
++            if protect and not vol.is_protected_snap(name):
++                tpool.execute(vol.protect_snap, name)
++
++    def remove_snap(self, volume, name, ignore_errors=False, pool=None,
++                    force=False):
++        """Removes a snapshot from an RBD volume.
++
++        :volume: Name of RBD object
++        :name: Name of snapshot
++        :ignore_errors: whether or not to log warnings on failures
++        :pool: Name of pool
++        :force: Remove snapshot even if it is protected
++        """
++        with RBDVolumeProxy(self, str(volume), pool=pool) as vol:
++            if name in [snap.get('name', '') for snap in vol.list_snaps()]:
++                if vol.is_protected_snap(name):
++                    if force:
++                        tpool.execute(vol.unprotect_snap, name)
++                    elif not ignore_errors:
++                        LOG.warning(_LW('snapshot(%(name)s) on rbd '
++                                        'image(%(img)s) is protected, '
++                                        'skipping'),
++                                    {'name': name, 'img': volume})
++                        return
++                LOG.debug('removing snapshot(%(name)s) on rbd image(%(img)s)',
++                          {'name': name, 'img': volume})
++                tpool.execute(vol.remove_snap, name)
++            elif not ignore_errors:
++                LOG.warning(_LW('no snapshot(%(name)s) found on rbd '
++                                'image(%(img)s)'),
++                            {'name': name, 'img': volume})
++
++    def rollback_to_snap(self, volume, name):
++        """Revert an RBD volume to its contents at a snapshot.
++
++        :volume: Name of RBD object
++        :name: Name of snapshot
++        """
++        with RBDVolumeProxy(self, volume) as vol:
++            if name in [snap.get('name', '') for snap in vol.list_snaps()]:
++                LOG.debug('rolling back rbd image(%(img)s) to '
++                          'snapshot(%(snap)s)', {'snap': name, 'img': volume})
++                tpool.execute(vol.rollback_to_snap, name)
++            else:
++                raise exception.SnapshotNotFound(snapshot_id=name)
++
++    def destroy_volume(self, volume, pool=None):
++        """A one-shot version of cleanup_volumes()
++        """
++        with RADOSClient(self, pool) as client:
++            self._destroy_volume(client, volume)
+-- 
+2.1.0
+
