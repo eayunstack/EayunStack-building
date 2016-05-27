@@ -1,0 +1,33 @@
+From 96abc35db274232b026799d8a73e9a1dd6f68fa8 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 7 Jan 2016 11:13:03 +0800
+Subject: [PATCH 31/37] Correctly calculate bandwidth occupied by queues
+
+Queues which are not directly under the qos should be filter out.
+
+Fixes: redmine #5965
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit f6ff65e781199fb0a496747ba49aae777cd1c55e)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index d1531c9..07444fd 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -194,7 +194,8 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+         return self._fields(res, fields)
+ 
+     def _aggregate_rate_of_qos(self, qos):
+-        return reduce(lambda x, y: x + y, [q.rate for q in qos.queues])
++        return reduce(lambda x, y: x + y,
++                      [q.rate for q in qos.queues if q.parent_queue is None])
+ 
+     def _check_qos_rate(self, qos, delta, maximum=None):
+         if maximum is None:
+-- 
+2.8.3
+

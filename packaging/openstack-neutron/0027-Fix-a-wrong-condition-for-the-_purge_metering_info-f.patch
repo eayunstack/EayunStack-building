@@ -1,0 +1,115 @@
+From 5b2a497b544b9058674cabc2bbda55be1d793941 Mon Sep 17 00:00:00 2001
+From: Sergey Vilgelm <sergey@vilgelm.info>
+Date: Mon, 31 Aug 2015 17:06:48 +0300
+Subject: [PATCH 27/37] Fix a wrong condition for the _purge_metering_info
+ function
+
+Fix a situation for the _purge_metering_info function
+when the items will never be deleted from the metering_info.
+Delete the metering_info dict and use the metering_infos instead.
+Fix the problem with changing a dictionary during iteration.
+Add the unit tests for the _purge_metering_info and
+_add_metering_info functions.
+
+Co-Authored-By: Yaroslav Isakov <yisakov@mirantis.com>
+
+Change-Id: I9031a5f27ae6438ffd5c5a48b0cf5cdc6867eff3
+Closes-Bug: #1490581
+(cherry picked from commit 997aa86fa12e3209b65741ef95906d491895a493)
+(cherry picked from commit 2f344ee0884b75eacf3439c7bccce26f0c8c6b01)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 86ce61ec566efc9a4c89ecebb70fb347ddbaf8dc)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/agents/metering_agent.py | 13 ++++---
+ .../unit/services/metering/test_metering_agent.py  | 43 ++++++++++++++++++++++
+ 2 files changed, 50 insertions(+), 6 deletions(-)
+
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index c860bdb..6005c81 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -77,7 +77,6 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+         self._load_drivers()
+         self.root_helper = config.get_root_helper(self.conf)
+         self.context = context.get_admin_context_without_session()
+-        self.metering_info = {}
+         self.metering_loop = loopingcall.FixedIntervalLoopingCall(
+             self._metering_loop
+         )
+@@ -118,11 +117,13 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+             info['time'] = 0
+ 
+     def _purge_metering_info(self):
+-        ts = int(time.time())
+-        report_interval = self.conf.report_interval
+-        for label_id, info in self.metering_info.items():
+-            if info['last_update'] > ts + report_interval:
+-                del self.metering_info[label_id]
++        deadline_timestamp = int(time.time()) - self.conf.report_interval
++        label_ids = [
++            label_id
++            for label_id, info in self.metering_infos.items()
++            if info['last_update'] < deadline_timestamp]
++        for label_id in label_ids:
++            del self.metering_infos[label_id]
+ 
+     def _add_metering_info(self, label_id, pkts, bytes):
+         ts = int(time.time())
+diff --git a/neutron/tests/unit/services/metering/test_metering_agent.py b/neutron/tests/unit/services/metering/test_metering_agent.py
+index aee7f2c..78af8e6 100644
+--- a/neutron/tests/unit/services/metering/test_metering_agent.py
++++ b/neutron/tests/unit/services/metering/test_metering_agent.py
+@@ -125,6 +125,49 @@ class TestMeteringOperations(base.BaseTestCase,
+ 
+         self.agent._add_metering_info.assert_called_with(label_id, 44, 222)
+ 
++    @mock.patch('time.time')
++    def _test_purge_metering_info(self, current_timestamp, is_empty,
++                                  mock_time):
++        mock_time.return_value = current_timestamp
++        self.agent.metering_infos = {'fake': {'last_update': 1}}
++        self.config(report_interval=1)
++
++        self.agent._purge_metering_info()
++        self.assertEqual(0 if is_empty else 1, len(self.agent.metering_infos))
++        self.assertEqual(1, mock_time.call_count)
++
++    def test_purge_metering_info(self):
++        # 1 < 2 - 1 -> False
++        self._test_purge_metering_info(2, False)
++
++    def test_purge_metering_info_delete(self):
++        # 1 < 3 - 1 -> False
++        self._test_purge_metering_info(3, True)
++
++    @mock.patch('time.time')
++    def _test_add_metering_info(self, expected_info, current_timestamp,
++                                mock_time):
++        mock_time.return_value = current_timestamp
++        actual_info = self.agent._add_metering_info('fake_label_id', 1, 1)
++        self.assertEqual(1, len(self.agent.metering_infos))
++        self.assertEqual(expected_info, actual_info)
++        self.assertEqual(expected_info,
++                         self.agent.metering_infos['fake_label_id'])
++        self.assertEqual(1, mock_time.call_count)
++
++    def test_add_metering_info_create(self):
++        expected_info = {'bytes': 1, 'pkts': 1, 'time': 0, 'first_update': 1,
++                         'last_update': 1}
++        self._test_add_metering_info(expected_info, 1)
++
++    def test_add_metering_info_update(self):
++        expected_info = {'bytes': 1, 'pkts': 1, 'time': 0, 'first_update': 1,
++                         'last_update': 1}
++        self.agent.metering_infos = {'fake_label_id': expected_info}
++        expected_info.update({'bytes': 2, 'pkts': 2, 'time': 1,
++                              'last_update': 2})
++        self._test_add_metering_info(expected_info, 2)
++
+ 
+ class TestMeteringDriver(base.BaseTestCase):
+     def setUp(self):
+-- 
+2.8.3
+

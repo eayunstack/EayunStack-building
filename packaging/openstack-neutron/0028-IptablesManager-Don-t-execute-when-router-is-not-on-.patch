@@ -1,0 +1,55 @@
+From fb25dcc3c3a12f480510fe3afbf7f3030432abcf Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Fri, 26 Feb 2016 10:39:43 +0800
+Subject: [PATCH 28/37] IptablesManager: Don't execute when router is not on
+ the host
+
+This prevents raising RuntimeError when executing iptables-related
+commands in a nonexistent net namespace because the owner router of that
+namespace is not scheduled to be on the host.
+
+Fixes: redmine #6277
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 4d911d5d7d1b1cdedfa771f33cf9ade2f7823164)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/iptables_manager.py | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/agent/linux/iptables_manager.py b/neutron/agent/linux/iptables_manager.py
+index 613a929..d26c6cd 100644
+--- a/neutron/agent/linux/iptables_manager.py
++++ b/neutron/agent/linux/iptables_manager.py
+@@ -50,6 +50,7 @@ MAX_CHAIN_LEN_NOWRAP = 28
+ # a failure during iptables-restore
+ IPTABLES_ERROR_LINES_OF_CONTEXT = 5
+ 
++NETNS_RUN_DIR = '/var/run/netns'
+ 
+ def get_chain_name(chain_name, wrap=True):
+     if wrap:
+@@ -280,13 +281,19 @@ class IptablesManager(object):
+ 
+     """
+ 
++    def _execute(self, *args, **kwargs):
++        ns = self.namespace
++        if ns and not os.path.isfile(os.path.join(NETNS_RUN_DIR, ns)):
++            return ""
++        return linux_utils.execute(*args, **kwargs)
++
+     def __init__(self, _execute=None, state_less=False,
+                  root_helper=None, use_ipv6=False, namespace=None,
+                  binary_name=binary_name):
+         if _execute:
+             self.execute = _execute
+         else:
+-            self.execute = linux_utils.execute
++            self.execute = self._execute
+ 
+         self.use_ipv6 = use_ipv6
+         self.root_helper = root_helper
+-- 
+2.8.3
+
