@@ -1,0 +1,47 @@
+From f3751c0b88686cf35c5738812ae2ff1d3ec95807 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Fri, 26 Feb 2016 11:01:03 +0800
+Subject: [PATCH 29/37] metering: filter by routers' ids when syncing data
+
+This prevents sending extra unneeded data to the metering agents by
+filtering out only those routers hosted by the l3 agent running on the
+host on which the target metering agent is running.
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 503b6afbe8040b76bcc94f39e55637c6acbdc63c)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/metering/metering_db.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/db/metering/metering_db.py b/neutron/db/metering/metering_db.py
+index 0e414a5..cf5057b 100644
+--- a/neutron/db/metering/metering_db.py
++++ b/neutron/db/metering/metering_db.py
+@@ -208,7 +208,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
+ 
+         return res
+ 
+-    def _process_sync_metering_data(self, context, labels):
++    def _process_sync_metering_data(self, context, labels, router_ids):
+         all_routers = None
+ 
+         routers_dict = {}
+@@ -222,6 +222,8 @@ class MeteringDbMixin(metering.MeteringPluginBase,
+                 routers = label.routers
+ 
+             for router in routers:
++                if router_ids and router['id'] not in router_ids:
++                    continue
+                 router_dict = routers_dict.get(
+                     router['id'],
+                     self._make_router_dict(router))
+@@ -244,4 +246,4 @@ class MeteringDbMixin(metering.MeteringPluginBase,
+             labels = (labels.join(MeteringLabel.routers).
+                       filter(l3_db.Router.id.in_(router_ids)))
+ 
+-        return self._process_sync_metering_data(context, labels)
++        return self._process_sync_metering_data(context, labels, router_ids)
+-- 
+2.8.3
+

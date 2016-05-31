@@ -1,0 +1,34 @@
+From 804b67888e055aac105bcf55a5972b856e7608e8 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Fri, 26 Feb 2016 11:33:50 +0800
+Subject: [PATCH 30/37] MeteringAgent: purge outdated routers
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 9656b8673053a0549b6b62c1c6baa9f02d296951)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/agents/metering_agent.py | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 6005c81..cfc51b9 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -186,6 +186,14 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+     @periodic_task.periodic_task(run_immediately=True)
+     def _sync_routers_task(self, context):
+         routers = self._get_sync_data_metering(self.context)
++
++        routers_on_agent = set(self.routers.keys())
++        routers_on_server = set([router['id'] for router in routers])
++
++        for router_id in routers_on_agent - routers_on_server:
++            del self.routers[router_id]
++            self._invoke_driver(context, router_id, 'remove_router')
++
+         if not routers:
+             return
+         self._update_routers(context, routers)
+-- 
+2.8.3
+

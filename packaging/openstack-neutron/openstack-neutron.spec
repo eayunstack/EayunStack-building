@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18%{?dist_eayunstack}
+Release:	18.1%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -68,6 +68,19 @@ Patch0022: 0022-fix-redmine-4541.patch
 Patch0023: 0023-Check-whether-target-s-tenant-is-the-same-with-qos.patch
 Patch0024: 0024-Fix-wrong-class-inheritance.patch
 Patch0025: 0025-Refine-database-relationships.patch
+Patch0026: 0026-Catch-broad-exception-in-methods-used-in-FixedInterv.patch
+Patch0027: 0027-Fix-a-wrong-condition-for-the-_purge_metering_info-f.patch
+Patch0028: 0028-IptablesManager-Don-t-execute-when-router-is-not-on-.patch
+Patch0029: 0029-metering-filter-by-routers-ids-when-syncing-data.patch
+Patch0030: 0030-MeteringAgent-purge-outdated-routers.patch
+Patch0031: 0031-Correctly-calculate-bandwidth-occupied-by-queues.patch
+Patch0032: 0032-Metering-iptables-make-packets-travel-through-meteri.patch
+Patch0033: 0033-Metering-iptables-fix-router-ext_dev-checker.patch
+Patch0034: 0034-Qos-filter-s-prio-can-not-be-zero.patch
+Patch0035: 0035-Give-a-default-selector-to-tc-filter.patch
+Patch0036: 0036-qos_agent-don-t-add-tc-qdisc-when-device-is-not-read.patch
+Patch0037: 0037-qos_agent-wrap-sfq-qdisc-under-the-htb-classes-16.patch
+Patch0038: 0038-Pass-dhcp-authoritative-option-to-dnsmasq.patch
 
 BuildArch:	noarch
 
@@ -570,6 +583,19 @@ IPSec.
 %patch0023 -p1
 %patch0024 -p1
 %patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
+%patch0031 -p1
+%patch0032 -p1
+%patch0033 -p1
+%patch0034 -p1
+%patch0035 -p1
+%patch0036 -p1
+%patch0037 -p1
+%patch0038 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1030,6 +1056,18 @@ exit 0
 
 
 %changelog
+* Fri May 27 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.1.eayunstack.1.0.1
+- add patch 0026 from github pull request #21 (upstream neutron fix)
+- add patch 0027-0030 from github pull request #22 (redmine#6277)
+- add patch 0031 from neutron-qos github pull request #12 (redmine#5965)
+- add patch 0032 from github pull request #26 (redmine#6468)
+- add patch 0033 from github pull request #27 (redmine#6469)
+- add patch 0034 from neutron-qos github pull request #13 (redmine#6407)
+- add patch 0035 from neutron-qos github pull request #14 (redmine#6406)
+- add patch 0036 from neutron-qos github pull request #15 (redmine#6163)
+- add patch 0037 from neutron-qos github pull request #16 (redmine#7265)
+- add patch 0038 from github pull request #30 (upstream neutron fix)
+
 * Fri Dec 11 2015 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.eayunstack.1.0.1
 - add patch 0015 and 0016 from github pull request #12 (redemine#5360)
 - add patch 0017-0019 from github pull request #13 (redmine#5500)

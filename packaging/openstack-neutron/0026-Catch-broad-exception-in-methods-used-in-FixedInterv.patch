@@ -1,0 +1,73 @@
+From 9f93cb73963a769ea809d01778fd85ce8c2f1140 Mon Sep 17 00:00:00 2001
+From: Eugene Nikanorov <enikanorov@mirantis.com>
+Date: Tue, 26 May 2015 20:17:20 +0400
+Subject: [PATCH 26/37] Catch broad exception in methods used in
+ FixedIntervalLoopingCall
+
+Unlike other places where it might make sense to catch specific
+exceptions, methods that are used to check L3 and DHCP agents
+liveness via FixedIntervalLoopingCall should never allow exceptions
+to leak to calling method and interrupt the loop.
+
+Further improvement of FixedIntervalLoopingCall might be needed,
+but for the sake of easy backporting it makes sense to fix the issue
+in neutron before pushing refactoring to 3rd-party library.
+
+Change-Id: I6a61e99a6f4e445e26ea4a9923b47e35559e5703
+Closes-Bug: #1458119
+(cherry picked from commit ae8c1c5f80fd4fb7b4ab116677f4cff988c67cf1)
+(cherry picked from commit 97448d5d132bcc64a95e20a24c73587ffa9e913c)
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit fb4e2c63354a67f13a87e46dba7e9467d971a04d)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/l3_agentschedulers_db.py                    |  6 +++---
+ neutron/tests/unit/openvswitch/test_agent_scheduler.py | 11 ++++-------
+ 2 files changed, 7 insertions(+), 10 deletions(-)
+
+diff --git a/neutron/db/l3_agentschedulers_db.py b/neutron/db/l3_agentschedulers_db.py
+index bef3119..dbeef28 100644
+--- a/neutron/db/l3_agentschedulers_db.py
++++ b/neutron/db/l3_agentschedulers_db.py
+@@ -140,9 +140,9 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
+                     # so one broken one doesn't stop the iteration.
+                     LOG.exception(_LE("Failed to reschedule router %s"),
+                                   binding.router_id)
+-        except db_exc.DBError:
+-            # Catch DB errors here so a transient DB connectivity issue
+-            # doesn't stop the loopingcall.
++        except Exception:
++            # we want to be thorough and catch whatever is raised
++            # to avoid loop abortion
+             LOG.exception(_LE("Exception encountered during router "
+                               "rescheduling."))
+ 
+diff --git a/neutron/tests/unit/openvswitch/test_agent_scheduler.py b/neutron/tests/unit/openvswitch/test_agent_scheduler.py
+index 0fdf9fd..81ee48e 100644
+--- a/neutron/tests/unit/openvswitch/test_agent_scheduler.py
++++ b/neutron/tests/unit/openvswitch/test_agent_scheduler.py
+@@ -665,17 +665,14 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
+                     db_exc.DBError(), n_rpc.RemoteError(),
+                     l3agentscheduler.RouterReschedulingFailed(router_id='f',
+                                                               agent_id='f'),
+-                    ValueError('this raises')
++                    ValueError('this raises'),
++                    Exception()
+                 ]).start()
+-            # these first three should not raise any errors
+             self._take_down_agent_and_run_reschedule(L3_HOSTA)  # DBError
+             self._take_down_agent_and_run_reschedule(L3_HOSTA)  # RemoteError
+             self._take_down_agent_and_run_reschedule(L3_HOSTA)  # schedule err
+-
+-            # ValueError is not caught so it should raise
+-            self.assertRaises(ValueError,
+-                              self._take_down_agent_and_run_reschedule,
+-                              L3_HOSTA)
++            self._take_down_agent_and_run_reschedule(L3_HOSTA)  # Value error
++            self._take_down_agent_and_run_reschedule(L3_HOSTA)  # Exception
+ 
+     def test_router_rescheduler_iterates_after_reschedule_failure(self):
+         plugin = manager.NeutronManager.get_service_plugins().get(
+-- 
+2.8.3
+

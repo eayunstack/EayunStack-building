@@ -1,0 +1,33 @@
+From 1e3f849fc4abfe5c0f804369fe5ba919fe669a2b Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 23 Mar 2016 15:11:02 +0800
+Subject: [PATCH 35/37] Give a default selector to tc filter
+
+Fixes: redmine #6406
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit b0828796f7be3324c419e4a4ab7b0788403db2c5)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/agents/qos_agent.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index 797d0ab..6a60945 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -316,6 +316,11 @@ class QosAgent(qos_rpc_agent_api.QosPluginRpc, manager.Manager):
+                 ])
+             if len(selector) > 1:
+                 add_filter.extend(selector)
++            else:
++                # No selectors specified, give a default one
++                add_filter.extend([
++                    'u32', 'match', 'ip', 'src', '0.0.0.0/0'
++                ])
+             add_filter.extend(['flowid', flowid])
+ 
+             self._run_tc(add_filter, namespace)
+-- 
+2.8.3
+
