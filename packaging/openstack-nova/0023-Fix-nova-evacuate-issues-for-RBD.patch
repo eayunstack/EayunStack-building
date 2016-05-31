@@ -1,0 +1,149 @@
+From 1cce9568d660d835f5bd090e64df94ed7ccdfa7b Mon Sep 17 00:00:00 2001
+From: Fei Long Wang <flwang@catalyst.net.nz>
+Date: Tue, 16 Sep 2014 15:43:37 +1200
+Subject: [PATCH 23/26] Fix nova evacuate issues for RBD
+
+For RBD scenario, there are some issues in Nova code
+now against evacuate function:
+
+1. Based on current implementation, nova evacuate and
+nova rebuild are sharing some code. When user enables
+the on_shared_storage option for nova evacuate, nova
+will check if the instance path is accessible. For
+the RBD scenario, the volume(block) is shared between
+different hosts, though the path isn't shared at the
+filesystem level. This patch fixes this issue and adds
+test cases for that.
+
+2. Missing the 'recreate' parameter for rebuild method.
+Though the libvirt driver doesn't implement rebuild
+method(only Ironic driver implements it), but we really
+need to set 'recreate' in kwargs so it gets passed to
+_rebuild_default_impl so we don't call driver.destroy
+on evacuate for shared filesystem/block storage cases.
+It is fixed in this patch and test case is added as well.
+
+Closes-Bug: 1249319
+Closes-Bug: 1340411
+
+Change-Id: Idc8c45b055e986cf85730235d5d25777632ad1c1
+---
+ nova/compute/manager.py                |  3 ++-
+ nova/tests/compute/test_compute_mgr.py | 44 ++++++++++++++++++++++++++++++++++
+ nova/tests/virt/libvirt/test_driver.py | 11 +++++++++
+ nova/virt/libvirt/driver.py            |  8 ++++++-
+ 4 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index 598e167..8c4df11 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -2816,7 +2816,8 @@ class ComputeManager(manager.Manager):
+                 attach_block_devices=self._prep_block_device,
+                 block_device_info=block_device_info,
+                 network_info=network_info,
+-                preserve_ephemeral=preserve_ephemeral)
++                preserve_ephemeral=preserve_ephemeral,
++                recreate=recreate)
+             try:
+                 self.driver.rebuild(**kwargs)
+             except NotImplementedError:
+diff --git a/nova/tests/compute/test_compute_mgr.py b/nova/tests/compute/test_compute_mgr.py
+index 8682df4..e21f34b 100644
+--- a/nova/tests/compute/test_compute_mgr.py
++++ b/nova/tests/compute/test_compute_mgr.py
+@@ -1977,6 +1977,50 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
+ 
+         do_test()
+ 
++    def test_rebuild_default_impl(self):
++        def _detach(context, bdms):
++            pass
++
++        def _attach(context, instance, bdms, do_check_attach=True):
++            return {'block_device_mapping': 'shared_block_storage'}
++
++        def _spawn(context, instance, image_meta, injected_files,
++              admin_password, network_info=None, block_device_info=None):
++            self.assertEqual(block_device_info['block_device_mapping'],
++                             'shared_block_storage')
++
++        with contextlib.nested(
++            mock.patch.object(self.compute.driver, 'destroy',
++                              return_value=None),
++            mock.patch.object(self.compute.driver, 'spawn',
++                              side_effect=_spawn),
++            mock.patch.object(objects.Instance, 'save',
++                              return_value=None)
++        ) as(
++             mock_destroy,
++             mock_spawn,
++             mock_save
++        ):
++            instance = fake_instance.fake_instance_obj(self.context)
++            instance.task_state = task_states.REBUILDING
++            instance.save(expected_task_state=[task_states.REBUILDING])
++            self.compute._rebuild_default_impl(self.context,
++                                               instance,
++                                               None,
++                                               [],
++                                               admin_password='new_pass',
++                                               bdms=[],
++                                               detach_block_devices=_detach,
++                                               attach_block_devices=_attach,
++                                               network_info=None,
++                                               recreate=True,
++                                               block_device_info=None,
++                                               preserve_ephemeral=False)
++
++            self.assertFalse(mock_destroy.called)
++            self.assertTrue(mock_save.called)
++            self.assertTrue(mock_spawn.called)
++
+ 
+ class ComputeManagerBuildInstanceTestCase(test.NoDBTestCase):
+     def setUp(self):
+diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
+index c781421..0b9bfce 100644
+--- a/nova/tests/virt/libvirt/test_driver.py
++++ b/nova/tests/virt/libvirt/test_driver.py
+@@ -12591,6 +12591,17 @@ class LibvirtDriverTestCase(test.TestCase):
+                                vconfig.LibvirtConfigGuestGIDMap,
+                                1, 20000, 10)
+ 
++    def test_instance_on_disk(self):
++        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = objects.Instance(uuid='fake-uuid', id=1)
++        self.assertFalse(conn.instance_on_disk(instance))
++
++    def test_instance_on_disk_rbd(self):
++        self.flags(images_type='rbd', group='libvirt')
++        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        instance = objects.Instance(uuid='fake-uuid', id=1)
++        self.assertTrue(conn.instance_on_disk(instance))
++
+ 
+ class LibvirtVolumeUsageTestCase(test.TestCase):
+     """Test for LibvirtDriver.get_all_volume_usage."""
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 9cae611..67a13b0 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -6459,7 +6459,13 @@ class LibvirtDriver(driver.ComputeDriver):
+         # ensure directories exist and are writable
+         instance_path = libvirt_utils.get_instance_path(instance)
+         LOG.debug('Checking instance files accessibility %s', instance_path)
+-        return os.access(instance_path, os.W_OK)
++        shared_instance_path = os.access(instance_path, os.W_OK)
++        # NOTE(flwang): For shared block storage scenario, the file system is
++        # not really shared by the two hosts, but the volume of evacuated
++        # instance is reachable.
++        shared_block_storage = (self.image_backend.backend().
++                                is_shared_block_storage())
++        return shared_instance_path or shared_block_storage
+ 
+     def inject_network_info(self, instance, nw_info):
+         self.firewall_driver.setup_basic_filtering(instance, nw_info)
+-- 
+2.1.0
+

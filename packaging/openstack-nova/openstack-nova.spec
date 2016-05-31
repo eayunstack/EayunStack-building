@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6.2%{?dist_eayunstack}
+Release:          6.3%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -64,9 +64,13 @@ Patch0016: 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
 Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
 Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
 Patch0019: 0019-eayunstack-channel.patch
-Patch0020: 0020-fix-soft-delete-for-1.0.1.patch
-Patch0021: 0021-create-image-from-instance-redmine-6456.patch
-Patch0022: 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+Patch0020: 0020-network-fix-instance-cache-refresh-for-empty-list.patch
+Patch0021: 0021-fix-unicode-issue-in-vm-resuming-procedure.patch
+Patch0022: 0022-output-log-to-nova-all-log-file.patch
+Patch0023: 0023-Fix-nova-evacuate-issues-for-RBD.patch
+Patch0024: 0024-Honor-shared-storage-on-resize-revert.patch
+Patch0025: 0025-create-image-from-instance-redmine-6456.patch
+Patch0026: 0026-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -491,6 +495,10 @@ This package contains documentation files for nova.
 %patch0020 -p1
 %patch0021 -p1
 %patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
+%patch0026 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -848,6 +856,20 @@ exit 0
 %endif
 
 %changelog
+* Tue May 31 2016 blkart <blkart.org@gmail.com> - 2014.2-6.3.eayunstack.1.0.1
+remove:
+- 0020-fix-soft-delete-for-1.0.1.patch
+- 0021-create-image-from-instance-redmine-6456.patch
+- 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+add:
+- 0020-network-fix-instance-cache-refresh-for-empty-list.patch
+- 0021-fix-unicode-issue-in-vm-resuming-procedure.patch
+- 0022-output-log-to-nova-all-log-file.patch
+- 0023-Fix-nova-evacuate-issues-for-RBD.patch
+- 0024-Honor-shared-storage-on-resize-revert.patch
+- 0025-create-image-from-instance-redmine-6456.patch
+- 0026-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+
 * Fri May 13 2016 blkart <blkart.org@gmail.com> - 2014.2-6.2.eayunstack.1.0.1
 - 0021-create-image-from-instance-redmine-6456.patch
 - 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch

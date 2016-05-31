@@ -1,0 +1,186 @@
+From d33b0cb11ee0bec5535a576ea7a7c1d09c166ad2 Mon Sep 17 00:00:00 2001
+From: Jon Bernard <jobernar@redhat.com>
+Date: Fri, 5 Dec 2014 11:58:12 -0500
+Subject: [PATCH 24/26] Honor shared storage on resize revert
+
+This patch improves the logic in resize_revert() to properly honor
+shared storage when destroying the unneeded instance.  In the case of
+shared storage, the disks need not be destroyed and doing so results in
+the inability to start the original instance.
+
+Conflicts is caused by moving tests to /unit directory
+
+Also commit contains squash from fixed implementation of determening
+if storage is shared (get from commit fde77d49ff550b73f5f1671edc7366c9b7646200)
+
+Conflicts:
+        nova/tests/unit/compute/test_compute.py
+        nova/tests/unit/compute/test_compute_mgr.py
+
+Closes-Bug: #1399244
+Change-Id: I310f6b62a790e4549a2cf9ff3842655da552177a
+(cherry picked from commit eec0937af9d88f3c7ffacf9ce7b8955b2e4be479)
+(cherry picked from commit b6692dd9f619de932ea9fc356da41ee1b471114c)
+
+NOTE(apporc): revert changes of 731e9200ed91a6122b3b71e7ac01be9bbc54b2fa.
+
+ Conflicts:
+	nova/compute/manager.py
+---
+ nova/compute/manager.py                |  9 +++--
+ nova/compute/rpcapi.py                 |  4 +--
+ nova/tests/compute/test_compute.py     |  4 ++-
+ nova/tests/compute/test_compute_mgr.py | 64 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 73 insertions(+), 8 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index 8c4df11..d05a1c2 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -767,7 +767,7 @@ class ComputeManager(manager.Manager):
+                                     network_info,
+                                     bdi, destroy_disks)
+ 
+-    def _is_instance_storage_shared(self, context, instance):
++    def _is_instance_storage_shared(self, context, instance, host=None):
+         shared_storage = True
+         data = None
+         try:
+@@ -776,7 +776,7 @@ class ComputeManager(manager.Manager):
+             if data:
+                 shared_storage = (self.compute_rpcapi.
+                                   check_instance_shared_storage(context,
+-                                  instance, data))
++                                  instance, data, host=host))
+         except NotImplementedError:
+             LOG.warning(_('Hypervisor driver does not support '
+                           'instance shared storage check, '
+@@ -3503,9 +3503,8 @@ class ComputeManager(manager.Manager):
+             block_device_info = self._get_instance_block_device_info(
+                                 context, instance, bdms=bdms)
+ 
+-            # NOTE(apporc): ephemeral rbd root disk should not be deleted when
+-            # migrating, and by now it is not taken care of when resizing.
+-            destroy_disks = (CONF.libvirt.images_type != 'rbd')
++            destroy_disks = not self._is_instance_storage_shared(
++                context, instance, host=migration.source_compute)
+             self.driver.destroy(context, instance, network_info,
+                                 block_device_info, destroy_disks)
+ 
+diff --git a/nova/compute/rpcapi.py b/nova/compute/rpcapi.py
+index 34466ac..2e8bd28 100644
+--- a/nova/compute/rpcapi.py
++++ b/nova/compute/rpcapi.py
+@@ -368,13 +368,13 @@ class ComputeAPI(object):
+                           instance=instance,
+                           dest_check_data=dest_check_data)
+ 
+-    def check_instance_shared_storage(self, ctxt, instance, data):
++    def check_instance_shared_storage(self, ctxt, instance, data, host=None):
+         if self.client.can_send_version('3.29'):
+             version = '3.29'
+         else:
+             version = '3.0'
+             instance = jsonutils.to_primitive(instance)
+-        cctxt = self.client.prepare(server=_compute_host(None, instance),
++        cctxt = self.client.prepare(server=_compute_host(host, instance),
+                 version=version)
+         return cctxt.call(ctxt, 'check_instance_shared_storage',
+                           instance=instance,
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index 878fc25..bc7163f 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -4236,6 +4236,8 @@ class ComputeTestCase(BaseTestCase):
+             self.context, objects.Instance(), instance,
+             expected_attrs=instance_obj.INSTANCE_DEFAULT_FIELDS)
+         for operation in actions:
++            if 'revert_resize' in operation:
++                migration.source_compute = 'fake-mini'
+             if operation[0] in want_objects:
+                 self._test_state_revert(inst_obj, *operation)
+             else:
+@@ -6580,7 +6582,7 @@ class ComputeTestCase(BaseTestCase):
+                 evacuated_instance).AndReturn({'filename': 'tmpfilename'})
+         self.compute.compute_rpcapi.check_instance_shared_storage(fake_context,
+                 evacuated_instance,
+-                {'filename': 'tmpfilename'}).AndReturn(False)
++                {'filename': 'tmpfilename'}, host=None).AndReturn(False)
+         self.compute.driver.check_instance_shared_storage_cleanup(fake_context,
+                 {'filename': 'tmpfilename'})
+         self.compute.driver.destroy(fake_context, evacuated_instance,
+diff --git a/nova/tests/compute/test_compute_mgr.py b/nova/tests/compute/test_compute_mgr.py
+index e21f34b..f1a2b3b 100644
+--- a/nova/tests/compute/test_compute_mgr.py
++++ b/nova/tests/compute/test_compute_mgr.py
+@@ -3077,3 +3077,67 @@ class ComputeManagerMigrationTestCase(test.NoDBTestCase):
+             )
+             self.assertEqual("error", self.migration.status)
+             migration_save.assert_has_calls([mock.call(elevated_context)])
++
++    @mock.patch.object(objects.InstanceActionEvent,
++                       'event_start')
++    @mock.patch.object(objects.InstanceActionEvent,
++                       'event_finish_with_failure')
++    def _test_revert_resize_instance_destroy_disks(self,
++                                                   event_finish,
++                                                   event_start,
++                                                   is_shared=False,):
++
++        # This test asserts that _is_instance_storage_shared() is called from
++        # revert_resize() and the return value is passed to driver.destroy().
++        # Otherwise we could regress this.
++
++        @mock.patch.object(self.compute, '_get_instance_nw_info')
++        @mock.patch.object(self.compute, '_is_instance_storage_shared')
++        @mock.patch.object(self.compute, 'finish_revert_resize')
++        @mock.patch.object(self.compute, '_instance_update')
++        @mock.patch.object(self.compute, '_get_resource_tracker')
++        @mock.patch.object(self.compute.driver, 'destroy')
++        @mock.patch.object(self.compute.network_api, 'setup_networks_on_host')
++        @mock.patch.object(self.compute.network_api, 'migrate_instance_start')
++        @mock.patch.object(self.compute.conductor_api, 'notify_usage_exists')
++        @mock.patch.object(self.migration, 'save')
++        @mock.patch.object(objects.BlockDeviceMappingList,
++                           'get_by_instance_uuid')
++        def do_test(get_by_instance_uuid,
++                    migration_save,
++                    notify_usage_exists,
++                    migrate_instance_start,
++                    setup_networks_on_host,
++                    destroy,
++                    _get_resource_tracker,
++                    _instance_update,
++                    finish_revert_resize,
++                    _is_instance_storage_shared,
++                    _get_instance_nw_info):
++
++            self.migration.source_compute = self.instance['host']
++
++            # Inform compute that instance uses non-shared or shared storage
++            _is_instance_storage_shared.return_value = is_shared
++
++            self.compute.revert_resize(context=self.context,
++                                       migration=self.migration,
++                                       instance=self.instance,
++                                       reservations=None)
++
++            _is_instance_storage_shared.assert_called_once_with(
++                self.context, self.instance,
++                host=self.migration.source_compute)
++
++            # If instance storage is shared, driver destroy method
++            # should not destroy disks otherwise it should destroy disks.
++            destroy.assert_called_once_with(self.context, self.instance,
++                                            mock.ANY, mock.ANY, not is_shared)
++
++        do_test()
++
++    def test_revert_resize_instance_destroy_disks_shared_storage(self):
++        self._test_revert_resize_instance_destroy_disks(is_shared=True)
++
++    def test_revert_resize_instance_destroy_disks_non_shared_storage(self):
++        self._test_revert_resize_instance_destroy_disks(is_shared=False)
+-- 
+2.1.0
+

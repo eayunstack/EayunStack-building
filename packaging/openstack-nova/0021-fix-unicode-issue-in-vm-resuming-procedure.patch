@@ -1,0 +1,28 @@
+From d28a97e58be2df463c52123f731471831aaab97a Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Wed, 9 Dec 2015 18:08:55 +0800
+Subject: [PATCH 21/26] fix unicode issue in vm resuming procedure
+
+Change-Id: Ic9143217a53f9278a05e9341a8382d96340a0737
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ nova/virt/libvirt/driver.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index c7dcf79..9cae611 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -4339,7 +4339,8 @@ class LibvirtDriver(driver.ComputeDriver):
+         err = None
+         try:
+             if xml:
+-                err = _LE('Error defining a domain with XML: %s') % xml
++                err = _LE('Error defining a domain with XML: %s') \
++                    % strutils.safe_decode(xml, errors='ignore')
+                 domain = self._conn.defineXML(xml)
+ 
+             if power_on:
+-- 
+2.1.0
+
