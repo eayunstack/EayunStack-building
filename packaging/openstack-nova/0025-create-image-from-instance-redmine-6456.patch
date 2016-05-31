@@ -1,7 +1,7 @@
-From 8581460f0e62bc13acc7760f5a141028b670f67f Mon Sep 17 00:00:00 2001
+From 0674c8acb6840ad40b80b88c20a7827d79098f83 Mon Sep 17 00:00:00 2001
 From: blkart <blkart.org@gmail.com>
 Date: Thu, 12 May 2016 19:32:05 +0800
-Subject: [PATCH 21/22] create image from instance (redmine #6456)
+Subject: [PATCH 25/26] create image from instance (redmine #6456)
 
 use same snapshot method for both instances booted from image and volume
 

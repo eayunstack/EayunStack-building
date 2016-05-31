@@ -1,7 +1,7 @@
-From c1d6f006725ca2a09f1ab3d8f0324eac0be97426 Mon Sep 17 00:00:00 2001
+From 9683f50447b7cb7d5eaea827738de00419e0c715 Mon Sep 17 00:00:00 2001
 From: blkart <blkart.org@gmail.com>
 Date: Mon, 9 May 2016 11:22:57 +0800
-Subject: [PATCH 22/22] libvirt: make snapshot use RBD snapshot/clone when
+Subject: [PATCH 26/26] libvirt: make snapshot use RBD snapshot/clone when
  available
 
 When rbd is used for ephemeral disks and image storage, make snapshot use ceph directly, and update glance with the new location. In case of failure, it will gracefully fallback to the "generic" snapshot method.
@@ -23,7 +23,7 @@ Signed-off-by: blkart <blkart.org@gmail.com>
  3 files changed, 310 insertions(+), 57 deletions(-)
 
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index c7dcf79..35a9f4e 100644
+index 67a13b0..6ac79b6 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -1635,6 +1635,8 @@ class LibvirtDriver(driver.ComputeDriver):
