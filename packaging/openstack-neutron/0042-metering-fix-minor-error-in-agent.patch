@@ -1,0 +1,33 @@
+From d07c22bd46a97fd1673acce5189449dbbd71acc4 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 2 Jun 2016 11:12:19 +0800
+Subject: [PATCH 42/42] metering: fix minor error in agent
+
+When syncing data from the server, server may return None.
+
+Fixes: redmine #7375
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 6e219f9c9c0f198c024ce978b60663575e5a5db9)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/agents/metering_agent.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index cfc51b9..006fff2 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -188,7 +188,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+         routers = self._get_sync_data_metering(self.context)
+ 
+         routers_on_agent = set(self.routers.keys())
+-        routers_on_server = set([router['id'] for router in routers])
++        routers_on_server = set([router['id'] for router in routers]
++                                if routers else [])
+ 
+         for router_id in routers_on_agent - routers_on_server:
+             del self.routers[router_id]
+-- 
+2.8.3
+

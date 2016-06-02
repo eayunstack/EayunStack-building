@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.1%{?dist_eayunstack}
+Release:	18.2%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -81,6 +81,10 @@ Patch0035: 0035-Give-a-default-selector-to-tc-filter.patch
 Patch0036: 0036-qos_agent-don-t-add-tc-qdisc-when-device-is-not-read.patch
 Patch0037: 0037-qos_agent-wrap-sfq-qdisc-under-the-htb-classes-16.patch
 Patch0038: 0038-Pass-dhcp-authoritative-option-to-dnsmasq.patch
+Patch0039: 0039-Fix-metering-agent-failure-when-chain-missing.patch
+Patch0040: 0040-Metering-filter-down-routers-when-syncing-data.patch
+Patch0041: 0041-Metering-reconfigure-router-as-needed.patch
+Patch0042: 0042-metering-fix-minor-error-in-agent.patch
 
 BuildArch:	noarch
 
@@ -596,6 +600,10 @@ IPSec.
 %patch0036 -p1
 %patch0037 -p1
 %patch0038 -p1
+%patch0039 -p1
+%patch0040 -p1
+%patch0041 -p1
+%patch0042 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1056,6 +1064,10 @@ exit 0
 
 
 %changelog
+* Thu Jun 02 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.2.eayunstack.1.0.1
+- add patch 0039-0041 from github pull request #31 (redmine#7372)
+- add patch 0042 from github pull request #32 (redmine#7375)
+
 * Fri May 27 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.1.eayunstack.1.0.1
 - add patch 0026 from github pull request #21 (upstream neutron fix)
 - add patch 0027-0030 from github pull request #22 (redmine#6277)
