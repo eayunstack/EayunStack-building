@@ -1,0 +1,76 @@
+From 71cd1c56e37e30020e52f83f87f6d4e28de191a2 Mon Sep 17 00:00:00 2001
+From: Fei Long Wang <flwang@catalyst.net.nz>
+Date: Tue, 17 Feb 2015 00:58:45 +1300
+Subject: [PATCH 39/42] Fix metering agent failure when chain missing
+
+The metering agent will fail if one of the iptables chains
+is missing, which will cause errors extracting data from
+all the other chains. Add a simple try/except to let the
+loop continue.
+
+Closes-Bug: #1421037
+
+Change-Id: I370ee0e2cc58ca7e1c5ef9bf4dbcce5abf7545a1
+(cherry picked from commit c3b7f1b2ae7af995f4815e3571c9828683dc0db7)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 70f2bd7d2c3058ce3597a0ffa73242ea46eea0af)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../metering/drivers/iptables/iptables_driver.py         | 15 +++++++++++----
+ .../services/metering/drivers/test_iptables_driver.py    | 16 ++++++++++++++++
+ 2 files changed, 27 insertions(+), 4 deletions(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index a0f2209..3416bb8 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -267,11 +267,18 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 continue
+ 
+             for label_id, label in rm.metering_labels.items():
+-                chain = iptables_manager.get_chain_name(WRAP_NAME + LABEL +
+-                                                        label_id, wrap=False)
++                try:
++                    chain = iptables_manager.get_chain_name(WRAP_NAME +
++                                                            LABEL +
++                                                            label_id,
++                                                            wrap=False)
+ 
+-                chain_acc = rm.iptables_manager.get_traffic_counters(
+-                    chain, wrap=False, zero=True)
++                    chain_acc = rm.iptables_manager.get_traffic_counters(
++                        chain, wrap=False, zero=True)
++                except RuntimeError:
++                    LOG.exception(_('Failed to get traffic counters, '
++                                    'router: %s'), router)
++                    continue
+ 
+                 if not chain_acc:
+                     continue
+diff --git a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+index 57a833b..28d15f4 100644
+--- a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
++++ b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+@@ -371,3 +371,19 @@ class IptablesDriverTestCase(base.BaseTestCase):
+                                         wrap=False)]
+ 
+         self.v4filter_inst.assert_has_calls(calls)
++
++    def test_get_traffic_counters_with_missing_chain(self):
++        for r in TEST_ROUTERS:
++            rm = iptables_driver.RouterWithMetering(self.metering.conf, r)
++            rm.metering_labels = {r['_metering_labels'][0]['id']: 'fake'}
++            self.metering.routers[r['id']] = rm
++
++        mocked_method = self.iptables_cls.return_value.get_traffic_counters
++        mocked_method.side_effect = [{'pkts': 1, 'bytes': 8},
++                                     RuntimeError('Failed to find the chain')]
++
++        counters = self.metering.get_traffic_counters(None, TEST_ROUTERS)
++        expected_label_id = TEST_ROUTERS[0]['_metering_labels'][0]['id']
++        self.assertIn(expected_label_id, counters)
++        self.assertEqual(1, counters[expected_label_id]['pkts'])
++        self.assertEqual(8, counters[expected_label_id]['bytes'])
+-- 
+2.8.3
+

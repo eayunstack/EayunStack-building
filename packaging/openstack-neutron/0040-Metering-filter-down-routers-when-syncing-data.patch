@@ -1,0 +1,28 @@
+From 561ce72529a8721369a34313c5fcc36b8939c434 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 2 Jun 2016 11:25:29 +0800
+Subject: [PATCH 40/42] Metering: filter down routers when syncing data
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 2bbebfe7b6313d10319f41129dbc3b80e199a2d1)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/metering/metering_db.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/neutron/db/metering/metering_db.py b/neutron/db/metering/metering_db.py
+index cf5057b..adef1af 100644
+--- a/neutron/db/metering/metering_db.py
++++ b/neutron/db/metering/metering_db.py
+@@ -224,6 +224,8 @@ class MeteringDbMixin(metering.MeteringPluginBase,
+             for router in routers:
+                 if router_ids and router['id'] not in router_ids:
+                     continue
++                if not router['admin_state_up']:
++                    continue
+                 router_dict = routers_dict.get(
+                     router['id'],
+                     self._make_router_dict(router))
+-- 
+2.8.3
+
