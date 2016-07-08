@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6.3%{?dist_eayunstack}
+Release:          6.4%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -71,6 +71,11 @@ Patch0023: 0023-Fix-nova-evacuate-issues-for-RBD.patch
 Patch0024: 0024-Honor-shared-storage-on-resize-revert.patch
 Patch0025: 0025-create-image-from-instance-redmine-6456.patch
 Patch0026: 0026-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+Patch0027: 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
+Patch0028: 0028-Fix-soft_delete-User-has-been-deleted-instance.patch
+Patch0029: 0029-fix-soft-delete-for-1.0.1.patch
+Patch0030: 0030-deleted-filter-does-not-work-properly.patch
+
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -499,6 +504,10 @@ This package contains documentation files for nova.
 %patch0024 -p1
 %patch0025 -p1
 %patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -856,6 +865,15 @@ exit 0
 %endif
 
 %changelog
+* Tue Jun 14 2016 fabian <cybing4@gmail.com> - 2014.2-6.4.eayunstack.1.0.1
+- Fix soft delete use admin resotre and user Data Deduplication
+- 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
+- 0028-Fix-soft_delete-User-has-been-deleted-instance.patch
+- Fix soft delete appear cinder question
+- 0029-fix-soft-delete-for-1.0.1.patch
+- Fix deleted filter does not work properly
+- 0030-deleted-filter-does-not-work-properly.patch
+
 * Tue May 31 2016 blkart <blkart.org@gmail.com> - 2014.2-6.3.eayunstack.1.0.1
 remove:
 - 0020-fix-soft-delete-for-1.0.1.patch
