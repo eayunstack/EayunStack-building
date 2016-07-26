@@ -1,0 +1,52 @@
+From 2fa57ba8f66baac36b73864621e25dfadf03cd3b Mon Sep 17 00:00:00 2001
+From: "Alexey I. Froloff" <raorn@raorn.name>
+Date: Mon, 2 Feb 2015 13:44:14 +0300
+Subject: [PATCH 40/45] Pass '--dhcp-authoritative' option to dnsmasq
+
+When dnsmasq is restarted, it forgets about all leases (since it runs
+with leasefile-ro option). When client tries to renew its lease, dnsmasq
+sends DHCPNAK reply with message "lease not found". Then client shuts
+down the network and re-request lease from DHCP server (and gets exactly
+same IP address). There's a small network downtime which affects
+services, like zookeeper, running in VMs.
+
+Change-Id: Ieff0236670c1403b5d79ad8e50d7574c1b694e34
+Closes-Bug: #1345947
+Co-Authored-By: Kevin Bringard <kevinbri@cisco.com>
+(cherry picked from commit 74a16fde1c9972dc3c5d07215ca9d5e8f2e23d70)
+(cherry picked from commit ed799e38fe740621776aab51c95ec1db248af997)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/dhcp.py           | 1 +
+ neutron/tests/unit/test_linux_dhcp.py | 3 ++-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/agent/linux/dhcp.py b/neutron/agent/linux/dhcp.py
+index aba75af..639bcd0 100644
+--- a/neutron/agent/linux/dhcp.py
++++ b/neutron/agent/linux/dhcp.py
+@@ -366,6 +366,7 @@ class Dnsmasq(DhcpLocalProcess):
+             '--addn-hosts=%s' % self._output_addn_hosts_file(),
+             '--dhcp-optsfile=%s' % self._output_opts_file(),
+             '--leasefile-ro',
++            '--dhcp-authoritative',
+         ]
+ 
+         possible_leases = 0
+diff --git a/neutron/tests/unit/test_linux_dhcp.py b/neutron/tests/unit/test_linux_dhcp.py
+index b3090e1..75ec5c6 100644
+--- a/neutron/tests/unit/test_linux_dhcp.py
++++ b/neutron/tests/unit/test_linux_dhcp.py
+@@ -753,7 +753,8 @@ class TestDnsmasq(TestBase):
+             '--dhcp-hostsfile=/dhcp/%s/host' % network.id,
+             '--addn-hosts=/dhcp/%s/addn_hosts' % network.id,
+             '--dhcp-optsfile=/dhcp/%s/opts' % network.id,
+-            '--leasefile-ro']
++            '--leasefile-ro',
++            '--dhcp-authoritative']
+ 
+         seconds = ''
+         if lease_duration == -1:
+-- 
+2.9.0
+

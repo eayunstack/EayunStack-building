@@ -1,0 +1,62 @@
+From 81fb5103a8017d34ef94ea0870a50b94480e4a3e Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 2 Jun 2016 11:26:29 +0800
+Subject: [PATCH 44/45] Metering: reconfigure router as needed
+
+There could be problem if one removes then adds a router back to the
+same l3-agent, or just sets the router's admin_state_up property to
+False then True in a short time(shorter than the interval between two
+syncs). Because the metering-agent sees nothing changed wile during the
+same time the router's namespace is removed and added back on the host.
+Thus metering-agent will fail to get such router's traffic counters.
+This commit makes iptables-driver to forget such routers and leave the
+metering-agent to reconfigure them later.
+
+Fixes: redmine #7372
+
+Change-Id: I5b6f4597e9c143abd7d1517693f0dc1a88154b7a
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 3416bb8..177927a 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -261,11 +261,13 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+     @log.log
+     def get_traffic_counters(self, context, routers):
+         accs = {}
++        routers_to_reconfigure = []
+         for router in routers:
+             rm = self.routers.get(router['id'])
+             if not rm:
+                 continue
+ 
++            router_to_reconfigure = False
+             for label_id, label in rm.metering_labels.items():
+                 try:
+                     chain = iptables_manager.get_chain_name(WRAP_NAME +
+@@ -278,6 +280,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 except RuntimeError:
+                     LOG.exception(_('Failed to get traffic counters, '
+                                     'router: %s'), router)
++                    router_to_reconfigure = True
+                     continue
+ 
+                 if not chain_acc:
+@@ -290,4 +293,10 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+ 
+                 accs[label_id] = acc
+ 
++            if router_to_reconfigure:
++                routers_to_reconfigure.append(router['id'])
++
++        for router_id in routers_to_reconfigure:
++            self.routers.pop(router_id, None)
++
+         return accs
+-- 
+2.9.0
+

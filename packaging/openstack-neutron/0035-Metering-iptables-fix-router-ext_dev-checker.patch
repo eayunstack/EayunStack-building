@@ -1,0 +1,35 @@
+From 9457cb9ebeeca345869b1a814abda2db5c333ad7 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 13 Apr 2016 12:40:36 +0800
+Subject: [PATCH 35/45] Metering iptables: fix router ext_dev checker
+
+Skip setting up iptables rules for routers which don't have their
+external network gateways set.
+
+Fixes: redmine #6469
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 40af40f..3182dac 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -135,9 +135,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+     def _process_metering_label_rules(self, rm, rules, label_chain,
+                                       rules_chain):
+         im = rm.iptables_manager
+-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+-        if not ext_dev:
++        if not rm.router['gw_port_id']:
+             return
++        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+ 
+         for rule in rules:
+             remote_ip = rule['remote_ip_prefix']
+-- 
+2.9.0
+

@@ -1,0 +1,84 @@
+From 462a5d53d61cf89cc5cffc355bb37b13551b75cf Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Tue, 14 Jun 2016 13:41:27 +0800
+Subject: [PATCH 45/45] Check whether PPTP VPN service already exists for
+ router (#33)
+
+When creating a new PPTP VPN service for a router, check whether another
+PPTP VPN service already exists for that router. If such a PPTP VPN
+service exists, then fail the creation as one router can ONLY have one
+PPTP VPN service associated.
+
+Fixes: redmine #7450
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/service_drivers/pptp.py | 33 +++++++++++++++++++++++++++-
+ 1 file changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/service_drivers/pptp.py b/neutron/services/vpn/service_drivers/pptp.py
+index 7517a6d..b1822b3 100644
+--- a/neutron/services/vpn/service_drivers/pptp.py
++++ b/neutron/services/vpn/service_drivers/pptp.py
+@@ -13,7 +13,9 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
++from neutron.common import exceptions
+ from neutron.common import rpc as n_rpc
++from neutron.db.vpn import vpn_validator
+ from neutron.openstack.common import log as logging
+ from neutron.services.vpn.common import topics
+ from neutron.services.vpn import service_drivers
+@@ -26,6 +28,11 @@ PPTP = 'pptp'
+ BASE_PPTP_VERSION = '1.0'
+ 
+ 
++class PPTPVpnServiceAlreadyExistsForRouter(exceptions.BadRequest):
++    message = _("Another VPN service %(vpnservice_id)s with type PPTP already "
++                "exists for router %(router_id)s.")
++
++
+ class PPTPVpnDriverCallBack(n_rpc.RpcCallback):
+     """Callback for PPTPVpnDriver rpc."""
+     RPC_API_VERSION = BASE_PPTP_VERSION
+@@ -90,11 +97,35 @@ class PPTPVpnAgentApi(n_rpc.RpcProxy, n_rpc.RpcCallback):
+             context, 'sync_from_server', host, **kwargs)
+ 
+ 
++class PPTPVPNValidator(vpn_validator.VpnReferenceValidator):
++    """Validator methods for the PPTP VPN."""
++
++    def __init__(self, service_plugin):
++        self.service_plugin = service_plugin
++        super(PPTPVPNValidator, self).__init__()
++
++    def _check_pptp_vpnservice_already_exists_for_router(
++            self, context, router_id):
++        for vpnservice in self.service_plugin.get_vpnservices(
++            context, filters={'router_id': [router_id]}
++        ):
++            if vpnservice['provider'] == PPTP:
++                raise PPTPVpnServiceAlreadyExistsForRouter(
++                    vpnservice_id=vpnservice['id'],
++                    router_id=router_id)
++
++    def validate_vpnservice(self, context, vpnservice):
++        self._check_pptp_vpnservice_already_exists_for_router(
++            context, vpnservice['router_id'])
++        super(PPTPVPNValidator, self).validate_vpnservice(context, vpnservice)
++
++
+ class PPTPVPNDriver(service_drivers.VpnDriver):
+     """VPN Service Driver class for PPTP."""
+ 
+     def __init__(self, service_plugin):
+-        super(PPTPVPNDriver, self).__init__(service_plugin)
++        super(PPTPVPNDriver, self).__init__(
++            service_plugin, PPTPVPNValidator(service_plugin))
+         self.endpoints = [PPTPVpnDriverCallBack(self)]
+         self.conn = n_rpc.create_connection(new=True)
+         self.conn.create_consumer(
+-- 
+2.9.0
+

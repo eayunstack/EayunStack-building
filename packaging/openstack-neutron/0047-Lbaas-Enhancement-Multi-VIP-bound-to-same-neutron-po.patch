@@ -1,0 +1,168 @@
+From 21c829ca30f815b7ff6cd4a56677657cdd3d53a0 Mon Sep 17 00:00:00 2001
+From: tc1989tc <tangch318@gmail.com>
+Date: Tue, 28 Jun 2016 11:47:24 +0800
+Subject: [PATCH 47/48] Lbaas: Enhancement Multi VIP bound to same neutron port
+ for server (#36)
+
+This change includes:
+    1. Check if vip port has been created when create an vip
+    2. Reschedule same vip to same agent when create an vip
+       on driver agent
+
+Fixes: redmine #7412
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+---
+ neutron/db/loadbalancer/loadbalancer_db.py         | 32 ++++++++++++++++++++--
+ neutron/extensions/loadbalancer.py                 |  4 +++
+ neutron/services/loadbalancer/agent_scheduler.py   |  6 ++++
+ .../drivers/common/agent_driver_base.py            | 30 ++++++++++++++++++++
+ 4 files changed, 69 insertions(+), 3 deletions(-)
+
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index 1baffc1..305872f 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -88,7 +88,7 @@ class Vip(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+                                            cascade="all, delete-orphan")
+     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
+     connection_limit = sa.Column(sa.Integer)
+-    port = orm.relationship(models_v2.Port)
++    port = orm.relationship(models_v2.Port, backref="vips")
+ 
+ 
+ class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+@@ -320,12 +320,35 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             sess_qry = context.session.query(SessionPersistence)
+             sess_qry.filter_by(vip_id=vip_id).delete()
+ 
++    def _vip_port_has_exist(self, context, vip_db, ip_addr):
++        port_filter = {'fixed_ips': {'ip_address': [ip_addr]}}
++
++        ports = self._core_plugin.get_ports(context, filters=port_filter)
++        if ports:
++            # verify port id has exist in VIP
++            vips = self.get_vips(context,
++                                 filters={'port_id': [ports[0]['id']]})
++            if vips:
++                # verify vip listen on different L4 port
++                for vip in vips:
++                    if vip_db.protocol_port == vip['protocol_port']:
++                        raise loadbalancer.ProtocolPortInUse(
++                            proto_port=vip['protocol_port'], vip=vip['id'])
++                return ports[0]
++        return None
++
+     def _create_port_for_vip(self, context, vip_db, subnet_id, ip_address):
+         # resolve subnet and create port
+         subnet = self._core_plugin.get_subnet(context, subnet_id)
+         fixed_ip = {'subnet_id': subnet['id']}
++        need_create_port = True
++
+         if ip_address and ip_address != attributes.ATTR_NOT_SPECIFIED:
+             fixed_ip['ip_address'] = ip_address
++            # check if vip port has exist
++            port = self._vip_port_has_exist(context, vip_db, ip_address)
++            if port:
++                need_create_port = False
+ 
+         port_data = {
+             'tenant_id': vip_db.tenant_id,
+@@ -338,7 +361,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             'fixed_ips': [fixed_ip]
+         }
+ 
+-        port = self._core_plugin.create_port(context, {'port': port_data})
++        if need_create_port:
++            port = self._core_plugin.create_port(context, {'port': port_data})
+         vip_db.port_id = port['id']
+         # explicitly sync session with db
+         context.session.flush()
+@@ -473,7 +497,9 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+ 
+             context.session.delete(vip)
+         if vip.port:  # this is a Neutron port
+-            self._core_plugin.delete_port(context, vip.port.id)
++            # check if vip port has used by other VIPs
++            if not vip.port.vips:
++                self._core_plugin.delete_port(context, vip.port.id)
+ 
+     def get_vip(self, context, id, fields=None):
+         vip = self._get_resource(context, Vip, id)
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index ae91b65..9265f67 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -94,6 +94,10 @@ class MemberExists(qexception.NeutronException):
+                 "already present in pool %(pool)s")
+ 
+ 
++class ProtocolPortInUse(qexception.BadRequest):
++    message = _("VIP %(vip)s has bound to the protocol port %(proto_port)s")
++
++
+ RESOURCE_ATTRIBUTE_MAP = {
+     'vips': {
+         'id': {'allow_post': False, 'allow_put': False,
+diff --git a/neutron/services/loadbalancer/agent_scheduler.py b/neutron/services/loadbalancer/agent_scheduler.py
+index a196e23..bff981b 100644
+--- a/neutron/services/loadbalancer/agent_scheduler.py
++++ b/neutron/services/loadbalancer/agent_scheduler.py
+@@ -86,6 +86,12 @@ class LbaasAgentSchedulerDbMixin(agentschedulers_db.AgentSchedulerDbMixin,
+                 candidates.append(agent)
+         return candidates
+ 
++    def update_lbaas_agent_hosting_pool(self, context, id, agent):
++        query = context.session.query(PoolLoadbalancerAgentBinding)
++        query = query.filter_by(pool_id=id)
++        with context.session.begin(subtransactions=True):
++            query[0].agent = agent
++            context.session.flush()
+ 
+ class ChanceScheduler(object):
+     """Allocate a loadbalancer agent for a vip in a random way."""
+diff --git a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+index 2c8bfb5..da694fd 100644
+--- a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
++++ b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+@@ -357,7 +357,37 @@ class AgentDriverBase(abstract_driver.LoadBalancerAbstractDriver):
+             raise lbaas_agentscheduler.NoActiveLbaasAgent(pool_id=pool_id)
+         return agent['agent']
+ 
++    def _update_pool_agent(self, context, pool_id, new_agent):
++        # check if need to update
++        old_agent = self.get_pool_agent(context, pool_id)
++        if old_agent['id'] != new_agent['id']:
++            # delete pool on old agent
++            pool = self.plugin.get_pool(context, pool_id)
++            self.agent_rpc.delete_pool(context, pool, old_agent['host'])
++            self.plugin.update_lbaas_agent_hosting_pool(context, pool_id,
++                                                        new_agent)
++            self.agent_rpc.create_pool(context, pool, new_agent['host'],
++                                       self.device_driver)
++
++    def _reschedule_pool_by_vip(self, context, vip):
++        # check if same port exist on others VIP
++        vips = self.plugin.get_vips(context, filters={'port_id':
++                                    [vip['port_id']]})
++        has_schedule_pools = [_v['pool_id'] for _v in vips
++                              if _v['pool_id'] != vip['pool_id']]
++
++        if has_schedule_pools:
++            # reschedule pool to same agent
++            agent = self.get_pool_agent(context, has_schedule_pools[0])
++            agents = self.plugin.get_lbaas_agents(
++                context, active=True,
++                filters={'id': [agent['id']]})
++            self._update_pool_agent(context, vip['pool_id'], agents[0])
++
+     def create_vip(self, context, vip):
++        # if same vip bound to different L4 port, need reschedule
++        # all pool to same lbaas agent
++        self._reschedule_pool_by_vip(context, vip)
+         agent = self.get_pool_agent(context, vip['pool_id'])
+         self.agent_rpc.create_vip(context, vip, agent['host'])
+ 
+-- 
+2.9.0
+
