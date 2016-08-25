@@ -1,0 +1,35 @@
+From 32137725c718ffce7cf78d43ce6790d8fd7e402d Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 13 Apr 2016 12:18:25 +0800
+Subject: [PATCH 34/45] Metering iptables: make packets travel through metering
+ chain earlier
+
+neutron-meter-FORWARD is NOT guaranteed to be travelled through before
+neutron-l3-agent-FORWARD. Thus, when there are FWaaS rules packets may
+not be counted because they have been already accepted and will not
+continue traversing the neutron-meter-FORWARD chain.
+
+Fixes: redmine #6468
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 40af40f..80761a6 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -30,7 +30,7 @@ LOG = logging.getLogger(__name__)
+ NS_PREFIX = 'qrouter-'
+ WRAP_NAME = 'neutron-meter'
+ EXTERNAL_DEV_PREFIX = 'qg-'
+-TOP_CHAIN = WRAP_NAME + "-FORWARD"
++TOP_CHAIN = WRAP_NAME + "-local"
+ RULE = '-r-'
+ LABEL = '-l-'
+ 
+-- 
+2.9.0
+

@@ -1,0 +1,46 @@
+From 61b5d1a846fa4c5cda195372025a81a9df37f489 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Fri, 27 May 2016 14:34:37 +0800
+Subject: [PATCH 39/45] qos_agent: wrap sfq qdisc under the htb classes (#16)
+
+Fixes: redmine #7265
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/agents/qos_agent.py | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index 7ca5f02..cbe2aaf 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -220,6 +220,12 @@ class QosAgent(qos_rpc_agent_api.QosPluginRpc, manager.Manager):
+                 add_class.extend(['cburst', queue['cburst']])
+ 
+             self._run_tc(add_class, namespace)
++            add_sfq_qdisc = [
++                'tc', 'qdisc', 'add', 'dev', device,
++                'parent', class_id, 'handle', '%s:0' % queue['class'],
++                'sfq'
++            ]
++            self._run_tc(add_sfq_qdisc, namespace)
+ 
+     def _tc_update_queue(self, queue_id):
+         queue = self.qos_info['queue'][queue_id]
+@@ -254,6 +260,12 @@ class QosAgent(qos_rpc_agent_api.QosPluginRpc, manager.Manager):
+                 change_class.extend(['cburst', queue['cburst']])
+ 
+             self._run_tc(change_class, namespace)
++            add_sfq_qdisc = [
++                'tc', 'qdisc', 'add', 'dev', device,
++                'parent', class_id, 'handle', '%s:0' % queue['class'],
++                'sfq'
++            ]
++            self._run_tc(add_sfq_qdisc, namespace)
+ 
+     def _tc_delete_queue(self, queue_id):
+         queue = self.qos_info['queue'][queue_id]
+-- 
+2.9.0
+

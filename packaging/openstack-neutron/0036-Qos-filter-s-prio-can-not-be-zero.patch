@@ -1,0 +1,29 @@
+From 225b2e856e0dcb7a213f58ac11596bea6eb6a723 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 23 Mar 2016 15:05:22 +0800
+Subject: [PATCH 36/45] Qos filter's prio can not be zero
+
+Fixes: redmine #6407
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/qos.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/qos.py b/neutron/extensions/qos.py
+index 855902c..2f1055c 100644
+--- a/neutron/extensions/qos.py
++++ b/neutron/extensions/qos.py
+@@ -196,7 +196,7 @@ def convert_to_cburst(value):
+ 
+ def convert_to_filter_prio(value):
+     try:
+-        value = convert_to_tc_u32(value)
++        value = convert_to_tc_not_zero_u32(value)
+         if not value <= 65535:
+             raise ValueError
+         return value
+-- 
+2.9.0
+

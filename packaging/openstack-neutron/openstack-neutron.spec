@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	20%{?dist_eayunstack}
+Release:	21%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -76,6 +76,21 @@ Patch0030: 0030-Fix-redmine-issue-6277.patch
 Patch0031: 0031-Allow-multiple-firewalls-for-a-tenant.patch
 Patch0032: 0032-Fix-KeyError-when-updating-firewall.patch
 Patch0033: 0033-Correctly-calculate-bandwidth-occupied-by-queues.patch
+Patch0034: 0034-Metering-iptables-make-packets-travel-through-meteri.patch
+Patch0035: 0035-Metering-iptables-fix-router-ext_dev-checker.patch
+Patch0036: 0036-Qos-filter-s-prio-can-not-be-zero.patch
+Patch0037: 0037-Give-a-default-selector-to-tc-filter.patch
+Patch0038: 0038-qos_agent-don-t-add-tc-qdisc-when-device-is-not-read.patch
+Patch0039: 0039-qos_agent-wrap-sfq-qdisc-under-the-htb-classes-16.patch
+Patch0040: 0040-Pass-dhcp-authoritative-option-to-dnsmasq.patch
+Patch0041: 0041-metering-fix-minor-error-in-agent.patch
+Patch0042: 0042-Fix-metering-agent-failure-when-chain-missing.patch
+Patch0043: 0043-Metering-filter-down-routers-when-syncing-data.patch
+Patch0044: 0044-Metering-reconfigure-router-as-needed.patch
+Patch0045: 0045-Check-whether-PPTP-VPN-service-already-exists-for-ro.patch
+Patch0046: 0046-Lbaas-Enhancement-multi-VIP-bound-to-same-neutron-po.patch
+Patch0047: 0047-Lbaas-Enhancement-Multi-VIP-bound-to-same-neutron-po.patch
+Patch0048: 0048-Lbaas-Enable-create-and-remove-a-pool-to-from-lbaas-.patch
 
 BuildArch:	noarch
 
@@ -586,6 +601,21 @@ IPSec.
 %patch0031 -p1
 %patch0032 -p1
 %patch0033 -p1
+%patch0034 -p1
+%patch0035 -p1
+%patch0036 -p1
+%patch0037 -p1
+%patch0038 -p1
+%patch0039 -p1
+%patch0040 -p1
+%patch0041 -p1
+%patch0042 -p1
+%patch0043 -p1
+%patch0044 -p1
+%patch0045 -p1
+%patch0046 -p1
+%patch0047 -p1
+%patch0048 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1046,6 +1076,21 @@ exit 0
 
 
 %changelog
+* Tue Jul 26 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-21.eayunstack.1.1
+- add patch 0034 from github pull request #26 (redmine#6468)
+- add patch 0035 from github pull request #27 (redmine#6469)
+- add patch 0036 from neutron-qos github pull request #13 (redmine#6407)
+- add patch 0037 from neutron-qos github pull request #14 (redmine#6406)
+- add patch 0038 from neutron-qos github pull request #15 (redmine#6163)
+- add patch 0039 from neutron-qos github pull request #16 (redmine#7265)
+- add patch 0040 from github pull request #30 (redmine#7371)
+- add patch 0041 from github pull request #32 (redmine#7375)
+- add patch 0042-0044 from github pull request #31 (redmine#7372)
+- add patch 0045 from github pull request #33 (redmine#7450)
+- add patch 0046 from github pull request #38 (partial, redmine#7412)
+- add patch 0047 from github pull request #36 (redmine#7412)
+- add patch 0048 from github pull request #39 (redmine#7543)
+
 * Mon Mar 14 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-20.eayunstack.1.1
 - add patch 0030 from github pull request #22 (redmine#6277)
 - add patch 0031 from github pull request #23 (redmine#6329)

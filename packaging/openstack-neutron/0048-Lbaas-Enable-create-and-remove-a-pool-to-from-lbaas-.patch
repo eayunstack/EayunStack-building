@@ -1,0 +1,236 @@
+From c88ea440751b8fb245526c9f49e979dcbc0ed68b Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Mon, 11 Jul 2016 18:22:43 +0800
+Subject: [PATCH 48/48] Lbaas: Enable create and remove a pool to/from lbaas
+ agent
+
+This chanage as following:
+  1.Add new API create in PoolSchedulerController to enable
+    add a pool to lbaas agent
+  2.Add new API delete in PoolSchedulerController to enable
+    remove a pool from lbaas agent
+
+Fixes: #7543
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+---
+ etc/policy.json                                    |  2 +
+ neutron/extensions/lbaas_agentscheduler.py         | 31 ++++++++
+ neutron/extensions/loadbalancer.py                 | 12 ++++
+ neutron/services/loadbalancer/agent_scheduler.py   | 83 ++++++++++++++++++++++
+ .../drivers/common/agent_driver_base.py            | 16 +++++
+ 5 files changed, 144 insertions(+)
+
+diff --git a/etc/policy.json b/etc/policy.json
+index 9f0c88c..61149da 100644
+--- a/etc/policy.json
++++ b/etc/policy.json
+@@ -112,6 +112,8 @@
+     "get_l3-agents": "rule:admin_only",
+     "get_loadbalancer-agent": "rule:admin_only",
+     "get_loadbalancer-pools": "rule:admin_only",
++    "create_loadbalancer-pool": "rule:admin_only",
++    "delete_loadbalancer-pool": "rule:admin_only",
+ 
+     "create_floatingip": "rule:regular_user",
+     "create_floatingip:floating_ip_address": "rule:admin_only",
+diff --git a/neutron/extensions/lbaas_agentscheduler.py b/neutron/extensions/lbaas_agentscheduler.py
+index a821cb6..c41cec6 100644
+--- a/neutron/extensions/lbaas_agentscheduler.py
++++ b/neutron/extensions/lbaas_agentscheduler.py
+@@ -45,6 +45,37 @@ class PoolSchedulerController(wsgi.Controller):
+         return lbaas_plugin.list_pools_on_lbaas_agent(
+             request.context, kwargs['agent_id'])
+ 
++    def _get_lbaas_plugin(self):
++        lbaas_plugin = manager.NeutronManager.get_service_plugins().get(
++            plugin_const.LOADBALANCER)
++        if not lbaas_plugin:
++            msg = _('The resource could not be found.')
++            raise webob.exc.HTTPNotFound(msg)
++        return lbaas_plugin
++
++    def create(self, request, body, **kwargs):
++        lbaas_plugin = self._get_lbaas_plugin()
++
++        policy.enforce(request.context,
++                       "create_%s" % LOADBALANCER_POOL,
++                       {},
++                       plugin=lbaas_plugin)
++        agent_id = kwargs['agent_id']
++        pool_id = body['pool_id']
++        return lbaas_plugin.add_pool_to_lbaas_agent(
++            request.context, agent_id, pool_id)
++
++    def delete(self, request, id, **kwargs):
++        lbaas_plugin = self._get_lbaas_plugin()
++
++        policy.enforce(request.context,
++                       "delete_%s" % LOADBALANCER_POOL,
++                       {},
++                       plugin=lbaas_plugin)
++        agent_id = kwargs['agent_id']
++        return lbaas_plugin.remove_pool_from_lbaas_agent(
++            request.context, agent_id, id)
++
+ 
+ class LbaasAgentHostingPoolController(wsgi.Controller):
+     def index(self, request, **kwargs):
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index 9265f67..cfa0fbd 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -98,6 +98,18 @@ class ProtocolPortInUse(qexception.BadRequest):
+     message = _("VIP %(vip)s has bound to the protocol port %(proto_port)s")
+ 
+ 
++class PoolNotBoundToAgent(qexception.BadRequest):
++    message = _("Pool %(pool)s has not bound to agent %(agent)s")
++
++
++class PoolHasBoundToAgent(qexception.BadRequest):
++    message = _("Pool %(pool)s has bound to agent %(agent)s")
++
++
++class PoolsBoundToDifferentAgents(qexception.BadRequest):
++    message = _("Same pools %(pools)s bound to different agents %(agents)s")
++
++
+ RESOURCE_ATTRIBUTE_MAP = {
+     'vips': {
+         'id': {'allow_post': False, 'allow_put': False,
+diff --git a/neutron/services/loadbalancer/agent_scheduler.py b/neutron/services/loadbalancer/agent_scheduler.py
+index bff981b..36cc2f6 100644
+--- a/neutron/services/loadbalancer/agent_scheduler.py
++++ b/neutron/services/loadbalancer/agent_scheduler.py
+@@ -17,13 +17,16 @@ import random
+ 
+ import sqlalchemy as sa
+ from sqlalchemy import orm
++from sqlalchemy.orm import exc
+ from sqlalchemy.orm import joinedload
+ 
+ from neutron.common import constants
+ from neutron.db import agents_db
+ from neutron.db import agentschedulers_db
+ from neutron.db import model_base
++from neutron.db.loadbalancer import loadbalancer_db as lb_db
+ from neutron.extensions import lbaas_agentscheduler
++from neutron.extensions import loadbalancer
+ from neutron.openstack.common import log as logging
+ 
+ LOG = logging.getLogger(__name__)
+@@ -93,6 +96,86 @@ class LbaasAgentSchedulerDbMixin(agentschedulers_db.AgentSchedulerDbMixin,
+             query[0].agent = agent
+             context.session.flush()
+ 
++    def _get_same_pools_by_pool_id(self, context, pool_id):
++        pool = self.get_pool(context, pool_id)
++        pools = []
++        with context.session.begin(subtransactions=True):
++            try:
++                vip = self._get_resource(context, lb_db.Vip, pool['vip_id'])
++                pools = [_vip.pool_id for _vip in vip.port.vips]
++            except loadbalancer.VipNotFound:
++                # in this case, pool not bound to a vip
++                pass
++        return pools
++
++    def _check_pool_can_be_bound_to_agent(self, context, pool_id, agent_id):
++        # check pool if has added
++        query = context.session.query(PoolLoadbalancerAgentBinding)
++        query = query.filter(PoolLoadbalancerAgentBinding.pool_id == pool_id)
++        try:
++            binding = query.one()
++            raise loadbalancer.PoolHasBoundToAgent(
++                pool=pool_id,
++                agent=binding.agent_id)
++        except exc.NoResultFound:
++            # not add
++            pass
++
++        # check if same pools has bound to same agent
++        same_pools = self._get_same_pools_by_pool_id(context, pool_id)
++        if len(same_pools) > 1:
++            query = context.session.query(PoolLoadbalancerAgentBinding)
++            query = query.filter(
++                PoolLoadbalancerAgentBinding.pool_id.in_(same_pools))
++
++            agents = [_q.agent_id for _q in query]
++            if agents and (set([agent_id]) != set(agents)):
++                raise loadbalancer.PoolsBoundToDifferentAgents(
++                    pools=same_pools,
++                    agents=agents)
++
++    def _bind_pool(self, context, agent_id, pool_id):
++        with context.session.begin(subtransactions=True):
++            # check if pool could add to the agent
++            self._check_pool_can_be_bound_to_agent(context,
++                                                   pool_id, agent_id)
++
++            binding = PoolLoadbalancerAgentBinding()
++            binding.agent_id = agent_id
++            binding.pool_id = pool_id
++            context.session.add(binding)
++
++    def add_pool_to_lbaas_agent(self, context, agent_id, pool_id):
++        agent = self._get_agent(context, agent_id)
++        pool = self.get_pool(context, pool_id)
++        self._bind_pool(context, agent_id, pool_id)
++        driver = self._get_driver_for_pool(context, pool_id)
++        driver.add_pool_to_agent(context, pool, agent)
++
++    def _unbind_pool(self, context, agent, pool):
++        with context.session.begin(subtransactions=True):
++            query = context.session.query(PoolLoadbalancerAgentBinding)
++            query = query.filter(
++                PoolLoadbalancerAgentBinding.pool_id == pool,
++                PoolLoadbalancerAgentBinding.agent_id == agent)
++            try:
++                binding = query.one()
++            except exc.NoResultFound:
++                raise loadbalancer.PoolNotBoundToAgent(pool=pool, agent=agent)
++            context.session.delete(binding)
++
++    def remove_pool_from_lbaas_agent(self, context, agent_id, pool_id):
++        # unbound the pool
++        self._unbind_pool(context, agent_id, pool_id)
++        # remove from agent
++        agent = self._get_agent(context, agent_id)
++        pool = self.get_pool(context, pool_id)
++        driver = self._get_driver_for_pool(context, pool_id)
++        driver.remove_pool_from_agent(context, pool, agent)
++        LOG.info(_('Remove pool %(pool)s from agent %(agent)s'),
++                 {'pool': pool_id, 'agent': agent_id})
++
++
+ class ChanceScheduler(object):
+     """Allocate a loadbalancer agent for a vip in a random way."""
+ 
+diff --git a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+index da694fd..6045da9 100644
+--- a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
++++ b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+@@ -474,3 +474,19 @@ class AgentDriverBase(abstract_driver.LoadBalancerAbstractDriver):
+ 
+     def stats(self, context, pool_id):
+         pass
++
++    def add_pool_to_agent(self, context, pool, agent):
++        # Update pool status to PENDING_UPDATE
++        self.plugin.update_status(context, loadbalancer_db.Pool,
++                                  pool['id'], constants.PENDING_UPDATE)
++        # Must create before update
++        self.agent_rpc.create_pool(context, pool, agent['host'],
++                                   self.device_driver)
++
++        self.agent_rpc.update_pool(context, None, pool, agent['host'])
++
++    def remove_pool_from_agent(self, context, pool, agent):
++        # Update pool status to DOWN
++        self.plugin.update_status(context, loadbalancer_db.Pool,
++                                  pool['id'], constants.DOWN)
++        self.agent_rpc.delete_pool(context, pool, agent['host'])
+-- 
+2.9.0
+
