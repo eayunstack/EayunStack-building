@@ -2,7 +2,7 @@
 
 Name:       python-neutronclient
 Version:    2.3.9
-Release:    4%{?dist_eayunstack}
+Release:    5%{?dist_eayunstack}
 Summary:    Python API and CLI for OpenStack Neutron
 
 Group:      Development/Languages
@@ -17,6 +17,7 @@ Patch0004: 0004-Add-eayun_qos-support.patch
 Patch0005: 0005-fix-the-firewall-rule-arg-split-error.patch
 Patch0006: 0006-Add-Portmapping-support.patch
 Patch0007: 0007-Add-pptp-vpn-credential-support.patch
+Patch0008: 0008-neutron-CLI-Add-support-lbaas-add-remove-command.patch
 
 
 BuildArch:  noarch
@@ -48,6 +49,7 @@ Neutron's API.
 %patch0005 -p1
 %patch0006 -p1
 %patch0007 -p1
+%patch0008 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATNEUTRONCLIENTVERSION/%{version}/ neutronclient/version.py
@@ -77,6 +79,9 @@ rm -rf %{buildroot}%{python_sitelib}/neutronclient/tests
 %{_sysconfdir}/bash_completion.d
 
 %changelog
+* Tue Jul 26 2016 Tang Cheng <cheng.tang@eayun.com> 2.3.9-5.eayunstack.1.1
+- add 0008-neutron-CLI-Add-support-lbaas-add-remove-command.patch (redmine#7581)
+
 * Mon Dec 21 2015 Xu Meihong <meihong.xu@eayun.com> 2.3.9-4.eayunstack.1.1
 - add 0006-Add-Portmapping-support.patch from github pull request #6 (redmine#4553)
 - add 0007-Add-pptp-vpn-credential-support.patch from github pull request #7
