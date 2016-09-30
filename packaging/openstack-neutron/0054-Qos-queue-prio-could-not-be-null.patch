@@ -1,0 +1,111 @@
+From 0e6e03431157f0ea8bde166e2509d5a6a2e273c8 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 28 Jul 2016 12:25:14 +0800
+Subject: [PATCH 54/57] Qos queue prio could not be null
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../438e98e12504_qos_queue_prio_not_null.py        | 45 ++++++++++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/db/qos/qos_db.py                           |  2 +-
+ neutron/extensions/qos.py                          |  4 +-
+ 4 files changed, 49 insertions(+), 4 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+
+diff --git a/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py b/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+new file mode 100644
+index 0000000..c81de7b
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+@@ -0,0 +1,45 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_queue_prio_not_null
++
++Revision ID: 438e98e12504
++Revises: eayun_pptp_vpn
++Create Date: 2016-07-14 15:54:04.632126
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '438e98e12504'
++down_revision = 'eayun_pptp_vpn'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    queues = sa.sql.table('eayun_qosqueues', sa.sql.column('prio'))
++    op.execute(queues.update().where(queues.c.prio==None).values(prio=0))
++    migration.alter_column_if_exists(
++        'eayun_qosqueues', 'prio',
++        type_=sa.types.Integer,
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 2dadb14..10cee43 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-eayun_pptp_vpn
++438e98e12504
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 9624cac..b5ec298 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -67,7 +67,7 @@ class QosQueue(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     parent_id = sa.Column(sa.String(36),
+                           sa.ForeignKey('eayun_qosqueues.id',
+                                         ondelete='CASCADE'))
+-    prio = sa.Column(sa.Integer)
++    prio = sa.Column(sa.Integer, nullable=False)
+     rate = sa.Column(sa.BigInteger, nullable=False)
+     ceil = sa.Column(sa.BigInteger)
+     burst = sa.Column(sa.BigInteger)
+diff --git a/neutron/extensions/qos.py b/neutron/extensions/qos.py
+index e761a50..ddee6ae 100644
+--- a/neutron/extensions/qos.py
++++ b/neutron/extensions/qos.py
+@@ -205,7 +205,7 @@ def convert_to_filter_prio(value):
+ 
+ def convert_to_queue_prio(value):
+     try:
+-        value = convert_to_tc_u32_or_none(value)
++        value = convert_to_tc_u32(value)
+         if not value <= 7:
+             raise ValueError
+         return value
+@@ -303,7 +303,7 @@ RESOURCE_ATTRIBUTE_MAP = {
+                       'is_visible': True, 'default': None,
+                       'validate': {'type:uuid_or_none': None}},
+         'prio': {'allow_post': True, 'allow_put': True,
+-                 'is_visible': True, 'default': None,
++                 'is_visible': True, 'default': 0,
+                  'convert_to': convert_to_queue_prio},
+         'rate': {'allow_post': True, 'allow_put': True,
+                  'is_visible': True,
+-- 
+2.9.3
+

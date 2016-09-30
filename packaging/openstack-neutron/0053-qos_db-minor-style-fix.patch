@@ -1,0 +1,27 @@
+From 49a852f88f9e7ca4371d610dbc5a7b73302e0280 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 28 Jul 2016 12:21:24 +0800
+Subject: [PATCH 53/57] qos_db: minor style fix
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index e4d489a..9624cac 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -530,7 +530,7 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+             qos_filter_db.update(qos_filter)
+         return self._make_qos_filter_dict(qos_filter_db)
+ 
+-    def delete_qos_filter(self,  context, id):
++    def delete_qos_filter(self, context, id):
+         qos_filter = self._get_qos_filter(context, id)
+         with context.session.begin(subtransactions=True):
+             context.session.delete(qos_filter)
+-- 
+2.9.3
+

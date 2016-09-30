@@ -1,0 +1,50 @@
+From 80c2c0a74b7054ac2fcaa988052602944080fba1 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Fri, 12 Aug 2016 10:26:01 +0800
+Subject: [PATCH 49/57] PPTP VPN: set provider of the existing vpnservices
+ (#40)
+
+Prior to PPTP VPN support, VPNaaS functionality supports only one single
+provider for all the vpnservices. However, now VPNaaS supports different
+providers. Thus the provider column should be set for those vpnservices
+that already exist.
+
+Fixes: redmine #7693
+Fixes: a2eb3f7a4a5 ("VPNaaS integration with service type framework")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py b/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
+index 95e0912..f5516c7 100644
+--- a/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
++++ b/neutron/db/migration/alembic_migrations/eayun_pptp_vpn_init_ops.py
+@@ -16,6 +16,9 @@
+ from alembic import op
+ import sqlalchemy as sa
+ 
++# This provider should be changed according to the configurations
++DEFAULT_VPN_PROVIDER = 'openswan'
++
+ 
+ def upgrade():
+     op.create_table(
+@@ -39,6 +42,13 @@ def upgrade():
+         sa.ForeignKeyConstraint(
+             ['port_id'], ['ports.id'], ondelete='CASCADE')
+     )
++    vpnservices = sa.sql.table('vpnservices', sa.sql.column('id'))
++    associations = sa.sql.table('providerresourceassociations',
++                                sa.sql.column('provider_name'),
++                                sa.sql.column('resource_id'))
++    op.execute(associations.insert().from_select(
++        ['provider_name', 'resource_id'],
++        sa.select([sa.literal(DEFAULT_VPN_PROVIDER), vpnservices.c.id])))
+ 
+ 
+ def downgrade():
+-- 
+2.9.3
+
