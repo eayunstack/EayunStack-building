@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	22%{?dist_eayunstack}
+Release:	23%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -100,6 +100,11 @@ Patch0054: 0054-Qos-queue-prio-could-not-be-null.patch
 Patch0055: 0055-Correctly-set-queue-s-ceil-value.patch
 Patch0056: 0056-Filters-give-default-value-to-src-and-dst-addr.patch
 Patch0057: 0057-qos_agent-stateless-agent.patch
+Patch0058: 0058-Fix-router-query-error-20.patch
+Patch0059: 0059-Fix-cannot-delete-pptpd-process.patch
+Patch0060: 0060-Fix-UnicodeEncodeError-generating-ipsec-configs-45.patch
+Patch0061: 0061-Fix-error-when-using-fqdn-as-ipsec-peer-id-46.patch
+Patch0062: 0062-VPNaaS-deprecate-two-dpd-actions-47.patch
 
 BuildArch:	noarch
 
@@ -634,6 +639,11 @@ IPSec.
 %patch0055 -p1
 %patch0056 -p1
 %patch0057 -p1
+%patch0058 -p1
+%patch0059 -p1
+%patch0060 -p1
+%patch0061 -p1
+%patch0062 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1095,6 +1105,13 @@ exit 0
 
 
 %changelog
+* Fri Sep 30 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-23.eayunstack.1.1
+- add patch 0058 from neutron-qos github pull request #20
+- add patch 0059 from github pull request #44 (redmine#7991)
+- add patch 0060 from github pull request #45 (redmine#8078)
+- add patch 0061 from github pull request #46 (redmine#8135)
+- add patch 0062 from github pull request #47 (redmine#8272)
+
 * Thu Aug 25 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-22.eayunstack.1.1
 - add patch 0049 from github pull request #40 (redmine#7693)
 - add patch 0050 from github pull request #41 (redmine#7694)
