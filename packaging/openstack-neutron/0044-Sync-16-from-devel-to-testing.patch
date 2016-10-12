@@ -1,0 +1,54 @@
+From 287a5988bb336db22037d2eae4993e18814a3fa7 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 3 Dec 2015 15:58:31 +0800
+Subject: [PATCH 44/52] Sync #16 from devel to testing
+
+portmapping: fix tenant check when creating
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit b29224ad68404748bdaa04b05cfff9188aa4f96a)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Change-Id: I5cbee2126459d5cea83cd3ae43377e9975588c83
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/l3_db.py      | 6 +++---
+ neutron/extensions/l3.py | 5 -----
+ 2 files changed, 3 insertions(+), 8 deletions(-)
+
+diff --git a/neutron/db/l3_db.py b/neutron/db/l3_db.py
+index 5f7126a..5c3e1fc 100644
+--- a/neutron/db/l3_db.py
++++ b/neutron/db/l3_db.py
+@@ -965,9 +965,9 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+         portmapping = portmapping['portmapping']
+         tenant_id = self._get_tenant_id_for_create(context, portmapping)
+         portmapping_id = uuidutils.generate_uuid()
+-        router = self._get_router(context, portmapping['router_id'])
+-        if tenant_id != tenant_id:
+-            raise l3.RouterNotOwnedByTenant(router_id=router.id)
++        # Check router's tenant id and existence,
++        # on error raise l3.RouterNotFound
++        self._get_router(context, portmapping['router_id'])
+         if self.get_portmappings(
+             context, {'protocol': [portmapping['protocol']],
+                       'router_id': [portmapping['router_id']],
+diff --git a/neutron/extensions/l3.py b/neutron/extensions/l3.py
+index 73360bd..c41e4ab 100644
+--- a/neutron/extensions/l3.py
++++ b/neutron/extensions/l3.py
+@@ -77,11 +77,6 @@ class RouterExternalGatewayInUseByFloatingIp(qexception.InUse):
+                 "more floating IPs.")
+ 
+ 
+-class RouterNotOwnedByTenant(qexception.Conflict):
+-    message = _("The following router %(router_id)s is not owned by your "
+-                "tenant.")
+-
+-
+ class PortMappingNotFound(qexception.NotFound):
+     message = _("Portmapping %(portmapping_id)s could not be found.")
+ 
+-- 
+2.10.0
+

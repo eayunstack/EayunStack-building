@@ -1,0 +1,129 @@
+From 381d667b91abf71939cad55b8acd357e0be6ca2f Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Thu, 29 Sep 2016 16:48:21 +0800
+Subject: [PATCH 52/52] Sync #47 from devel to testing
+
+VPNaaS: deprecate two dpd actions (#47)
+
+'restart-by-peer' should be in fact 'restart_by_peer' for libreswan and
+it has been already obsoleted. The 'disabled' dpd action is not
+supported by libreswan.
+
+Strongswan supports neither of the two.
+
+This commit deprecate the two dpd actions: 'restart-by-peer' and
+'disabled'. If there are ipsec site connections using these two as their
+actions, set their actions to the default value 'hold'.
+
+Fixes: redmine #8272
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 5c4ec9d2c28cd199853266e5d640553e370a981b)
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ ...b9cf1809665_vpnaas_deprecate_two_dpd_actions.py | 53 ++++++++++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/db/vpn/vpn_db.py                           |  5 +-
+ neutron/extensions/vpnaas.py                       |  2 +-
+ 4 files changed, 57 insertions(+), 5 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/1b9cf1809665_vpnaas_deprecate_two_dpd_actions.py
+
+diff --git a/neutron/db/migration/alembic_migrations/versions/1b9cf1809665_vpnaas_deprecate_two_dpd_actions.py b/neutron/db/migration/alembic_migrations/versions/1b9cf1809665_vpnaas_deprecate_two_dpd_actions.py
+new file mode 100644
+index 0000000..eb2ce4f
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/1b9cf1809665_vpnaas_deprecate_two_dpd_actions.py
+@@ -0,0 +1,53 @@
++# Copyright 2016 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""vpnaas: deprecate two dpd actions
++
++Revision ID: 1b9cf1809665
++Revises: 5108f17d7012
++Create Date: 2016-09-26 14:00:00.000000
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '1b9cf1809665'
++down_revision = '5108f17d7012'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    ipsec_site_connections = sa.sql.table(
++        'ipsec_site_connections',
++        sa.sql.column('dpd_action'))
++    op.execute(
++        ipsec_site_connections.update().where(
++            ipsec_site_connections.c.dpd_action=='restart-by-peer').values(
++                dpd_action='hold'))
++    op.execute(
++        ipsec_site_connections.update().where(
++            ipsec_site_connections.c.dpd_action=='disabled').values(
++                dpd_action='hold'))
++    migration.alter_column_if_exists(
++        'ipsec_site_connections', 'dpd_action',
++        type_=sa.Enum('hold', 'clear', 'restart', name='vpn_dpd_actions'),
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 0e01757..1ea3484 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-5108f17d7012
++1b9cf1809665
+diff --git a/neutron/db/vpn/vpn_db.py b/neutron/db/vpn/vpn_db.py
+index 6ff9b7c..e84e87a 100644
+--- a/neutron/db/vpn/vpn_db.py
++++ b/neutron/db/vpn/vpn_db.py
+@@ -112,9 +112,8 @@ class IPsecSiteConnection(model_base.BASEV2,
+                                   name="vpn_initiators"), nullable=False)
+     auth_mode = sa.Column(sa.String(16), nullable=False)
+     psk = sa.Column(sa.String(255), nullable=False)
+-    dpd_action = sa.Column(sa.Enum("hold", "clear",
+-                                   "restart", "disabled",
+-                                   "restart-by-peer", name="vpn_dpd_actions"),
++    dpd_action = sa.Column(sa.Enum("hold", "clear", "restart",
++                                   name="vpn_dpd_actions"),
+                            nullable=False)
+     dpd_interval = sa.Column(sa.Integer, nullable=False)
+     dpd_timeout = sa.Column(sa.Integer, nullable=False)
+diff --git a/neutron/extensions/vpnaas.py b/neutron/extensions/vpnaas.py
+index a1bf418..1338d6f 100644
+--- a/neutron/extensions/vpnaas.py
++++ b/neutron/extensions/vpnaas.py
+@@ -91,7 +91,7 @@ vpn_supported_initiators = ['bi-directional', 'response-only']
+ vpn_supported_encryption_algorithms = ['3des', 'aes-128',
+                                        'aes-192', 'aes-256']
+ vpn_dpd_supported_actions = [
+-    'hold', 'clear', 'restart', 'restart-by-peer', 'disabled'
++    'hold', 'clear', 'restart'
+ ]
+ vpn_supported_transform_protocols = ['esp', 'ah', 'ah-esp']
+ vpn_supported_encapsulation_mode = ['tunnel', 'transport']
+-- 
+2.10.0
+

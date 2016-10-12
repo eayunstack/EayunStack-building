@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.2%{?dist_eayunstack}
+Release:	18.3%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -85,6 +85,18 @@ Patch0039: 0039-Fix-metering-agent-failure-when-chain-missing.patch
 Patch0040: 0040-Metering-filter-down-routers-when-syncing-data.patch
 Patch0041: 0041-Metering-reconfigure-router-as-needed.patch
 Patch0042: 0042-metering-fix-minor-error-in-agent.patch
+Patch0043: 0043-Sync-10-from-devel-to-testing.patch
+Patch0044: 0044-Sync-16-from-devel-to-testing.patch
+Patch0045: 0045-Sync-38-from-devel-to-testing.patch
+Patch0046: 0046-Sync-36-from-devel-to-testing.patch
+Patch0047: 0047-Sync-39-from-devel-to-testing.patch
+Patch0048: 0048-Sync-42-from-devel-to-testing.patch
+Patch0049: 0049-Sync-43-from-devel-to-testing.patch
+Patch0050: 0050-Sync-45-from-devel-to-testing.patch
+Patch0051: 0051-Sync-46-from-devel-to-testing.patch
+Patch0052: 0052-Sync-47-from-devel-to-testing.patch
+Patch0053: 0053-Sync-49-from-devel-to-testing.patch
+Patch0054: 0054-Sync-51-from-devel-to-testing.patch
 
 BuildArch:	noarch
 
@@ -604,6 +616,18 @@ IPSec.
 %patch0040 -p1
 %patch0041 -p1
 %patch0042 -p1
+%patch0043 -p1
+%patch0044 -p1
+%patch0045 -p1
+%patch0046 -p1
+%patch0047 -p1
+%patch0048 -p1
+%patch0049 -p1
+%patch0050 -p1
+%patch0051 -p1
+%patch0052 -p1
+%patch0053 -p1
+%patch0054 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -819,6 +843,7 @@ exit 0
 %{_bindir}/neutron-db-manage
 %{_bindir}/neutron-debug
 %{_bindir}/neutron-dhcp-agent
+%{_bindir}/neutron-get-htb-conf
 %{_bindir}/neutron-l3-agent
 %{_bindir}/neutron-lbaas-agent
 %{_bindir}/neutron-metadata-agent
@@ -1064,6 +1089,19 @@ exit 0
 
 
 %changelog
+* Mon Oct 17 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.3.eayunstack.1.0.1
+- add patch 0043 from github pull request #10 (redmine#4543)
+- add patch 0044 from github pull request #16
+- add patch 0045-0046 from github pull request #38, #36 (redmine#7412)
+- add patch 0047 from github pull request #39 (redmine#7543)
+- add patch 0048 from neutron-qos github pull request #19 (redmine#7659, #7454, #7665)
+- add patch 0049 from neutron-qos github pull request #20
+- add patch 0050 from github pull request #45 (redmine#8078)
+- add patch 0051 from github pull request #46 (redmine#8135)
+- add patch 0052 from github pull request #47 (redmine#8272)
+- add patch 0053 from neutron-qos github pull request #21 (redmine#8579)
+- add patch 0054 from github pull request #51 (redmine#8601)
+
 * Thu Jun 02 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.2.eayunstack.1.0.1
 - add patch 0039-0041 from github pull request #31 (redmine#7372)
 - add patch 0042 from github pull request #32 (redmine#7375)

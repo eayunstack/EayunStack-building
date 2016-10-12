@@ -1,0 +1,2968 @@
+From 5549b8a826b1897f86bc162c01755eb234778af6 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 13 Jan 2016 19:43:54 +0800
+Subject: [PATCH 48/52] Sync #42 from devel to testing
+
+This is a combination of 7 commits.
+This is the 1st commit message:
+qos_agent: fix pep8 warning
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 824260683530a8fbce5da20b2cb07e843b8951fb)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #2:
+
+db: move target checker into db
+
+We are going to eliminate the RPC mixin layer.
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 0ba27ae53278074b24283e7a35b1ff82b43ab3d3)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #3:
+
+qos_db: minor style fix
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 49a852f88f9e7ca4371d610dbc5a7b73302e0280)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #4:
+
+Qos queue prio could not be null
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 0e6e03431157f0ea8bde166e2509d5a6a2e273c8)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #5:
+
+Correctly set queue's ceil value
+
+And queue's ceil value in DB could not be null.
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit eae8d430ab860987dcf22e1f8a7451ed58717a49)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #6:
+
+Filters: give default value to src and dst addr
+
+Default addresses are always '0.0.0.0/0'(ANY).
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 5e3cc8b0956af9106519a6bff061fc21164d84c8)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #7:
+
+qos_agent: stateless agent
+
+Fixes: redmine #7659
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 253f2c923c96f57547485d1892b2a703f5c3d512)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ bin/neutron-get-htb-conf                           |  52 ++
+ etc/neutron/rootwrap.d/qos.filters                 |   1 +
+ .../api/rpc/agentnotifiers/qos_rpc_agent_api.py    |  92 ----
+ .../2a853fe8a8b1_qos_filter_addr_not_null.py       |  56 ++
+ .../438e98e12504_qos_queue_prio_not_null.py        |  45 ++
+ .../50b192f357d5_qos_queue_ceil_not_null.py        |  47 ++
+ .../versions/5108f17d7012_qos_queue_tc_class.py    |  56 ++
+ .../db/migration/alembic_migrations/versions/HEAD  |   2 +-
+ neutron/db/qos/qos_db.py                           | 481 +++++++++++++----
+ neutron/db/qos/qos_rpc.py                          | 217 --------
+ neutron/extensions/qos.py                          |  17 +-
+ neutron/services/qos/agents/qos_agent.py           | 585 +++------------------
+ neutron/services/qos/agents/tc_manager.py          | 253 +++++++++
+ neutron/services/qos/common/__init__.py            |  14 +
+ neutron/services/qos/common/htb.py                 | 462 ++++++++++++++++
+ neutron/services/qos/common/netns.py               |  72 +++
+ neutron/services/qos/common/topics.py              |  17 +
+ neutron/services/qos/qos_plugin.py                 |  33 +-
+ setup.cfg                                          |   1 +
+ 19 files changed, 1555 insertions(+), 948 deletions(-)
+ create mode 100755 bin/neutron-get-htb-conf
+ delete mode 100644 neutron/api/rpc/agentnotifiers/qos_rpc_agent_api.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/50b192f357d5_qos_queue_ceil_not_null.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/5108f17d7012_qos_queue_tc_class.py
+ delete mode 100644 neutron/db/qos/qos_rpc.py
+ create mode 100644 neutron/services/qos/agents/tc_manager.py
+ create mode 100644 neutron/services/qos/common/__init__.py
+ create mode 100644 neutron/services/qos/common/htb.py
+ create mode 100644 neutron/services/qos/common/netns.py
+ create mode 100644 neutron/services/qos/common/topics.py
+
+diff --git a/bin/neutron-get-htb-conf b/bin/neutron-get-htb-conf
+new file mode 100755
+index 0000000..d607506
+--- /dev/null
++++ b/bin/neutron-get-htb-conf
+@@ -0,0 +1,52 @@
++#!/usr/bin/env python
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++"""
++This file is added ONLY because the user 'neutron' running 'neutron-qos-agent'
++could not change network namespace on the fly, ONLY root can do that.
++"""
++
++import argparse
++import json
++from neutron.services.qos.common import htb
++
++
++def get_filters(prefix):
++    def filter_by_dev_name(devname):
++        return reduce(
++            lambda x, y: devname.startswith(x) or devname.startswith(y),
++            prefix.split(','))
++
++    if prefix:
++        return filter_by_dev_name
++    else:
++        return None
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument(
++        '--prefix', dest='prefix', default=None,
++        help='Device prefix to filter the result, seperated by commas.'
++    )
++    args = parser.parse_args()
++    qos_conf_scheme = htb.get_qos_conf_scheme(
++        filter_by_name=get_filters(args.prefix)
++    )
++    print json.dumps(qos_conf_scheme)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/etc/neutron/rootwrap.d/qos.filters b/etc/neutron/rootwrap.d/qos.filters
+index ec11fee..fa1823c 100644
+--- a/etc/neutron/rootwrap.d/qos.filters
++++ b/etc/neutron/rootwrap.d/qos.filters
+@@ -10,3 +10,4 @@
+ 
+ # qos-agent
+ tc: CommandFilter, tc, root
++neutron-get-htb-conf: CommandFilter, neutron-get-htb-conf, root
+diff --git a/neutron/api/rpc/agentnotifiers/qos_rpc_agent_api.py b/neutron/api/rpc/agentnotifiers/qos_rpc_agent_api.py
+deleted file mode 100644
+index 6c3feb5..0000000
+--- a/neutron/api/rpc/agentnotifiers/qos_rpc_agent_api.py
++++ /dev/null
+@@ -1,92 +0,0 @@
+-# Copyright (c) 2015 Eayun, Inc.
+-# All rights reserved.
+-#
+-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+-#    not use this file except in compliance with the License. You may obtain
+-#    a copy of the License at
+-#
+-#         http://www.apache.org/licenses/LICENSE-2.0
+-#
+-#    Unless required by applicable law or agreed to in writing, software
+-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+-#    License for the specific language governing permissions and limitations
+-#    under the License.
+-
+-from oslo import messaging
+-
+-from neutron.common import rpc as n_rpc
+-from neutron.openstack.common import log as logging
+-
+-LOG = logging.getLogger(__name__)
+-
+-QOS_AGENT = 'qos_agent'
+-QOS_PLUGIN = 'qos_plugin'
+-
+-
+-class QosAgentNotifyAPI(object):
+-    """ API for plugin to notify qos agent. """
+-
+-    def __init__(self, topic=QOS_AGENT):
+-        self.topic = topic
+-        target = messaging.Target(topic=topic, version='1.0')
+-        self.client = n_rpc.get_client(target)
+-
+-    def _notification(self, context, method, payload, host):
+-        if host:
+-            LOG.debug('Notify qos agent at %(topic)s.%(host)s '
+-                      'the message %(method)s',
+-                      {'topic': self.topic, 'host': host, 'method': method})
+-            cctxt = self.client.prepare(server=host)
+-            cctxt.cast(context, method, payload=payload)
+-        else:
+-            LOG.debug('Not notify qos agent at %(topic)s '
+-                      'the message %(method)s '
+-                      'due to no target host',
+-                      {'topic': self.topic, 'method': method})
+-
+-    def qos_created(self, context, qos, host):
+-        self._notification(context, 'qos_created', qos, host)
+-
+-    def qos_updated(self, context, qos, host):
+-        self._notification(context, 'qos_updated', qos, host)
+-
+-    def qos_moved(self, context, qos, host):
+-        self._notification(context, 'qos_moved', qos, host)
+-
+-    def qos_deleted(self, context, id, host):
+-        self._notification(context, 'qos_deleted', id, host)
+-
+-    def qos_queue_created(self, context, qos_queue, host):
+-        self._notification(context, 'qos_queue_created', qos_queue, host)
+-
+-    def qos_queue_updated(self, context, qos_queue, host):
+-        self._notification(context, 'qos_queue_updated', qos_queue, host)
+-
+-    def qos_queue_deleted(self, context, id, host):
+-        self._notification(context, 'qos_queue_deleted', id, host)
+-
+-    def qos_filter_created(self, context, qos_filter, host):
+-        self._notification(context, 'qos_filter_created', qos_filter, host)
+-
+-    def qos_filter_updated(self, context, qos_filter, host):
+-        self._notification(context, 'qos_filter_updated', qos_filter, host)
+-
+-    def qos_filter_deleted(self, context, id, host):
+-        self._notification(context, 'qos_filter_deleted', id, host)
+-
+-
+-class QosPluginRpc(object):
+-
+-    def __init__(self, host):
+-        super(QosPluginRpc, self).__init__()
+-        target = messaging.Target(topic=QOS_PLUGIN, version='1.0')
+-        self.client = n_rpc.get_client(target)
+-
+-    def _sync_qos(self, context, qos_list):
+-        try:
+-            cctxt = self.client.prepare()
+-            return cctxt.call(
+-                context, 'sync_qos', host=self.host, qos_list=qos_list)
+-        except Exception:
+-            LOG.exception('Failed to sync qos.')
+diff --git a/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py b/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+new file mode 100644
+index 0000000..d193bb6
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+@@ -0,0 +1,56 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_filter_addr_not_null
++
++Revision ID: 2a853fe8a8b1
++Revises: 50b192f357d5
++Create Date: 2016-07-14 19:14:22.811223
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '2a853fe8a8b1'
++down_revision = '50b192f357d5'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    tc_filters = sa.sql.table(
++        'eayun_qosfilters',
++        sa.sql.column('src_addr'), sa.sql.column('dst_addr'))
++    op.execute(
++        tc_filters.update().where(tc_filters.c.src_addr==None).values(
++            src_addr='0.0.0.0/0'))
++    migration.alter_column_if_exists(
++        'eayun_qosfilters', 'src_addr',
++        type_=sa.types.String(255),
++        nullable=False)
++    op.execute(
++        tc_filters.update().where(tc_filters.c.dst_addr==None).values(
++            dst_addr='0.0.0.0/0'))
++    migration.alter_column_if_exists(
++        'eayun_qosfilters', 'dst_addr',
++        type_=sa.types.String(255),
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py b/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+new file mode 100644
+index 0000000..e4805c8
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/438e98e12504_qos_queue_prio_not_null.py
+@@ -0,0 +1,45 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_queue_prio_not_null
++
++Revision ID: 438e98e12504
++Revises: eayun_portmapping
++Create Date: 2016-07-14 15:54:04.632126
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '438e98e12504'
++down_revision = 'eayun_portmapping'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    queues = sa.sql.table('eayun_qosqueues', sa.sql.column('prio'))
++    op.execute(queues.update().where(queues.c.prio==None).values(prio=0))
++    migration.alter_column_if_exists(
++        'eayun_qosqueues', 'prio',
++        type_=sa.types.Integer,
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/50b192f357d5_qos_queue_ceil_not_null.py b/neutron/db/migration/alembic_migrations/versions/50b192f357d5_qos_queue_ceil_not_null.py
+new file mode 100644
+index 0000000..b36075a
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/50b192f357d5_qos_queue_ceil_not_null.py
+@@ -0,0 +1,47 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_queue_ceil_not_null
++
++Revision ID: 50b192f357d5
++Revises: 438e98e12504
++Create Date: 2016-07-14 17:42:52.903363
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '50b192f357d5'
++down_revision = '438e98e12504'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    queues = sa.sql.table(
++        'eayun_qosqueues', sa.sql.column('rate'), sa.sql.column('ceil'))
++    op.execute(
++        queues.update().where(queues.c.ceil==None).values(ceil=queues.c.rate))
++    migration.alter_column_if_exists(
++        'eayun_qosqueues', 'ceil',
++        type_=sa.types.BigInteger,
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/5108f17d7012_qos_queue_tc_class.py b/neutron/db/migration/alembic_migrations/versions/5108f17d7012_qos_queue_tc_class.py
+new file mode 100644
+index 0000000..0344e1f
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/5108f17d7012_qos_queue_tc_class.py
+@@ -0,0 +1,56 @@
++# Copyright 2016 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_queue_tc_class
++
++Revision ID: 5108f17d7012
++Revises: 2a853fe8a8b1
++Create Date: 2016-07-20 15:23:09.216804
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '5108f17d7012'
++down_revision = '2a853fe8a8b1'
++
++from alembic import op
++import sqlalchemy as sa
++
++
++
++def upgrade():
++    op.create_table(
++        'eayun_qostcclassranges',
++        sa.Column('qos_id', sa.String(length=36), nullable=False),
++        sa.Column('first', sa.Integer(), nullable=False),
++        sa.Column('last', sa.Integer(), nullable=False),
++        sa.PrimaryKeyConstraint('qos_id')
++    )
++    op.create_foreign_key(
++        'fk-eayun_qostcclassranges-qos_id-eayun_qoss',
++        'eayun_qostcclassranges', 'eayun_qoss',
++        ['qos_id'], ['id'],
++        ondelete='CASCADE'
++    )
++    op.add_column(
++        'eayun_qosqueues', sa.Column('tc_class', sa.Integer(), nullable=True)
++    )
++    qos_queues = sa.sql.table('eayun_qosqueues', sa.sql.column('tc_class'))
++    op.execute(qos_queues.update().values(tc_class=None))
++
++
++def downgrade():
++    op.drop_table('eayun_qostcclassranges')
++    op.drop_column('eayun_qosqueues', 'tc_class')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 36542b9..0e01757 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-eayun_portmapping
++5108f17d7012
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 07444fd..f334b48 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -14,18 +14,26 @@
+ #    under the License.
+ 
+ import sqlalchemy as sa
+-from sqlalchemy import orm
++from sqlalchemy import orm, and_, or_
+ from sqlalchemy.orm import exc
+ 
++from neutron.common import constants as n_constants
+ from neutron.db import model_base
+ from neutron.db import models_v2
+ from neutron.db import common_db_mixin as base_db
++from neutron.db import l3_agentschedulers_db as l3_agent_db
+ from neutron.db import l3_db
++from neutron.extensions import agent as ext_agent
+ from neutron.extensions import qos as ext_qos
+ from neutron.openstack.common import uuidutils
+ from neutron.openstack.common import log as logging
+ 
++from neutron import manager
++from neutron.plugins.common import constants
++from neutron.plugins.ml2 import models as ml2_models
++
+ LOG = logging.getLogger(__name__)
++NIC_NAME_LEN = 14
+ 
+ 
+ class Qos(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+@@ -64,11 +72,12 @@ class QosQueue(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     parent_id = sa.Column(sa.String(36),
+                           sa.ForeignKey('eayun_qosqueues.id',
+                                         ondelete='CASCADE'))
+-    prio = sa.Column(sa.Integer)
++    prio = sa.Column(sa.Integer, nullable=False)
+     rate = sa.Column(sa.BigInteger, nullable=False)
+-    ceil = sa.Column(sa.BigInteger)
++    ceil = sa.Column(sa.BigInteger, nullable=False)
+     burst = sa.Column(sa.BigInteger)
+     cburst = sa.Column(sa.BigInteger)
++    tc_class = sa.Column(sa.Integer)
+     qos = orm.relationship(
+         Qos,
+         backref=orm.backref(
+@@ -95,8 +104,8 @@ class QosFilter(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     protocol = sa.Column(sa.Integer)
+     src_port = sa.Column(sa.Integer)
+     dst_port = sa.Column(sa.Integer)
+-    src_addr = sa.Column(sa.String(255))
+-    dst_addr = sa.Column(sa.String(255))
++    src_addr = sa.Column(sa.String(255), nullable=False)
++    dst_addr = sa.Column(sa.String(255), nullable=False)
+     custom_match = sa.Column(sa.String(255))
+     qos = orm.relationship(
+         Qos,
+@@ -107,11 +116,30 @@ class QosFilter(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+         backref=orm.backref('attached_filters', lazy='joined', uselist=True))
+ 
+ 
+-class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
++class QosTcClassRange(model_base.BASEV2):
++    __tablename__ = 'eayun_qostcclassranges'
++    qos_id = sa.Column(sa.String(36),
++                       sa.ForeignKey('eayun_qoss.id', ondelete='CASCADE'),
++                       nullable=False, primary_key=True)
++    first = sa.Column(sa.Integer, nullable=False)
++    last = sa.Column(sa.Integer, nullable=False)
++    qos = orm.relationship(Qos)
++
++
++class QosDb(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+     """ Mixin class to add security group to db_base_plugin_v2. """
+ 
+     __native_bulk_support = True
+ 
++    @property
++    def _core_plugin(self):
++        return manager.NeutronManager.get_plugin()
++
++    @property
++    def _l3_plugin(self):
++        return manager.NeutronManager.get_service_plugins().get(
++            constants.L3_ROUTER_NAT)
++
+     def _get_qos(self, context, id):
+         try:
+             query = self._model_query(context, Qos)
+@@ -120,47 +148,6 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+             raise ext_qos.QosNotFound(id=id)
+         return qos
+ 
+-    def _get_qos_siblings(self, context, router_id, port_id):
+-        if router_id:
+-            return self._model_query(
+-                context, Qos).filter(Qos.router_id == router_id).all()
+-        elif port_id:
+-            return self._model_query(
+-                context, Qos).filter(Qos.port_id == port_id).all()
+-        else:
+-            return []
+-
+-    def _parse_qos_input(self, qos_input):
+-        qos = qos_input['qos']
+-        queue = dict()
+-
+-        if 'rate' in qos:
+-            queue['ceil'] = qos.get('rate')
+-
+-        if 'default_rate' in qos:
+-            queue['rate'] = qos.pop('default_rate')
+-
+-        if 'default_burst' in qos:
+-            queue['burst'] = qos.pop('default_burst')
+-
+-        if 'default_cburst' in qos:
+-            queue['cburst'] = qos.pop('default_cburst')
+-
+-        if 'target_type' not in qos and 'target_id' not in qos:
+-            pass
+-        else:
+-            target_type = qos.pop('target_type')
+-            target_id = qos.pop('target_id')
+-
+-            qos['port_id'] = qos['router_id'] = None
+-            if (target_type is not None and target_id is not None):
+-                if target_type == 'router':
+-                    qos['router_id'] = target_id
+-                elif target_type == 'port':
+-                    qos['port_id'] = target_id
+-
+-        return qos, queue
+-
+     def _make_qos_dict(self, qos, fields=None):
+         res = {'id': qos.id,
+                'tenant_id': qos.tenant_id,
+@@ -193,6 +180,21 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+ 
+         return self._fields(res, fields)
+ 
++    def _extract_default_queue_from_qos_param(self, qos):
++        EXTRACT_MAP = {
++            # param_in_qos: param_in_queue
++            'default_rate': 'rate',
++            'default_burst': 'burst',
++            'default_cburst': 'cburst'}
++        default_queue = {}
++
++        for param_in_qos, param_in_queue in EXTRACT_MAP.iteritems():
++            if param_in_qos in qos:
++                default_queue[param_in_queue] = qos.pop(param_in_qos)
++        if 'rate' in qos:
++            default_queue['ceil'] = qos['rate']
++        return default_queue
++
+     def _aggregate_rate_of_qos(self, qos):
+         return reduce(lambda x, y: x + y,
+                       [q.rate for q in qos.queues if q.parent_queue is None])
+@@ -206,85 +208,120 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+         if self._aggregate_rate_of_qos(qos) + delta > maximum:
+             raise ext_qos.QosRateTooSmall(id=qos.id, rate=maximum)
+ 
++    def _check_qos_target(self, context,
++                          target_type, target_id, qos_direction):
++        ret = {'router_id': None, 'port_id': None}
++        if target_type is not None and target_id is not None:
++            # Need to check
++            try:
++                if target_type == 'port':
++                    target = self._core_plugin.get_port(context, target_id)
++                    if not target['device_owner'].startswith('compute'):
++                        raise ext_qos.QosInvalidPortType(
++                            port_id=target_id,
++                            port_type=target['device_owner'])
++                    ret['port_id'] = target_id
++                elif target_type == 'router':
++                    target = self._l3_plugin.get_router(context, target_id)
++                    ret['router_id'] = target_id
++                else:
++                    # Should not reach
++                    target = None
++            except exc.NoResultFound:
++                raise ext_qos.QosTargetNotFound(target_id=target_id)
++
++            for qos in target.eayun_qoss:
++                if qos.direction == qos_direction:
++                    raise ext_qos.QosConflict()
++        return ret
++
+     def create_qos_bulk(self, context, qos):
+         return self._create_bulk('qos', context, qos)
+ 
+     def create_qos(self, context, qos):
+         """ Create a qos and its default queue. """
+-        qos, queue = self._parse_qos_input(qos)
+-        tenant_id = self._get_tenant_id_for_create(context, qos)
+-
+-        qos_id = qos.get('id') or uuidutils.generate_uuid()
+-        default_queue_id = uuidutils.generate_uuid()
++        qos = qos['qos']
++        default_queue = self._extract_default_queue_from_qos_param(qos)
+ 
+-        if qos['rate'] < queue['rate']:
+-            raise ext_qos.QosRateTooSmall(id=qos_id, rate=qos['rate'])
++        if qos['rate'] < default_queue['rate']:
++            raise ext_qos.QosRateTooSmall(id=None, rate=qos['rate'])
++        qos_target = self._check_qos_target(
++            context, qos['target_type'], qos['target_id'], qos['direction'])
+ 
+-        if qos['router_id']:
+-            self._check_router(context, qos['router_id'], tenant_id)
+-        elif qos['port_id']:
+-            self._check_port(context, qos['port_id'], tenant_id)
+-
+-        siblings = self._get_qos_siblings(
+-            context,
+-            qos['router_id'],
+-            qos['port_id'])
+-        if len(siblings) > 1:
+-            raise ext_qos.QosConflict()
+-        elif len(siblings) > 0:
+-            if siblings[0].direction == qos['direction']:
+-                raise ext_qos.QosConflict()
++        tenant_id = self._get_tenant_id_for_create(context, qos)
++        qos_id = qos.get('id', uuidutils.generate_uuid())
++        default_queue_id = uuidutils.generate_uuid()
+ 
+         with context.session.begin(subtransactions=True):
+             qos_db = Qos(
+                 id=qos_id, tenant_id=tenant_id,
+                 name=qos['name'], description=qos['description'],
+                 direction=qos['direction'],
+-                port_id=qos['port_id'], router_id=qos['router_id'],
++                port_id=qos_target['port_id'],
++                router_id=qos_target['router_id'],
+                 rate=qos['rate'], burst=qos['burst'], cburst=qos['cburst'],
+                 default_queue_id=default_queue_id)
+             qos_queue_db = QosQueue(
+                 id=default_queue_id, tenant_id=tenant_id,
+                 qos_id=qos_id, parent_id=None, prio=7,
+-                rate=queue['rate'], ceil=queue['ceil'],
+-                burst=queue['burst'], cburst=queue['cburst'])
++                rate=default_queue['rate'], ceil=default_queue['ceil'],
++                burst=default_queue['burst'], cburst=default_queue['cburst'])
+             context.session.add(qos_db)
+             context.session.add(qos_queue_db)
+ 
+         return self._make_qos_dict(qos_db)
+ 
+     def update_qos(self, context, id, qos):
+-        qos, queue = self._parse_qos_input(qos)
+-
+-        router_id = qos.get('router_id', None)
+-        port_id = qos.get('port_id', None)
++        qos = qos['qos']
++        default_queue = self._extract_default_queue_from_qos_param(qos)
+ 
+         with context.session.begin(subtransactions=True):
+             qos_db = self._get_qos(context, id)
+-            if router_id:
+-                self._check_router(context, router_id, qos_db.tenant_id)
+-            elif port_id:
+-                self._check_port(context, port_id, qos_db.tenant_id)
+-            qos_queue_db = self._get_qos_queue(context,
+-                                               qos_db.default_queue_id)
+-
++            default_queue_db = self._get_qos_queue(
++                context, qos_db.default_queue_id)
++
++            # Check whether target has been changed
++            orig_target_type = orig_target_id = None
++            if qos_db.router_id:
++                orig_target_type = 'router'
++                orig_target_id = qos_db.router_id
++            elif qos_db.port_id:
++                orig_target_type = 'port'
++                orig_target_id = qos_db.port_id
++
++            target_type = qos.pop('target_type', orig_target_type)
++            target_id = qos.pop('target_id', orig_target_id)
++            if (
++                target_type != orig_target_type or
++                target_id != orig_target_id
++            ):
++                new_qos_target = self._check_qos_target(
++                    context, target_type, target_id, qos_db.direction)
++                qos.update(new_qos_target)
++
++            # Check whether rate scheme has been changed
+             new_rate = qos.get('rate', qos_db.rate)
+-            new_queue_rate = queue.get('rate', qos_queue_db.rate)
+-            rate_delta = new_queue_rate - qos_queue_db.rate
+-            self._check_qos_rate(qos_db, rate_delta, new_rate)
+-
+-            siblings = self._get_qos_siblings(context, router_id, port_id)
+-            # In case original target_id was specified when update
+-            siblings = filter(lambda s: s.id != qos_db.id, siblings)
+-            if len(siblings) > 1:
+-                raise ext_qos.QosConflict()
+-            elif len(siblings) > 0:
+-                if siblings[0].direction == qos_db.direction:
+-                    raise ext_qos.QosConflict()
++            rate_changed = new_rate != qos_db.rate
++            new_queue_rate = default_queue.get('rate', default_queue_db.rate)
++            default_queue_rate_delta = new_queue_rate - default_queue_db.rate
++
++            if default_queue_rate_delta or rate_changed:
++                # Rate scheme has been changed, recheck
++                self._check_qos_rate(
++                    qos_db, default_queue_rate_delta, new_rate)
++            if rate_changed:
++                # Rate changed, check its queues' ceil setting
++                self._set_ceil_for_queues(
++                    new_rate,
++                    [_queue for _queue in qos_db.queues
++                     if _queue.parent_queue is None])
++            else:
++                # Qos rate not changed, remove default_queue['ceil']
++                default_queue.pop('ceil', 0)
+ 
+             qos_db.update(qos)
+-            if queue:
+-                qos_queue_db.update(queue)
++            if default_queue:
++                default_queue_db.update(default_queue)
+ 
+         return self._make_qos_dict(qos_db)
+ 
+@@ -367,6 +404,68 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                 qos_queue_id=qos_queue.qos_id
+             )
+ 
++    @staticmethod
++    def allocate_tc_class_for_queue(context, qos_queue):
++        if qos_queue.tc_class:
++            return
++        tc_class = None
++
++        with context.session.begin(subtransactions=True):
++            try:
++                if qos_queue.id == qos_queue.qos.default_queue_id:
++                    tc_class = 65534
++                else:
++                    tc_class = QosDb._try_allocate_new_tc_class(
++                        context, qos_queue.qos)
++            except ext_qos.AllocateTCClassFailure:
++                QosDb._rebuild_tc_class_range(context, qos_queue.qos)
++
++            if not tc_class:
++                tc_class = QosDb._try_allocate_new_tc_class(
++                    context, qos_queue.qos)
++
++            qos_queue.update({'tc_class': tc_class})
++
++    @staticmethod
++    def _try_allocate_new_tc_class(context, qos):
++        select_range = context.session.query(
++            QosTcClassRange).join(Qos).with_lockmode('update').first()
++        if select_range:
++            new_tc_class = select_range['first']
++            if select_range['first'] == select_range['last']:
++                LOG.debug("No more free tc class id in this slice, deleting "
++                          "range.")
++                context.session.delete(select_range)
++            else:
++                # Increse the first class id in this range
++                select_range['first'] = new_tc_class + 1
++            return new_tc_class
++        raise ext_qos.AllocateTCClassFailure(qos_id=qos.id)
++
++    @staticmethod
++    def _rebuild_tc_class_range(context, qos):
++        LOG.debug("Rebuilding tc class range for qos: %s", qos.id)
++        used_classes = sorted(
++            [1, 65534] +
++            [queue.tc_class for queue in qos.queues
++             if queue.tc_class is not None])
++        for index in range(len(used_classes) - 1):
++            if used_classes[index] + 1 < used_classes[index + 1]:
++                tc_class_range = QosTcClassRange(
++                    qos_id=qos.id,
++                    first=used_classes[index] + 1,
++                    last=used_classes[index+1] - 1)
++                context.session.add(tc_class_range)
++
++    def _set_ceil_for_queues(self, max_ceil, queues):
++        # Called within context.session
++        for queue in queues:
++            if queue.ceil > max_ceil:
++                # Parent ceil changed, change ceil settings of this queue
++                # and its subqueues.
++                queue.ceil = max_ceil
++                self._set_ceil_for_queues(max_ceil, queue.subqueues)
++
+     def create_qos_queue_bulk(self, context, qos_queue):
+         return self._create_bulk('qos_queue', context, qos_queue)
+ 
+@@ -374,6 +473,8 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+         qos_queue = qos_queue['qos_queue']
+ 
+         qos_db = self._get_qos(context, qos_queue['qos_id'])
++        queue_ceil = qos_queue['ceil'] or qos_db.rate
++        queue_ceil = min(queue_ceil, qos_db.rate)
+         if qos_queue['parent_id'] is not None:
+             parent_queue_db = self._get_qos_queue(context,
+                                                   qos_queue['parent_id'])
+@@ -381,6 +482,7 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                 raise ext_qos.QosParentQueueInUse(parent_id=parent_queue_db.id)
+             self._check_queue_in_qos(qos_db.id, parent_queue_db)
+             self._check_qos_queue_rate(parent_queue_db, qos_queue['rate'])
++            queue_ceil = min(queue_ceil, parent_queue_db.ceil)
+         else:
+             self._check_qos_rate(qos_db, qos_queue['rate'])
+         tenant_id = self._get_tenant_id_for_create(context, qos_queue)
+@@ -390,7 +492,7 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                 id=qos_queue_id, tenant_id=tenant_id,
+                 qos_id=qos_queue['qos_id'], parent_id=qos_queue['parent_id'],
+                 prio=qos_queue['prio'],
+-                rate=qos_queue['rate'], ceil=qos_queue['ceil'],
++                rate=qos_queue['rate'], ceil=queue_ceil,
+                 burst=qos_queue['burst'], cburst=qos_queue['cburst'])
+             context.session.add(qos_queue_db)
+ 
+@@ -407,14 +509,27 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+                     qos_queue_id=id)
+             new_rate = qos_queue.get('rate', qos_queue_db.rate)
+             rate_delta = new_rate - qos_queue_db.rate
++            if rate_delta:
++                if qos_queue_db.subqueues:
++                    # Check new rate can afford its subqueues' need
++                    self._check_qos_queue_rate(qos_queue_db, 0, new_rate)
++                if qos_queue_db.parent_queue:
++                    # Check parent queue can afford the delta
++                    self._check_qos_queue_rate(qos_queue_db.parent_queue,
++                                               rate_delta)
++                else:
++                    # Check parent qos can afford the delta
++                    self._check_qos_rate(qos_queue_db.qos, rate_delta)
++
++            new_ceil = qos_queue.get('ceil', qos_queue_db.ceil)
++            # New ceil should not exceed its parent's ceil
+             if qos_queue_db.parent_queue:
+-                self._check_qos_queue_rate(qos_queue_db.parent_queue,
+-                                           rate_delta)
++                new_ceil = min(new_ceil, qos_queue_db.parent_queue.ceil)
+             else:
+-                self._check_qos_rate(qos_queue_db.qos, rate_delta)
+-            if qos_queue_db.subqueues:
+-                new_rate = qos_queue.get('rate', qos_queue_db.rate)
+-                self._check_qos_queue_rate(qos_queue_db, 0, new_rate)
++                new_ceil = min(new_ceil, qos_queue_db.qos.rate)
++            if new_ceil < qos_queue_db.ceil:
++                # Ceil changed to a smaller value
++                self._set_ceil_for_queues(new_ceil, qos_queue_db.subqueues)
+             qos_queue_db.update(qos_queue)
+         return self._make_qos_queue_dict(qos_queue_db)
+ 
+@@ -520,7 +635,7 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+             qos_filter_db.update(qos_filter)
+         return self._make_qos_filter_dict(qos_filter_db)
+ 
+-    def delete_qos_filter(self,  context, id):
++    def delete_qos_filter(self, context, id):
+         qos_filter = self._get_qos_filter(context, id)
+         with context.session.begin(subtransactions=True):
+             context.session.delete(qos_filter)
+@@ -540,3 +655,161 @@ class QosDbMixin(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+     def get_qos_filter(self, context, id, fields=None):
+         qos_filter = self._get_qos_filter(context, id)
+         return self._make_qos_filter_dict(qos_filter, fields)
++
++
++class QosPluginRpcDbMixin(object):
++
++    def _get_devices_for_qos(self, qos):
++        if qos.router:
++            if qos.direction == 'egress':
++                prefix = 'qg-'
++                ports = [qos.router.gw_port_id]
++            else:
++                prefix = 'qr-'
++                ports = [
++                    p.port_id
++                    for p in qos.router.attached_ports
++                    if p.port_id != qos.router.gw_port_id
++                ]
++        elif qos.port:
++            ports = [qos.port_id]
++            prefix = 'qvb' if qos.direction == 'egress' else 'qvo'
++        return [("%s%s" % (prefix, port))[:NIC_NAME_LEN] for port in ports]
++
++    def _make_qos_filter_dict_for_agent(self, qos_filter):
++        qos_filter_dict = {'prio': qos_filter.prio,
++                           'src_addr': qos_filter.src_addr,
++                           'dst_addr': qos_filter.dst_addr}
++        if qos_filter.protocol:
++            qos_filter_dict['protocol'] = qos_filter.protocol
++        if qos_filter.src_port:
++            qos_filter_dict['src_port'] = qos_filter.src_port
++        if qos_filter.dst_port:
++            qos_filter_dict['dst_port'] = qos_filter.dst_port
++        return qos_filter_dict
++
++    def _make_qos_queue_dict_for_agent(self, qos_queue):
++        qos_queue_dict = {'rate': qos_queue.rate,
++                          'ceil': qos_queue.ceil,
++                          'prio': qos_queue.prio}
++        if qos_queue.subqueues:
++            qos_queue_dict['subclasses'] = [
++                subqueue.tc_class for subqueue in qos_queue.subqueues]
++        elif qos_queue.attached_filters:
++            qos_queue_dict['filters'] = [
++                self._make_qos_filter_dict_for_agent(qos_filter)
++                for qos_filter in qos_queue.attached_filters
++            ]
++        if qos_queue.parent_queue:
++            qos_queue_dict['parent'] = qos_queue.parent_queue.tc_class
++        else:
++            qos_queue_dict['parent'] = 1
++        if qos_queue.burst:
++            qos_queue_dict['burst'] = qos_queue.burst
++        if qos_queue.cburst:
++            qos_queue_dict['cburst'] = qos_queue.cburst
++        return qos_queue_dict
++
++    def _get_qos_conf_scheme(self, context, qos):
++        root_class = {'rate': qos.rate, 'ceil': qos.rate, 'subclasses': [],
++                      'prio': 0}
++        if qos.burst:
++            root_class['burst'] = qos.burst
++        if qos.cburst:
++            root_class['cburst'] = qos.cburst
++
++        scheme = {}
++        effective_queues = {}
++        for queue in qos.queues:
++            if queue.attached_filters or queue.id == qos.default_queue_id:
++                _queue = queue
++                while _queue is not None:
++                    try:
++                        self.allocate_tc_class_for_queue(context, _queue)
++                    except ext_qos.AllocateTCClassFailure:
++                        LOG.warn("Failed to allocate tc class for queue %s.",
++                                 _queue.id)
++                        # Don't apply any qos scheme for this qos because the
++                        # number of queues exceeds Linux's support(65535).
++                        # However, this should RARELY happen.
++                        return None
++                    if _queue.id not in effective_queues:
++                        effective_queues[_queue.id] = _queue
++                        _queue = _queue.parent_queue
++                    else:
++                        # Current queue and its ancestors are all recorded.
++                        _queue = None
++
++        for queue in effective_queues.values():
++            scheme[queue.tc_class] = self._make_qos_queue_dict_for_agent(queue)
++            if queue.parent_queue is None:
++                root_class['subclasses'].append(queue.tc_class)
++
++        # Add root class
++        scheme[1] = root_class
++        return scheme
++
++    def _get_qos_for_agent(self, context, qos):
++        scheme = self._get_qos_conf_scheme(context, qos)
++        if scheme is None:
++            return None
++        return {'devices': self._get_devices_for_qos(qos),
++                'scheme': scheme}
++
++    def sync_qos(self, context, host):
++        try:
++            l3_agent = self._core_plugin._get_agent_by_type_and_host(
++                context, n_constants.AGENT_TYPE_L3, host)
++            if not l3_agent.is_active:
++                # L3 agent is dead, return nothing for routers
++                raise ext_agent.AgentNotFoundByTypeHost(
++                    agent_type=n_constants.AGENT_TYPE_L3,
++                    host=host)
++            binding_query = context.session.query(
++                l3_agent_db.RouterL3AgentBinding.router_id
++            ).filter(
++                l3_agent_db.RouterL3AgentBinding.l3_agent_id == l3_agent.id)
++            routers_bound_to_host = set(
++                binding.router_id for binding in binding_query)
++            router_query = context.session.query(
++                l3_db.Router
++            ).filter(
++                l3_db.Router.router_id.in_(routers_bound_to_host)
++            ).filter(
++                l3_db.Router.admin_state_up.is_(True))
++            routers_on_host = set(router.id for router in router_query)
++        except ext_agent.AgentNotFoundByTypeHost:
++            routers_on_host = set()
++
++        port_query = context.session.query(ml2_models.PortBinding)
++        port_query = port_query.filter(ml2_models.PortBinding.host == host)
++        ports_on_host = set(binding.port_id for binding in port_query)
++
++        query = context.session.query(Qos)
++        query = query.filter(
++            or_(
++                and_(Qos.router_id.isnot(None),
++                     Qos.router_id.in_(routers_on_host)),
++                and_(Qos.port_id.isnot(None),
++                     Qos.port_id.in_(ports_on_host))
++            )
++        )
++
++        qoss_on_host = {}
++        for qos in query.all():
++            namespace = None
++            if qos.router_id:
++                namespace = 'qrouter-' + qos.router_id
++                if namespace not in qoss_on_host:
++                    qoss_on_host[namespace] = []
++            elif qos.port_id:
++                if '_root' not in qoss_on_host:
++                    qoss_on_host['_root'] = []
++                namespace = '_root'
++
++            if namespace:
++                qos_for_agent = self._get_qos_for_agent(context, qos)
++                if qos_for_agent:
++                    qoss_on_host[namespace].append(qos_for_agent)
++
++        return qoss_on_host
+diff --git a/neutron/db/qos/qos_rpc.py b/neutron/db/qos/qos_rpc.py
+deleted file mode 100644
+index 0906852..0000000
+--- a/neutron/db/qos/qos_rpc.py
++++ /dev/null
+@@ -1,217 +0,0 @@
+-# Copyright (c) 2015 Eayun, Inc.
+-# All rights reserved.
+-#
+-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+-#    not use this file except in compliance with the License. You may obtain
+-#    a copy of the License at
+-#
+-#         http://www.apache.org/licenses/LICENSE-2.0
+-#
+-#    Unless required by applicable law or agreed to in writing, software
+-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+-#    License for the specific language governing permissions and limitations
+-#    under the License.
+-
+-from oslo import messaging
+-
+-from neutron.db.qos import qos_db
+-from neutron import manager
+-from neutron.extensions import qos as ext_qos
+-from neutron.openstack.common import log as logging
+-from neutron.plugins.common import constants as service_constants
+-from neutron.plugins.ml2 import db  # hacky
+-
+-LOG = logging.getLogger(__name__)
+-
+-NIC_NAME_LEN = 14
+-
+-
+-class QosServerRpcServerMixin(qos_db.QosDbMixin):
+-
+-    def _get_host_from_qos_id(self, context, qos_id):
+-        qos = self._get_qos(context, qos_id)
+-        if qos['router_id'] is not None:
+-            plugin = manager.NeutronManager.get_service_plugins().get(
+-                service_constants.L3_ROUTER_NAT)
+-            adminContext = context if context.is_admin else context.elevated()
+-            l3_agents = plugin.get_l3_agents_hosting_routers(
+-                adminContext, [qos['router_id']],
+-                admin_state_up=True, active=True)
+-            return l3_agents[0].host
+-        elif qos['port_id'] is not None:
+-            """
+-            plugin = manager.NeutronManager.get_plugin()
+-            adminContext = context if context.is_admin else context.elevated()
+-            return plugin.get_port_binding_host(adminContext, qos['port_id'])
+-            """
+-            return db.get_port_binding_host(qos['port_id'])
+-        else:
+-            return None
+-
+-    def _get_qos_on_host(self, context, host):
+-        hosting_qos = dict()
+-        for qos in self.get_qoss(context):
+-            if host == self._get_host_from_qos_id(context, qos['id']):
+-                qos.pop('unattached_filters')
+-                qos.update(
+-                    {'devices': self._get_qos_devices(context, qos['id'])})
+-                hosting_qos[qos['id']] = qos
+-
+-        return hosting_qos
+-
+-    def _get_qos_devices(self, context, qos_id):
+-        ret = []
+-        qos_db = self._get_qos(context, qos_id)
+-        if qos_db.router_id is not None:
+-            plugin = manager.NeutronManager.get_service_plugins().get(
+-                service_constants.L3_ROUTER_NAT)
+-            adminContext = context if context.is_admin else context.elevated()
+-            # A bit hacky here
+-            router = plugin._get_router(adminContext, qos_db.router_id)
+-            if qos_db.direction == 'egress':
+-                if router.gw_port_id:
+-                    ret.append(("qg-%s" % router.gw_port_id)[:NIC_NAME_LEN])
+-            else:
+-                for rp in router.attached_ports:
+-                    if rp.port_id != router.gw_port_id:
+-                        ret.append(("qr-%s" % rp.port_id)[:NIC_NAME_LEN])
+-        elif qos_db.port_id is not None:
+-            prefix = 'qvo' if qos_db.direction == 'ingress' else 'qvb'
+-            ret.append(("%s%s" % (prefix, qos_db.port_id))[:NIC_NAME_LEN])
+-
+-        return ret
+-
+-    def _check_port(self, context, port_id, tenant_id):
+-        plugin = manager.NeutronManager.get_plugin()
+-        adminContext = context if context.is_admin else context.elevated()
+-        port = plugin.get_port(adminContext, port_id)
+-        if not port['device_owner'].startswith('compute'):
+-            raise ext_qos.QosInvalidPortType(
+-                port_id=port_id, port_type=port['device_owner'])
+-        if not port['tenant_id'] == tenant_id:
+-            raise ext_qos.QosTargetNotOwnedByTenant(target_id=port_id)
+-
+-    def _check_router(self, context, router_id, tenant_id):
+-        plugin = manager.NeutronManager.get_service_plugins().get(
+-            service_constants.L3_ROUTER_NAT)
+-        adminContext = context if context.is_admin else context.elevated()
+-        router = plugin.get_router(adminContext, router_id)
+-        if not router['tenant_id'] == tenant_id:
+-            raise ext_qos.QosTargetNotOwnedByTenant(target_id=router_id)
+-
+-    def sync_qos(self, context, qos_list, host):
+-        hosting_qos = self._get_qos_on_host(context, host)
+-        deleted_qos = filter(lambda qos: qos not in hosting_qos, qos_list)
+-
+-        for qos in qos_list:
+-            if qos in hosting_qos:
+-                hosting_qos.pop(qos)
+-
+-        return {'deleted': deleted_qos, 'added': hosting_qos.values()}
+-
+-    def create_qos(self, context, qos):
+-        qos = super(
+-            QosServerRpcServerMixin, self
+-        ).create_qos(context, qos)
+-        host = self._get_host_from_qos_id(context, qos['id'])
+-        unattached_filters = qos.pop('unattached_filters')
+-        qos.update({'devices': self._get_qos_devices(context, qos['id'])})
+-        self.notifier.qos_created(context, qos, host)
+-        qos.update({'unattached_filters': unattached_filters})
+-        qos.pop('devices')
+-        return qos
+-
+-    def update_qos(self, context, id, qos):
+-        host_prev = self._get_host_from_qos_id(context, id)
+-        qos = super(
+-            QosServerRpcServerMixin, self
+-        ).update_qos(context, id, qos)
+-        host = self._get_host_from_qos_id(context, id)
+-        if host_prev != host:
+-            # assoicated port or router may be changed
+-            self.notifier.qos_moved(context, id, host_prev)
+-        unattached_filters = qos.pop('unattached_filters')
+-        qos.update({'devices': self._get_qos_devices(context, id)})
+-        self.notifier.qos_updated(context, qos, host)
+-        qos.update({'unattached_filters': unattached_filters})
+-        qos.pop('devices')
+-        return qos
+-
+-    def delete_qos(self, context, id):
+-        host = self._get_host_from_qos_id(context, id)
+-        super(
+-            QosServerRpcServerMixin, self
+-        ).delete_qos(context, id)
+-        self.notifier.qos_deleted(context, id, host)
+-
+-    def create_qos_queue(self, context, qos_queue):
+-        qos_queue = super(
+-            QosServerRpcServerMixin, self
+-        ).create_qos_queue(context, qos_queue)
+-        host = self._get_host_from_qos_id(context, qos_queue['qos_id'])
+-        self.notifier.qos_queue_created(context, qos_queue, host)
+-        return qos_queue
+-
+-    def update_qos_queue(self, context, id, qos_queue):
+-        qos_queue = super(
+-            QosServerRpcServerMixin, self
+-        ).update_qos_queue(context, id, qos_queue)
+-        host = self._get_host_from_qos_id(context, qos_queue['qos_id'])
+-        self.notifier.qos_queue_updated(context, qos_queue, host)
+-        return qos_queue
+-
+-    def delete_qos_queue(self, context, id):
+-        qos_queue = self._get_qos_queue(context, id)
+-        host = self._get_host_from_qos_id(context, qos_queue['qos_id'])
+-        super(
+-            QosServerRpcServerMixin, self
+-        ).delete_qos_queue(context, id)
+-        self.notifier.qos_queue_deleted(context, id, host)
+-
+-    def create_qos_filter(self, context, qos_filter):
+-        qos_filter = super(
+-            QosServerRpcServerMixin, self
+-        ).create_qos_filter(context, qos_filter)
+-        if qos_filter['queue_id']:
+-            host = self._get_host_from_qos_id(context, qos_filter['qos_id'])
+-            self.notifier.qos_filter_created(context, qos_filter, host)
+-        return qos_filter
+-
+-    def update_qos_filter(self, context, id, qos_filter):
+-        orig_queue_id = self.get_qos_filter(context, id)['queue_id']
+-        qos_filter = super(
+-            QosServerRpcServerMixin, self
+-        ).update_qos_filter(context, id, qos_filter)
+-        host = self._get_host_from_qos_id(context, qos_filter['qos_id'])
+-        if orig_queue_id is None:
+-            if qos_filter['queue_id']:
+-                self.notifier.qos_filter_created(context, qos_filter, host)
+-        else:
+-            if qos_filter['queue_id'] is None:
+-                self.notifier.qos_filter_deleted(context, id, host)
+-            else:
+-                self.notifier.qos_filter_updated(context, qos_filter, host)
+-        return qos_filter
+-
+-    def delete_qos_filter(self, context, id):
+-        qos_filter = self.get_qos_filter(context, id)
+-        super(
+-            QosServerRpcServerMixin, self
+-        ).delete_qos_filter(context, id)
+-        if qos_filter['queue_id']:
+-            host = self._get_host_from_qos_id(context, qos_filter['qos_id'])
+-            self.notifier.qos_filter_deleted(context, id, host)
+-
+-
+-class QosRpcCallbacks(object):
+-
+-    target = messaging.Target(version='1.0')
+-
+-    def __init__(self, qos_plugin):
+-        self.qos_plugin = qos_plugin
+-
+-    def sync_qos(self, context, **kwargs):
+-        qos_list = kwargs.get('qos_list')
+-        host = kwargs.get('host')
+-        return self.qos_plugin.sync_qos(context, qos_list, host)
+diff --git a/neutron/extensions/qos.py b/neutron/extensions/qos.py
+index 2f1055c..8d4a44f 100644
+--- a/neutron/extensions/qos.py
++++ b/neutron/extensions/qos.py
+@@ -123,9 +123,12 @@ class QosInvalidPortValue(nexception.InvalidInput):
+                 "It must be None or between 1 to 65535.")
+ 
+ 
+-class QosTargetNotOwnedByTenant(nexception.Conflict):
+-    message = _("The following target %(target_id)s is not owned by your "
+-                "tenant.")
++class QosTargetNotFound(nexception.Conflict):
++    message = _("The following target %(target_id)s cannot be found.")
++
++
++class AllocateTCClassFailure(nexception.Conflict):
++    message = _("No more available tc class for qos %(qos_id)s.")
+ 
+ 
+ def convert_to_tc_u32(value):
+@@ -206,7 +209,7 @@ def convert_to_filter_prio(value):
+ 
+ def convert_to_queue_prio(value):
+     try:
+-        value = convert_to_tc_u32_or_none(value)
++        value = convert_to_tc_u32(value)
+         if not value <= 7:
+             raise ValueError
+         return value
+@@ -304,7 +307,7 @@ RESOURCE_ATTRIBUTE_MAP = {
+                       'is_visible': True, 'default': None,
+                       'validate': {'type:uuid_or_none': None}},
+         'prio': {'allow_post': True, 'allow_put': True,
+-                 'is_visible': True, 'default': None,
++                 'is_visible': True, 'default': 0,
+                  'convert_to': convert_to_queue_prio},
+         'rate': {'allow_post': True, 'allow_put': True,
+                  'is_visible': True,
+@@ -349,10 +352,10 @@ RESOURCE_ATTRIBUTE_MAP = {
+                      'is_visible': True, 'default': None,
+                      'convert_to': convert_to_port},
+         'src_addr': {'allow_post': True, 'allow_put': True,
+-                     'is_visible': True, 'default': None,
++                     'is_visible': True, 'default': '0.0.0.0/0',
+                      'validate': {'type:subnet_or_none': None}},
+         'dst_addr': {'allow_post': True, 'allow_put': True,
+-                     'is_visible': True, 'default': None,
++                     'is_visible': True, 'default': '0.0.0.0/0',
+                      'validate': {'type:subnet_or_none': None}},
+         'custom_match': {'allow_post': True, 'allow_put': True,
+                          'is_visible': True, 'default': None,
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index cbe2aaf..f3d373e 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -14,559 +14,102 @@
+ #    under the License.
+ 
+ import sys
+-import uuid
+ import eventlet
+-eventlet.monkey_patch()
+-
+ 
+ from oslo.config import cfg
+ 
+-from neutron.api.rpc.agentnotifiers import qos_rpc_agent_api
+ from neutron.agent.common import config
+ from neutron.agent import rpc as agent_rpc
+-from neutron.agent.linux import utils
+ from neutron.common import config as common_config
++from neutron.common import rpc as n_rpc
+ from neutron.common import topics
+ from neutron.openstack.common import service
+ from neutron.openstack.common import log as logging
++from neutron.openstack.common import lockutils
+ from neutron.openstack.common import loopingcall
+ from neutron.openstack.common import periodic_task
++from neutron.services.qos.agents.tc_manager import TcManager
++from neutron.services.qos.common import topics as qos_topics
+ from neutron import service as neutron_service
+ from neutron import context
+ from neutron import manager
+ 
++eventlet.monkey_patch()
+ LOG = logging.getLogger(__name__)
+ 
+-# Qos Info Dictionary:
+-# Qos:
+-# {
+-#     'id': {
+-#         'target_type': xxx,
+-#         'target_id': xxx,
+-#         'devices': [],
+-#         'rate': xxx,
+-#         'burst': xxx,
+-#         'cburst': xxx,
+-#         'default_queue_id': xxx
+-#         'queues': [xxx, ...]
+-#         'registered_classes': {
+-#             '1':  'me'
+-#             'fffe': 'default_queue_id'
+-#             'class1': 'queue_id1'
+-#         },
+-#     },
+-#     'id2': {
+-#     },
+-# }
+-# Queue:
+-# {
+-#     'id': {
+-#         'qos_id': xxx,
+-#         'class': xxx,
+-#         'parent_id': xxx,
+-#         'prio': xxx,
+-#         'rate': xxx,
+-#         'ceil' xxx,
+-#         'burst': xxx,
+-#         'cburst': xxx,
+-#         'subqueues': [xxx, ...],
+-#         'filters': [xxx, ...],
+-#     },
+-#     'id2': {
+-#     },
+-# }
+-# Filter:
+-# {
+-#     'id': {
+-#         'qos_id': xxx,
+-#         'queue_id': xxx,
+-#         'prio': xxx,
+-#         'protocol': xxx,
+-#         'src_port' xxx,
+-#         'dst_port': xxx,
+-#         'src_addr': xxx,
+-#         'dst_addr': xxx,
+-#         'custom_match': xxx,
+-#     },
+-#     'id2': {
+-#     },
+-# }
++
++class QosPluginRpc(n_rpc.RpcProxy):
++
++    RPC_API_VERSION = '1.0'
++
++    def __init__(self, topic, host):
++        super(QosPluginRpc, self).__init__(
++            topic=topic, default_version=self.RPC_API_VERSION)
++        self.host = host
++
++    def sync_qos(self, context):
++        return self.call(
++            context,
++            self.make_msg('sync_qos', host=self.host))
+ 
+ 
+-class QosAgent(qos_rpc_agent_api.QosPluginRpc, manager.Manager):
++class QosAgent(manager.Manager):
+ 
+     Opts = [
+         cfg.IntOpt('report_interval', default=300,
+                    help=_("Interval between two qos reports")),
+     ]
+ 
++    RPC_API_VERSION = '1.0'
++
+     def __init__(self, host, conf=None):
++        super(QosAgent, self).__init__(host=host)
+         self.conf = conf or cfg.CONF
+         self.context = context.get_admin_context_without_session()
+         self.host = host
+-        self.qos_info = {'qos': {}, 'queue': {}, 'filter': {}}
+         self.root_helper = config.get_root_helper(self.conf)
+-        super(QosAgent, self).__init__(host=host)
+-
+-    def _run_tc(self, cmd, namespace='', check_exit_code=False):
+-        if namespace:
+-            cmd = ['ip', 'netns', 'exec', namespace] + cmd
+-        return utils.execute(cmd, root_helper=self.root_helper,
+-                             check_exit_code=check_exit_code)
+-
+-    def _tc_add_qos(self, qos_id):
+-        qos = self.qos_info['qos'][qos_id]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        rate = ("%sbps" % qos['rate'])
+-        ceil = ("%sbps" % qos['rate'])
+-        for device in qos['devices']:
+-            # delete the existing one in case of agent has restarted
+-            del_qdisc = [
+-                'tc', 'qdisc', 'del', 'dev', device,
+-                'root', 'handle', '1:', 'htb'
+-            ]
+-            self._run_tc(del_qdisc, namespace)
+-
+-            add_qdisc = [
+-                'tc', 'qdisc', 'replace', 'dev', device,
+-                'root', 'handle', '1:', 'htb', 'default', 'fffe'
+-            ]
+-            add_class = [
+-                'tc', 'class', 'replace', 'dev', device,
+-                'parent', '1:0', 'classid', '1:1', 'htb',
+-                'rate', rate, 'ceil', ceil
+-            ]
+-            if qos['burst']:
+-                add_class.extend(['burst', qos['burst']])
+-            if qos['cburst']:
+-                add_class.extend(['cburst', qos['cburst']])
+-
+-            self._run_tc(add_qdisc, namespace, check_exit_code=True)
+-            self._run_tc(add_class, namespace)
+-
+-    def _tc_update_qos(self, qos_id):
+-        qos = self.qos_info['qos'][qos_id]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        rate = ("%sbps" % qos['rate'])
+-        ceil = ("%sbps" % qos['rate'])
+-        for device in qos['devices']:
+-            change_class = [
+-                'tc', 'class', 'change', 'dev', device,
+-                'parent', '1:0', 'classid', '1:1', 'htb',
+-                'rate', rate, 'ceil', ceil
+-            ]
+-            if qos['burst']:
+-                change_class.extend(['burst', qos['burst']])
+-            if qos['cburst']:
+-                change_class.extend(['cburst', qos['cburst']])
+-
+-            self._run_tc(change_class, namespace)
+-
+-    def _tc_delete_qos(self, qos_id):
+-        qos = self.qos_info['qos'][qos_id]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        for device in qos['devices']:
+-            del_qdisc = [
+-                'tc', 'qdisc', 'del', 'dev', device,
+-                'root', 'handle', '1:', 'htb'
+-            ]
+-            self._run_tc(del_qdisc, namespace)
+-
+-    def _tc_add_queue(self, queue_id):
+-        queue = self.qos_info['queue'][queue_id]
+-        qos = self.qos_info['qos'][queue['qos_id']]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        if queue['parent_id']:
+-            parent_class = self.qos_info['queue'][queue['parent_id']]['class']
+-        else:
+-            parent_class = 1
+-        parent_id = "1:%s" % parent_class
+-        class_id = "1:%s" % queue['class']
+-        rate = ("%sbps" % queue['rate'])
+-        for device in qos['devices']:
+-            add_class = [
+-                'tc', 'class', 'replace', 'dev', device,
+-                'parent', parent_id, 'classid', class_id, 'htb',
+-                'rate', rate
+-            ]
+-            if queue['prio']:
+-                add_class.extend(['prio', queue['prio']])
+-            if queue['ceil']:
+-                ceil = ("%sbps" % queue['ceil'])
+-                add_class.extend(['ceil', ceil])
+-            if queue['burst']:
+-                add_class.extend(['burst', queue['burst']])
+-            if queue['cburst']:
+-                add_class.extend(['cburst', queue['cburst']])
+-
+-            self._run_tc(add_class, namespace)
+-            add_sfq_qdisc = [
+-                'tc', 'qdisc', 'add', 'dev', device,
+-                'parent', class_id, 'handle', '%s:0' % queue['class'],
+-                'sfq'
+-            ]
+-            self._run_tc(add_sfq_qdisc, namespace)
+-
+-    def _tc_update_queue(self, queue_id):
+-        queue = self.qos_info['queue'][queue_id]
+-        qos = self.qos_info['qos'][queue['qos_id']]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        if queue['parent_id']:
+-            parent_class = self.qos_info['queue'][queue['parent_id']]['class']
+-        else:
+-            parent_class = 1
+-        parent_id = "1:%s" % parent_class
+-        class_id = "1:%s" % queue['class']
+-        rate = ("%sbps" % queue['rate'])
+-        for device in qos['devices']:
+-            change_class = [
+-                'tc', 'class', 'change', 'dev', device,
+-                'parent', parent_id, 'classid', class_id, 'htb',
+-                'rate', rate
+-            ]
+-            if queue['prio']:
+-                change_class.extend(['prio', queue['prio']])
+-            if queue['ceil']:
+-                ceil = ("%sbps" % queue['ceil'])
+-                change_class.extend(['ceil', ceil])
+-            if queue['burst']:
+-                change_class.extend(['burst', queue['burst']])
+-            if queue['cburst']:
+-                change_class.extend(['cburst', queue['cburst']])
+-
+-            self._run_tc(change_class, namespace)
+-            add_sfq_qdisc = [
+-                'tc', 'qdisc', 'add', 'dev', device,
+-                'parent', class_id, 'handle', '%s:0' % queue['class'],
+-                'sfq'
+-            ]
+-            self._run_tc(add_sfq_qdisc, namespace)
+-
+-    def _tc_delete_queue(self, queue_id):
+-        queue = self.qos_info['queue'][queue_id]
+-        qos = self.qos_info['qos'][queue['qos_id']]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        if queue['parent_id']:
+-            parent_class = self.qos_info['queue'][queue['parent_id']]['class']
+-        else:
+-            parent_class = 1
+-        parent_id = "1:%s" % parent_class
+-        class_id = "1:%s" % queue['class']
+-        for device in qos['devices']:
+-            delete_class = [
+-                'tc', 'class', 'del', 'dev', device,
+-                'parent', parent_id, 'classid', class_id
+-            ]
+-            self._run_tc(delete_class, namespace)
+-
+-    def _tc_add_filter(self, filter_id):
+-        qf = self.qos_info['filter'][filter_id]
+-        qos = self.qos_info['qos'][qf['qos_id']]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        flowid = "1:%s" % self.qos_info['queue'][qf['queue_id']]['class']
+-        for device in qos['devices']:
+-            add_filter = [
+-               'tc', 'filter', 'add', 'dev', device,
+-               'protocol', 'ip', 'parent', '1:0', 'prio', qf['prio']
+-            ]
+-            selector = []
+-            selector.extend(['u32'])
+-            if qf['protocol']:
+-                selector.extend([
+-                    'match', 'ip', 'protocol', qf['protocol'], '0xff'
+-                ])
+-            if qf['src_port']:
+-                selector.extend([
+-                    'match', 'ip', 'sport', qf['src_port'], '0xffff'
+-                ])
+-            if qf['dst_port']:
+-                selector.extend([
+-                    'match', 'ip', 'dport', qf['dst_port'], '0xffff'
+-                ])
+-            if qf['src_addr']:
+-                selector.extend([
+-                    'match', 'ip', 'src', qf['src_addr']
+-                ])
+-            if qf['dst_addr']:
+-                selector.extend([
+-                    'match', 'ip', 'dst', qf['dst_addr']
+-                ])
+-            if len(selector) > 1:
+-                add_filter.extend(selector)
+-            else:
+-                # No selectors specified, give a default one
+-                add_filter.extend([
+-                    'u32', 'match', 'ip', 'src', '0.0.0.0/0'
+-                ])
+-            add_filter.extend(['flowid', flowid])
+-
+-            self._run_tc(add_filter, namespace)
+-
+-    def _tc_delete_filter(self, filter_id):
+-        qf = self.qos_info['filter'][filter_id]
+-        qos = self.qos_info['qos'][qf['qos_id']]
+-
+-        if qos['target_type'] == 'router':
+-            namespace = ("qrouter-%s" % qos['target_id'])
+-        else:
+-            namespace = ''
+-
+-        for device in qos['devices']:
+-            del_filter = [
+-               'tc', 'filter', 'del', 'dev', device,
+-               'protocol', 'ip', 'parent', '1:0', 'prio', qf['prio']
+-            ]
+-            self._run_tc(del_filter, namespace)
+-
+-    # Here start the deletion part
+-    def _remove_queue_from_qos(self, queue_id):
+-        queue = self.qos_info['queue'][queue_id]
+-        qos_id = queue['qos_id']
+-        registered_class = queue['class']
+-
+-        qos = self.qos_info['qos'][qos_id]
+-        qos['queues'].remove(queue_id)
+-        qos['registered_classes'].pop(registered_class)
+-
+-    def _remove_subqueue_from_queue(self, subqueue_id):
+-        subqueue = self.qos_info['queue'][subqueue_id]
+-        parent_queue_id = subqueue['parent_id']
+-        parent_queue = self.qos_info['queue'][parent_queue_id]
+-        parent_queue['subqueues'].remove(subqueue_id)
+-
+-    def _remove_filter_from_queue(self, filter_id):
+-        queue_id = self.qos_info['filter'][filter_id]['queue_id']
+-        self.qos_info['queue'][queue_id]['filters'].remove(filter_id)
+-
+-    def _delete_qos(self, qos_id, info_only=False):
+-        if not info_only:
+-            self._tc_delete_qos(qos_id)
+-        for queue_id in self.qos_info['qos'][qos_id]['queues']:
+-            self._delete_queue(queue_id, info_only=True)
+-        del self.qos_info['qos'][qos_id]
+-
+-    def _delete_queue(self, queue_id, info_only=False):
+-        for filter_id in self.qos_info['queue'][queue_id]['filters']:
+-            self._delete_filter(filter_id, info_only=info_only)
+-        for subqueue_id in self.qos_info['queue'][queue_id]['subqueues']:
+-            self._delete_queue(subqueue_id, info_only=info_only)
+-        if not info_only:
+-            self._tc_delete_queue(queue_id)
+-        if self.qos_info['queue'][queue_id]['parent_id']:
+-            self._remove_subqueue_from_queue(queue_id)
+-        self._remove_queue_from_qos(queue_id)
+-        del self.qos_info['queue'][queue_id]
+-
+-    def _delete_filter(self, filter_id, info_only=False):
+-        self._remove_filter_from_queue(filter_id)
+-        if not info_only:
+-            self._tc_delete_filter(filter_id)
+-        del self.qos_info['filter'][filter_id]
+-
+-    # Here start the addition part
+-    def _add_queue_to_qos(self, queue_id):
+-        queue = self.qos_info['queue'][queue_id]
+-        qos_id = queue['qos_id']
+-
+-        qos = self.qos_info['qos'][qos_id]
+-        qos['queues'].append(queue_id)
+-
+-        if qos['default_queue_id'] == queue_id:
+-            class_id = 'fffe'
+-        else:
+-            class_id = queue_id[:4]
+-            while class_id in qos['registered_classes']:
+-                class_id = str(uuid.uuid4())[:4]
+-            qos['registered_classes'].update({class_id: queue_id})
+-
+-        queue.update({'class': class_id})
+-
+-    def _add_subqueue_to_parent(self, subqueue_id):
+-        subqueue = self.qos_info['queue'][subqueue_id]
+-        parent_queue_id = subqueue['parent_id']
+-        if parent_queue_id:
+-            parent_queue = self.qos_info['queue'][parent_queue_id]
+-            parent_queue['subqueues'].append(subqueue_id)
+-
+-    def _add_filter_to_queue(self, filter_id):
+-        queue_id = self.qos_info['filter'][filter_id]['queue_id']
+-        queue = self.qos_info['queue'][queue_id]
+-        queue['filters'].append(filter_id)
+-
+-    def _add_qos(self, qos):
+-        qos_id = qos['id']
+-        added_qos = {
+-            'target_type': qos['target_type'],
+-            'target_id': qos['target_id'],
+-            'devices': qos['devices'],
+-            'rate': qos['rate'],
+-            'burst': qos['burst'],
+-            'cburst': qos['cburst'],
+-            'default_queue_id': qos['default_queue_id'],
+-            'queues': [],
+-            'registered_classes': {
+-                '0001': 'myself',
+-                'fffe': qos['default_queue_id'],
+-            },
+-        }
+-        self.qos_info['qos'][qos_id] = added_qos
+-        try:
+-            self._tc_add_qos(qos_id)
+-        except RuntimeError:
+-            del self.qos_info['qos'][qos_id]
+-            return
+-        for queue in qos['qos_queues']:
+-            self._add_queue(queue)
+-
+-    def _add_queue(self, queue):
+-        queue_id = queue['id']
+-        added_queue = {
+-            'qos_id': queue['qos_id'],
+-            'class': None,  # class should be updated when add to qos
+-            'parent_id': queue['parent_id'],
+-            'prio': queue['prio'],
+-            'rate': queue['rate'],
+-            'ceil': queue['ceil'],
+-            'burst': queue['burst'],
+-            'cburst': queue['cburst'],
+-            'subqueues': [],
+-            'filters': [],
+-        }
+-        self.qos_info['queue'][queue_id] = added_queue
+-        self._add_queue_to_qos(queue_id)
+-        self._add_subqueue_to_parent(queue_id)
+-        self._tc_add_queue(queue_id)
+-        for subqueue in queue['subqueues']:
+-            self._add_queue(subqueue)
+-        for qos_filter in queue['attached_filters']:
+-            self._add_filter(qos_filter)
+-
+-    def _add_filter(self, qos_filter):
+-        qf_id = qos_filter['id']
+-        qf = {
+-            'qos_id': qos_filter['qos_id'],
+-            'queue_id': qos_filter['queue_id'],
+-            'prio': qos_filter['prio'],
+-            'protocol': qos_filter['protocol'],
+-            'src_port': qos_filter['src_port'],
+-            'dst_port': qos_filter['dst_port'],
+-            'src_addr': qos_filter['src_addr'],
+-            'dst_addr': qos_filter['dst_addr'],
+-            'custom_match': qos_filter.get('custom_match', None),
+-        }
+-        self.qos_info['filter'][qf_id] = qf
+-        self._tc_add_filter(qf_id)
+-        self._add_filter_to_queue(qf_id)
+-
+-    # Here start the update part
+-    def _update_qos(self, qos):
+-        qos_id = qos['id']
+-        if qos_id not in self.qos_info['qos']:
+-            self._add_qos(qos)
+-        elif self.qos_info['qos'][qos_id]['devices'] == qos['devices']:
+-            updated_qos = {
+-                'rate': qos['rate'],
+-                'burst': qos['burst'],
+-                'cburst': qos['cburst'],
+-            }
+-            self.qos_info['qos'][qos_id].update(updated_qos)
+-            self._tc_update_qos(qos_id)
+-            for queue in qos['qos_queues']:
+-                if queue['id'] == qos['default_queue_id']:
+-                    self._update_queue(queue)
+-        else:
+-            self._delete_qos(qos_id)
+-            self._add_qos(qos)
+-
+-    def _update_queue(self, queue):
+-        queue_id = queue['id']
+-        updated_queue = {
+-            'prio': queue['prio'],
+-            'rate': queue['rate'],
+-            'ceil': queue['ceil'],
+-            'burst': queue['burst'],
+-            'cburst': queue['cburst'],
+-        }
+-        self.qos_info['queue'][queue_id].update(updated_queue)
+-        self._tc_update_queue(queue_id)
+-
+-    def _update_filter(self, qos_filter):
+-        # filter has no class/handle for "tc change"
+-        self._delete_filter(qos_filter['id'])
+-        self._add_filter(qos_filter)
++        self.plugin_rpc = QosPluginRpc(qos_topics.QOS_PLUGIN, self.host)
++
++    def _compare_and_configure_qos(self, current, target, namespace):
++        LOG.debug('Current is %(current)s, target is %(target)s.',
++                  {'current': current, 'target': target})
++        for t in target:
++            devices = t['devices']
++            scheme = t['scheme']
++            for device in devices:
++                if device not in current:
++                    LOG.debug('Device %(device) is not on this host.',
++                              {'device': device})
++                    continue
++                tcmanager = TcManager(device, namespace,
++                                      root_helper=self.root_helper)
++                tcmanager.apply_changes(current.pop(device), scheme)
++        for device, scheme in current.iteritems():
++            # Removed QoS
++            if scheme:
++                TcManager.destroy_root_qdisc(
++                    device, namespace,
++                    root_helper=self.root_helper)
++
++    @lockutils.synchronized('qos-agent', 'neutron-')
++    def _handle_qos_dict(self, qos_dict):
++        for namespace, target in qos_dict.iteritems():
++            if namespace == '_root':
++                namespace = None
++            hosting_qos = TcManager.get_hosting_qos(
++                namespace, root_helper=self.root_helper)
++            if hosting_qos is None:
++                LOG.debug('Targets not found in namespace %s on this host',
++                          namespace)
++                continue
++            self._compare_and_configure_qos(
++                hosting_qos, target, namespace)
+ 
+     @periodic_task.periodic_task(run_immediately=True)
+     def _sync_qos_task(self, context):
+-        qos = self._sync_qos(context, self.qos_info['qos'].keys())
+-        for deleted_qos in qos['deleted']:
+-            self._delete_qos(deleted_qos, info_only=True)
+-        for added_qos in qos['added']:
+-            self._add_qos(added_qos)
+-
+-    def qos_created(self, context, payload):
+-        self._add_qos(payload)
+-
+-    def qos_updated(self, context, payload):
+-        self._update_qos(payload)
+-
+-    def qos_moved(self, context, payload):
+-        self._delete_qos(payload)
+-
+-    def qos_deleted(self, context, payload):
+-        self._delete_qos(payload)
+-
+-    def qos_queue_created(self, context, payload):
+-        self._add_queue(payload)
+-
+-    def qos_queue_updated(self, context, payload):
+-        self._update_queue(payload)
+-
+-    def qos_queue_deleted(self, context, payload):
+-        self._delete_queue(payload)
+-
+-    def qos_filter_created(self, context, payload):
+-        self._add_filter(payload)
+-
+-    def qos_filter_updated(self, context, payload):
+-        self._update_filter(payload)
+-
+-    def qos_filter_deleted(self, context, payload):
+-        self._delete_filter(payload)
++        qos_dict = self.plugin_rpc.sync_qos(context)
++        LOG.debug("Qos on this host from server: %s", qos_dict)
++        self._handle_qos_dict(qos_dict)
+ 
+ 
+ class QosAgentWithStateReport(QosAgent):
+@@ -578,7 +121,7 @@ class QosAgentWithStateReport(QosAgent):
+         self.agent_state = {
+             'binary': 'neutron-qos-agent',
+             'host': host,
+-            'topic': qos_rpc_agent_api.QOS_AGENT,
++            'topic': qos_topics.QOS_AGENT,
+             'configurations': {
+                 'report_interval': self.conf.report_interval,
+             },
+@@ -620,7 +163,7 @@ def main():
+     config.setup_logging()
+     server = neutron_service.Service.create(
+         binary='neutron-qos-agent',
+-        topic=qos_rpc_agent_api.QOS_AGENT,
++        topic=qos_topics.QOS_AGENT,
+         manager='neutron.services.qos.agents.'
+                 'qos_agent.QosAgentWithStateReport')
+     service.launch(server).wait()
+diff --git a/neutron/services/qos/agents/tc_manager.py b/neutron/services/qos/agents/tc_manager.py
+new file mode 100644
+index 0000000..1162290
+--- /dev/null
++++ b/neutron/services/qos/agents/tc_manager.py
+@@ -0,0 +1,253 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++"""Wrapper for tc."""
++
++import json
++
++from neutron.agent.linux import utils as linux_utils
++from neutron.common import utils
++from neutron.services.qos.common import htb
++
++utils.synchronized('tc', external=True)
++
++ROUTER_NS_PREFIX = 'qrouter-'
++
++
++class TcManager(object):
++    """Wrapper for tc."""
++
++    @staticmethod
++    def get_hosting_qos(namespace, root_helper=None):
++        """Get concerned hosting qos."""
++        cmd = ['neutron-get-htb-conf']
++        if namespace:
++            cmd = ['ip', 'netns', 'exec', namespace] + cmd
++            prefix = 'qr-,qg-'
++        else:
++            prefix = 'qvo,qvb'
++        cmd += ['--prefix', prefix]
++        try:
++            return json.loads(
++                linux_utils.execute(cmd, root_helper=root_helper))
++        except RuntimeError:
++            return None
++
++    @staticmethod
++    def build_handle_for_class(tc_class):
++        """Build the handle for a tc class minor."""
++        if not tc_class:
++            return None
++        else:
++            return '1:' + hex(tc_class)[2:]
++
++    @staticmethod
++    def add_root_qdisc(device, namespace, root_helper=None):
++        """Add the root htb qdisc for device."""
++        cmd = ['tc', 'qdisc', 'add', 'dev', device, 'root', 'handle',
++               '1:0', 'htb', 'default', 'fffe']
++        if namespace:
++            cmd = ['ip', 'netns', 'exec', namespace] + cmd
++        linux_utils.execute(cmd, root_helper=root_helper)
++
++    @staticmethod
++    def destroy_root_qdisc(device, namespace, root_helper=None):
++        """Delete the root htb qdisc for device."""
++        cmd = ['tc', 'qdisc', 'del', 'dev', device, 'root']
++        if namespace:
++            cmd = ['ip', 'netns', 'exec', namespace] + cmd
++        linux_utils.execute(cmd, root_helper=root_helper,
++                            check_exit_code=False)
++
++    def __init__(self, device, namespace, execute=None, root_helper=None):
++        self.device = device
++        self.current = None
++        self.target = None
++        self.namespace = namespace
++        self.execute = execute or linux_utils.execute
++        self.root_helper = root_helper
++        self.changes = {'to_delete': [], 'to_add': []}
++
++    def replace_class(self, parent, handle, target):
++        """Prepare for replacing the tc class."""
++        cmd = ['tc', 'class', 'replace', 'dev', self.device]
++        if parent:
++            cmd += ['parent', parent]
++        rate = '%sbps' % target['rate']
++        ceil = '%sbps' % target['ceil']
++        cmd += ['classid', handle, 'htb', 'rate', rate, 'ceil', ceil]
++        burst = target.get('burst', None)
++        cburst = target.get('cburst', None)
++        if burst:
++            cmd += ['burst', burst]
++        if cburst:
++            cmd += ['cburst', cburst]
++        cmd += ['prio', target['prio']]
++        self.changes['to_add'].append(cmd)
++
++    def delete_class(self, handle, current_class):
++        """Prepare for deleting the tc class."""
++        for tc_filter in current_class.get('filters', []):
++            prio = tc_filter['prio']
++            cmd = ['tc', 'filter', 'delete', 'dev', self.device, 'prio', prio]
++            self.changes['to_delete'].append(cmd)
++        for subclass in current_class.get('subclasses', []):
++            self.delete_class(subclass, self.current.pop(subclass, {}))
++        cmd = ['tc', 'class', 'delete', 'dev', self.device, 'classid', handle]
++        self.changes['to_delete'].append(cmd)
++
++    def replace_filter(self, handle, tc_filter):
++        """Prepare for replacing the tc filter."""
++        protocol = tc_filter.get('protocol', None)
++        src_port = tc_filter.get('src_port', None)
++        dst_port = tc_filter.get('dst_port', None)
++        cmd = ['tc', 'filter', 'replace', 'dev', self.device,
++               'protocol', 'ip', 'parent', '1:0', 'prio', tc_filter['prio'],
++               'u32']
++        cmd.extend(['match', 'ip', 'src', tc_filter['src_addr']])
++        cmd.extend(['match', 'ip', 'dst', tc_filter['dst_addr']])
++        if protocol:
++            cmd.extend(['match', 'ip', 'protocol', protocol, '0xff'])
++        if src_port:
++            cmd.extend(['match', 'ip', 'sport', src_port, '0xffff'])
++        if dst_port:
++            cmd.extend(['match', 'ip', 'dport', dst_port, '0xffff'])
++        cmd.extend(['flowid', handle])
++        self.changes['to_add'].append(cmd)
++
++    def delete_filter(self, prio):
++        """Prepare for deleting the tc filter."""
++        cmd = ['tc', 'filter', 'delete', 'dev', self.device,
++               'protocol', 'ip', 'parent', '1:0', 'prio', prio]
++        self.changes['to_delete'].append(cmd)
++
++    def change_filter(self, handle, new, old):
++        """Check whether a tc filter should be changed and then do it."""
++        changed = False
++        changed |= new['src_addr'] != old.get('src_addr', '')
++        changed |= new['dst_addr'] != old.get('dst_addr', '')
++        changed |= new.get('protocol', 0) != old.get('protocol', 0)
++        changed |= new.get('src_addr', 0) != old.get('src_addr', 0)
++        changed |= new.get('dst_addr', 0) != old.get('dst_addr', 0)
++        if changed:
++            self.replace_filter(handle, new)
++
++    def change_filters(self, handle, new_filters, old_filters):
++        """Change filters attached to a class."""
++
++        def _tcfilter_list_to_dict(tcfilters):
++            return {
++                tcfilter['prio']: tcfilter
++                for tcfilter in tcfilters
++            }
++
++        new_filters = _tcfilter_list_to_dict(new_filters)
++        old_filters = _tcfilter_list_to_dict(old_filters)
++
++        new_prios = set(new_filters.keys())
++        old_prios = set(old_filters.keys())
++
++        for prio in new_prios - old_prios:
++            # Newly added filters
++            self.replace_filter(handle, new_filters[prio])
++        for prio in old_prios - new_prios:
++            # Deleted filters
++            self.delete_filter(prio)
++        for prio in new_prios.intersection(old_prios):
++            # Filters that might be changed
++            self.change_filter(handle, new_filters[prio], old_filters[prio])
++
++    def collect_garbage_class(self):
++        """Prepare for deleting the garbage tc classes."""
++        # If classes remain in self.current, delete them
++        for classid, setting in self.current.items():
++            if setting['parent'] not in self.current:
++                self.delete_class(classid, setting)
++
++    def change_class(self, tc_class):
++        """Change a tc class."""
++        target = self.target.pop(str(tc_class))
++        new_buffer = htb.calc_bucket_tokens(
++            target['rate'], target.get('burst', 1600))
++        new_cbuffer = htb.calc_bucket_tokens(
++            target['ceil'], target.get('cburst', 1600))
++
++        handle = self.build_handle_for_class(tc_class)
++        qdisc_handle = hex(tc_class)[2:] + ':0'
++        current = self.current.pop(handle, {})
++
++        class_changed = False
++        parent = self.build_handle_for_class(target.get('parent', None))
++
++        if not current or parent != current['parent']:
++            # Rebuild this class
++            if tc_class == 1:
++                self.destroy_root_qdisc(self.device, self.namespace,
++                                        root_helper=self.root_helper)
++                self.add_root_qdisc(self.device, self.namespace,
++                                    root_helper=self.root_helper)
++                self.current = {}
++            elif current:
++                self.delete_class(handle, current)
++            current = {}
++            class_changed = True
++        else:
++            class_changed |= target['rate'] != current['rate']
++            class_changed |= target['ceil'] != current['ceil']
++            class_changed |= target['prio'] != current['prio']
++            class_changed |= new_buffer != current['buffer']
++            class_changed |= new_cbuffer != current['cbuffer']
++
++        if class_changed:
++            self.replace_class(parent, handle, target)
++
++        subclasses = target.get('subclasses', [])
++        if subclasses:
++            if not current.get('subclasses', True):
++                # This class was a leaf class, but now it's not
++                cmd = ['tc', 'qdisc', 'del', 'dev', self.device,
++                       'parent', handle, 'handle', qdisc_handle]
++                self.changes['to_delete'].append(
++                    (cmd, {'check_exit_code': False}))
++            for subclass in subclasses:
++                self.change_class(subclass)
++        else:
++            if current.get('subclasses', True):
++                # This class is a newly added leaf class
++                cmd = ['tc', 'qdisc', 'replace', 'dev', self.device,
++                       'parent', handle, 'handle', qdisc_handle,
++                       'sfq', 'perturb', '10']
++                self.changes['to_add'].append(cmd)
++
++        self.change_filters(
++            handle, target.get('filters', []), current.get('filters', []))
++
++    def _apply(self):
++        cmd_prefix = []
++        kwargs = {}
++        if self.namespace:
++            cmd_prefix = ['ip', 'netns', 'exec', self.namespace]
++        for cmd in self.changes['to_delete'] + self.changes['to_add']:
++            if type(cmd) == tuple:
++                cmd, kwargs = cmd
++            cmd = cmd_prefix + cmd
++            linux_utils.execute(cmd, root_helper=self.root_helper, **kwargs)
++
++    def apply_changes(self, current, target):
++        """Calculate and apply the changes from current to target."""
++        self.current = current
++        self.target = target
++        self.change_class(1)
++        self.collect_garbage_class()
++        self._apply()
+diff --git a/neutron/services/qos/common/__init__.py b/neutron/services/qos/common/__init__.py
+new file mode 100644
+index 0000000..325d922
+--- /dev/null
++++ b/neutron/services/qos/common/__init__.py
+@@ -0,0 +1,14 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
+diff --git a/neutron/services/qos/common/htb.py b/neutron/services/qos/common/htb.py
+new file mode 100644
+index 0000000..b3016bb
+--- /dev/null
++++ b/neutron/services/qos/common/htb.py
+@@ -0,0 +1,462 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import os
++import socket
++import time
++import struct
++
++from neutron.services.qos.common import netns
++
++# RTNetlink message types
++NLMSG_ERROR = 0x02
++NLMSG_DONE = 0x03
++RTM_NEWLINK = 0x10
++RTM_GETLINK = 0x12
++RTM_NEWQDISC = 0x24
++RTM_GETQDISC = 0x26
++RTM_NEWTCLASS = 0x28
++RTM_GETTCLASS = 0x2A
++RTM_NEWTFILTER = 0x2C
++RTM_GETTFILTER = 0x2E
++
++# RTNetlink message flags
++NLM_F_REQUEST = 0x0001
++NLM_F_MULTI = 0x0002
++NLM_F_ROOT = 0x0100
++NLM_F_MATCH = 0x0200
++NLM_F_DUMP = NLM_F_ROOT | NLM_F_MATCH
++
++# Root handler definition of tc
++TC_H_ROOT = 0xFFFFFFFF
++
++# RTA types for IfInfoMsg
++IFLA_IFNAME = 3
++
++# RTA types for TcMsg
++TCA_KIND = 1
++TCA_OPTIONS = 2
++
++# RTA types for TcFilterMsg
++TCA_ACT_KIND = 1
++TCA_ACT_OPTIONS = 2
++
++# NLA policy types for htb
++TCA_HTB_PARMS = 1
++TCA_HTB_INIT = 2
++
++# NLA policy types for u32 selector
++TCA_U32_CLASSID = 1
++TCA_U32_SEL = 5
++
++# Netmask int number to prefixlen map
++MASK2PREFIXLEN_MAP = {}
++_tmp = 0xFFFFFFFF
++for i in xrange(33):
++    MASK2PREFIXLEN_MAP[_tmp] = 32-i
++    _tmp -= 2**i
++
++
++class StructHelper(object):
++    _fmt = None
++    _tuple = None
++
++    @property
++    def data(self):
++        if self._fmt is None or self._tuple is None:
++            raise NotImplementedError
++        return struct.pack(self._fmt, *self._tuple)
++
++    @classmethod
++    def from_data(cls, data):
++        return cls(*(struct.unpack(cls._fmt, data)))
++
++
++class NLM_Header(StructHelper):
++    _fmt = 'IHHII'
++    length = 16
++
++    def __init__(self, length, msg_type, flags, seq, pid):
++        self.length = length
++        self.msg_type = msg_type
++        self.flags = flags
++        self.seq = seq
++        self.pid = pid
++
++    @property
++    def _tuple(self):
++        return (self.length, self.msg_type, self.flags, self.seq, self.pid)
++
++    @classmethod
++    def dump_request_header(cls, msg_type):
++        return cls(0, msg_type, NLM_F_REQUEST | NLM_F_DUMP, 0, 0)
++
++
++class IfInfoMsg(StructHelper):
++    _fmt = 'BBHIII'
++    length = 16
++
++    def __init__(self, family, _, dev_type, ifindex, dev_flags, change_mask):
++        self.family = family
++        self.dev_type = dev_type
++        self.ifindex = ifindex
++        self.dev_flags = dev_flags
++        self.change_mask = change_mask
++
++    @property
++    def _tuple(self):
++        return (self.family, 0, self.dev_type, self.ifindex,
++                self.dev_flags, self.change_mask)
++
++    @classmethod
++    def template_for_get_msg(cls):
++        return cls(socket.AF_UNSPEC, 0, 0, 0, 0, 0xFFFFFFFF)
++
++
++class TcMsg(StructHelper):
++    _fmt = 'BBHIIII'
++    length = 20
++
++    def __init__(self, family, _, _2, ifindex, handle, parent, info):
++        self.family = family
++        self.ifindex = ifindex
++        self.handle = handle
++        self.parent = parent
++        self.info = info
++
++    @property
++    def _tuple(self):
++        return (self.family, 0, 0, self.ifindex, self.handle, self.parent,
++                self.info)
++
++    @classmethod
++    def template_for_get_msg(cls, ifindex=0):
++        return cls(socket.AF_UNSPEC, 0, 0, ifindex, 0, 0, 0)
++
++    def _handle_to_str(self, handle):
++        major = '{:x}'.format(handle >> 16).lstrip('0')
++        minor = '{:x}'.format(handle & 0xFFFF).lstrip('0')
++        return '%s:%s' % (major, minor)
++
++    @property
++    def handle_str(self):
++        return self._handle_to_str(self.handle)
++
++    @property
++    def parent_str(self):
++        if self.parent == TC_H_ROOT:
++            return None
++        return self._handle_to_str(self.parent)
++
++
++class TcFilterMsg(TcMsg):
++
++    def __init__(self, family, _, _2, ifindex, handle, parent, info):
++        super(TcFilterMsg, self).__init__(family, _, _2,
++                                          ifindex, handle, parent, info)
++        # protocol is network/big endian
++        self.protocol = socket.ntohs(self.info & 0xFFFF)
++        self.prio = self.info >> 16
++
++
++class GetNLMsg(object):
++    def __init__(self, **kwargs):
++        self.header = NLM_Header.dump_request_header(self._msg_type)
++        self.template = self._template_class.template_for_get_msg(**kwargs)
++        self.attrs = {}
++
++    @property
++    def data(self):
++        length = NLM_Header.length + self.template.length
++        d = self.template.data
++        for attr in self.attrs:
++            length += attr.length
++            d += attr.data
++        self.header.length = length  # Set the length of the whole message
++        d = self.header.data + d
++        return d
++
++
++class GetIfInfoMsg(GetNLMsg):
++    _template_class = IfInfoMsg
++    _msg_type = RTM_GETLINK
++
++
++class GetQdiscMsg(GetNLMsg):
++    _template_class = TcMsg
++    _msg_type = RTM_GETQDISC
++
++
++class GetTClassMsg(GetNLMsg):
++    _template_class = TcMsg
++    _msg_type = RTM_GETTCLASS
++
++
++class GetTFilterMsg(GetNLMsg):
++    _template_class = TcFilterMsg
++    _msg_type = RTM_GETTFILTER
++
++
++class RecvNLMsg(object):
++    def __init__(self, header):
++        self.header = header
++
++    def parse_msg(self, data):
++        template_length = self._template_class.length
++        self.template = self._template_class.from_data(data[:template_length])
++        self.attrs = self.parse_attributes(data[template_length:])
++
++    def parse_attributes(self, data):
++        attrs = {}
++        p = 0
++        while p < len(data):
++            (rta_len, rta_type) = struct.unpack('HH', data[p:p+4])
++            rta_data = data[p+4:p+rta_len]
++            attrs[rta_type] = rta_data
++            p += (rta_len + 3)/4*4  # Align
++        return attrs
++
++    def parse_nlattrs(self, data):
++        # nlattrs and IP Service specific data share the same TLV format
++        return self.parse_attributes(data)
++
++    def attr_data_to_name(self, attr_key):
++        return self.attrs[attr_key].decode('UTF-8').strip('\x00')
++
++
++class RecvIfInfoMsg(RecvNLMsg):
++    _template_class = IfInfoMsg
++    _msg_type = RTM_NEWLINK
++
++    def parse_msg(self, data):
++        super(RecvIfInfoMsg, self).parse_msg(data)
++        self.name = self.attr_data_to_name(IFLA_IFNAME)
++
++
++class RecvQdiscMsg(RecvNLMsg):
++    _template_class = TcMsg
++    _msg_type = RTM_NEWQDISC
++
++    def parse_msg(self, data):
++        super(RecvQdiscMsg, self).parse_msg(data)
++        name = self.attr_data_to_name(TCA_KIND)
++        self.is_root_htb = name == 'htb' and self.template.parent == TC_H_ROOT
++        if self.is_root_htb:
++            nlattrs = self.parse_nlattrs(self.attrs[TCA_OPTIONS])
++            (
++                version, r2q, default_cls, debug, direct_pkts
++            ) = struct.unpack('IIIII', nlattrs[TCA_HTB_INIT])
++            self.default_cls = '{:x}'.format(default_cls)
++            # Not used
++            self.r2q = r2q
++
++
++class RecvTClassMsg(RecvNLMsg):
++    _template_class = TcMsg
++    _msg_type = RTM_NEWTCLASS
++
++    def parse_msg(self, data):
++        super(RecvTClassMsg, self).parse_msg(data)
++        name = self.attr_data_to_name(TCA_KIND)
++        self.is_htb = name == 'htb'
++        if self.is_htb:
++            nlattrs = self.parse_nlattrs(self.attrs[TCA_OPTIONS])
++            (
++                _celllog, _linklayer, _overhead, _cell_align, _mpu, rate,
++                _celllogc, _linklayerc, _overheadc, _cell_alignc, _mpuc, ceil,
++                bucket, cbucket, quantum, level, prio
++            ) = struct.unpack('BBHhHIBBHhHIIIIII', nlattrs[TCA_HTB_PARMS])
++            self.rate = rate
++            self.ceil = ceil
++            self.bucket = bucket
++            self.cbucket = cbucket
++            self.prio = prio
++            # Not used
++            self.quantum = quantum
++            self.level = level
++
++
++class RecvTFilterMsg(RecvNLMsg):
++    _template_class = TcFilterMsg
++    _msg_type = RTM_NEWTFILTER
++
++    def data_to_qos_filter(self, data):
++        qos_filter = {}
++        (
++            flags, offshift, nkeys, offmask, off, offoff, hoff, hmask
++        ) = struct.unpack('BBBHHhhI', data[:16])
++        # offmask and hmask are network/big endian
++        offmask = socket.ntohs(offmask)
++        hmask = socket.ntohs(hmask)
++        for i in range(nkeys):
++            p = 16 + i * 16
++            # Mask and val are network/big endian
++            (mask, val) = struct.unpack('!II', data[p:p+8])
++            (off, offmask) = struct.unpack('ii', data[p+8:p+16])
++            if off == 8 and mask == 0x00FF0000:
++                qos_filter['protocol'] = val
++            elif off == 20:
++                if mask == 0xFFFF0000:
++                    qos_filter['src_port'] = val >> 16
++                elif mask == 0x0000FFFF:
++                    qos_filter['dst_port'] = val
++            elif off == 12:
++                address = socket.inet_ntoa(data[p+4:p+8])
++                prefix = MASK2PREFIXLEN_MAP[mask]
++                qos_filter['src_addr'] = '%s/%s' % (address, prefix)
++            elif off == 16:
++                address = socket.inet_ntoa(data[p+4:p+8])
++                prefix = MASK2PREFIXLEN_MAP[mask]
++                qos_filter['dst_addr'] = '%s/%s' % (address, prefix)
++        return qos_filter
++
++    def parse_msg(self, data):
++        super(RecvTFilterMsg, self).parse_msg(data)
++        name = self.attr_data_to_name(TCA_ACT_KIND)
++        if name == 'u32':
++            if TCA_ACT_OPTIONS not in self.attrs:
++                self.has_u32_sel = False
++            else:
++                nlattrs = self.parse_nlattrs(self.attrs[TCA_ACT_OPTIONS])
++                if TCA_U32_SEL in nlattrs and TCA_U32_CLASSID in nlattrs:
++                    self.has_u32_sel = True
++                    self.classid = self.template._handle_to_str(
++                        struct.unpack('I', nlattrs[TCA_U32_CLASSID])[0])
++                    qos_filter = self.data_to_qos_filter(nlattrs[TCA_U32_SEL])
++                    qos_filter['prio'] = self.template.prio
++                    self.qos_filter_dict = qos_filter
++                else:
++                    self.has_u32_sel = False
++
++
++class RTNetLink(netns.NetNSSwitcher):
++    _recv_msg_class = {
++        RecvIfInfoMsg._msg_type: RecvIfInfoMsg,
++        RecvQdiscMsg._msg_type: RecvQdiscMsg,
++        RecvTClassMsg._msg_type: RecvTClassMsg,
++        RecvTFilterMsg._msg_type: RecvTFilterMsg,
++    }
++
++    def __init__(self, netns=None):
++        super(RTNetLink, self).__init__(netns)
++
++    def __enter__(self):
++        super(RTNetLink, self).__enter__()
++        self._sock = socket.socket(
++            socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
++        self._sock.bind((self._pid, 0))
++        self._seq = int(time.time())
++        self._sfd = os.fdopen(self._sock.fileno(), 'w+b')
++        return self
++
++    def __exit__(self, e_type, e_value, traceback):
++        super(RTNetLink, self).__exit__(e_type, e_value, traceback)
++        self._sfd.close()
++        self._sock.close()
++
++    def send_and_recv(self, msg):
++        msgs = []
++        self._seq += 1
++        msg.header.seq = self._seq
++        self._sfd.write(msg.data)
++        recv_header = NLM_Header.from_data(self._sfd.read(NLM_Header.length))
++        if recv_header.msg_type != NLMSG_ERROR:
++            while recv_header.msg_type != NLMSG_DONE:
++                body_length = recv_header.length - NLM_Header.length
++                recv_msg = self._recv_msg_class[recv_header.msg_type](
++                    recv_header)
++                recv_msg.parse_msg(self._sfd.read(body_length))
++                msgs.append(recv_msg)
++                recv_header = NLM_Header.from_data(
++                    self._sfd.read(NLM_Header.length))
++        self._sfd.read(recv_header.length-NLM_Header.length)
++        return msgs
++
++
++def get_qos_conf_scheme(router_id=None, filter_by_name=None):
++    namespace = None
++    if router_id:
++        namespace = 'qrouter-' + router_id
++
++    ret = {}
++
++    with RTNetLink(namespace) as n:
++        if namespace and not n.in_namespace:
++            return None
++        index_to_name = {}
++        for ifinfo in n.send_and_recv(GetIfInfoMsg()):
++            index_to_name[ifinfo.template.ifindex] = ifinfo.name
++            if filter_by_name and not filter_by_name(ifinfo.name):
++                continue
++            ret[ifinfo.name] = {}
++        for qdisc in n.send_and_recv(GetQdiscMsg()):
++            ifindex = qdisc.template.ifindex
++            if filter_by_name and not filter_by_name(index_to_name[ifindex]):
++                continue
++            if not qdisc.is_root_htb:
++                continue
++
++            # Classes
++            tmp_parent = {}
++            classes = {}
++            ret[index_to_name[ifindex]] = classes
++            for tclass in n.send_and_recv(GetTClassMsg(ifindex=ifindex)):
++                if not tclass.is_htb:
++                    continue
++                handle = tclass.template.handle_str
++                parent = tclass.template.parent_str
++                classes[handle] = {
++                    'rate': tclass.rate, 'ceil': tclass.ceil,
++                    'buffer': tclass.bucket, 'cbuffer': tclass.cbucket,
++                    'prio': tclass.prio, 'parent': parent,
++                    'subclasses': tmp_parent.pop(handle, []), 'filters': []
++                }
++                # Add this class the its parent's subclasses list
++                if parent is not None:
++                    if parent in classes:
++                        classes[parent]['subclasses'].append(handle)
++                    # Deal with those parents which are not yet processed
++                    elif parent in tmp_parent:
++                        tmp_parent[parent].append(handle)
++                    else:
++                        tmp_parent[parent] = [handle]
++
++            # Filters
++            for tfilter in n.send_and_recv(GetTFilterMsg(ifindex=ifindex)):
++                if not tfilter.has_u32_sel:
++                    continue
++                classes[tfilter.classid]['filters'].append(
++                    tfilter.qos_filter_dict)
++
++    return ret
++
++
++# TC burst size to bucket tokens calculator
++TIME_UNITS_PER_SEC = 1000000
++
++_psched = open('/proc/net/psched', 'r')
++[t2us, us2t, clock_res, hz] = [int(i, 16) for i in _psched.read().split()]
++_psched.close()
++
++HZ = hz if clock_res == 1000000 else os.environ.get('HZ', 1000)
++TICKS_IN_USEC = (
++    1 if clock_res == 1000000000 else float(t2us)/us2t
++) * (float(clock_res) / TIME_UNITS_PER_SEC)
++
++
++def calc_bucket_tokens(rate, size):
++    time = int(TIME_UNITS_PER_SEC * (float(size)/rate))
++    ticks = int(time * TICKS_IN_USEC)
++    return ticks
+diff --git a/neutron/services/qos/common/netns.py b/neutron/services/qos/common/netns.py
+new file mode 100644
+index 0000000..4463db4
+--- /dev/null
++++ b/neutron/services/qos/common/netns.py
+@@ -0,0 +1,72 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import os
++import ctypes
++import platform
++
++__NR_setns_map = {
++    'x86_64': {'64bit': 308},
++    'i386': {'32bit': 346}
++    # FIXME: Other machine types and architectures
++}
++
++__NR_setns = __NR_setns_map.get(
++    platform.machine(), {}
++).get(platform.architecture()[0], 308)
++CLONE_NEWNET = 0x40000000
++
++NETNS_RUN_DIR_PATH = '/var/run/netns/{namespace}'
++NETNS_PID_PATH = '/proc/{pid}/ns/net'
++
++libc = None
++
++
++def setns(netnsfd):
++    global libc
++    libc = libc or ctypes.CDLL('libc.so.6', use_errno=True)
++    ret = libc.syscall(__NR_setns, netnsfd, CLONE_NEWNET)
++    if ret != 0:
++        raise OSError(ctypes.get_errno(), 'failed to open netns')
++
++
++class NetNSSwitcher(object):
++    def __init__(self, netns=None):
++        self._pid = os.getpid()
++        self._netns = netns
++        self.in_namespace = True
++
++    def _save_origin_netns(self):
++        f = NETNS_PID_PATH.format(pid=self._pid)
++        self._originnsfd = os.open(f, os.O_RDONLY)
++
++    def _return_origin_netns(self):
++        setns(self._originnsfd)
++        os.close(self._originnsfd)
++
++    def __enter__(self):
++        if self._netns:
++            self._save_origin_netns()
++            f = NETNS_RUN_DIR_PATH.format(namespace=self._netns)
++            if os.path.isfile(f):
++                nsfd = os.open(f, os.O_RDONLY)
++                setns(nsfd)
++                os.close(nsfd)
++            else:
++                self.in_namespace = False
++
++    def __exit__(self, e_type, e_value, traceback):
++        if self._netns:
++            self._return_origin_netns()
+diff --git a/neutron/services/qos/common/topics.py b/neutron/services/qos/common/topics.py
+new file mode 100644
+index 0000000..f93d0cf
+--- /dev/null
++++ b/neutron/services/qos/common/topics.py
+@@ -0,0 +1,17 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++QOS_AGENT = 'qos_agent'
++QOS_PLUGIN = 'qos_plugin'
+diff --git a/neutron/services/qos/qos_plugin.py b/neutron/services/qos/qos_plugin.py
+index a1cc213..49c2f87 100644
+--- a/neutron/services/qos/qos_plugin.py
++++ b/neutron/services/qos/qos_plugin.py
+@@ -13,23 +13,44 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
+-from neutron.api.rpc.agentnotifiers import qos_rpc_agent_api
+ from neutron.common import rpc as n_rpc
+-from neutron.db.qos import qos_rpc
++from neutron.db.qos import qos_db
++from neutron.services.qos.common import topics
+ 
+ 
+-class QosPlugin(qos_rpc.QosServerRpcServerMixin):
++class QosRpcCallback(n_rpc.RpcCallback):
++
++    RPC_API_VERSION = '1.0'
++
++    def __init__(self, qos_plugin):
++        super(QosRpcCallback, self).__init__()
++        self.qos_plugin = qos_plugin
++
++    def sync_qos(self, context, host):
++        return self.qos_plugin.sync_qos(context, host)
++
++
++class QosAgentRpc(n_rpc.RpcProxy):
++
++    RPC_API_VERSION = '1.0'
++
++    def __init__(self):
++        super(QosAgentRpc, self).__init__(
++            topic=topics.QOS_AGENT, default_version=self.RPC_API_VERSION)
++
++
++class QosPlugin(qos_db.QosDb, qos_db.QosPluginRpcDbMixin):
+ 
+     supported_extension_aliases = ['qos']
+ 
+     def __init__(self):
+         super(QosPlugin, self).__init__()
+ 
+-        self.endpoints = [qos_rpc.QosRpcCallbacks(self)]
++        self.endpoints = [QosRpcCallback(self)]
+ 
+         self.conn = n_rpc.create_connection(new=True)
+         self.conn.create_consumer(
+-            qos_rpc_agent_api.QOS_PLUGIN, self.endpoints, fanout=False)
++            topics.QOS_PLUGIN, self.endpoints, fanout=False)
+         self.conn.consume_in_threads()
+ 
+-        self.notifier = qos_rpc_agent_api.QosAgentNotifyAPI()
++        self.agent_rpc = QosAgentRpc()
+diff --git a/setup.cfg b/setup.cfg
+index 880b8ef..9cc6995 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -89,6 +89,7 @@ data_files =
+ 	etc/neutron/plugins/vmware = etc/neutron/plugins/vmware/nsx.ini
+ 	etc/neutron/plugins/opencontrail = etc/neutron/plugins/opencontrail/contrailplugin.ini
+ scripts = 
++	bin/neutron-get-htb-conf
+ 	bin/neutron-rootwrap
+ 	bin/neutron-rootwrap-xen-dom0
+ 
+-- 
+2.10.0
+
