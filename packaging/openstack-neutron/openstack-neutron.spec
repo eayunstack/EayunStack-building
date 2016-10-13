@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	23%{?dist_eayunstack}
+Release:	24%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -105,6 +105,8 @@ Patch0059: 0059-Fix-cannot-delete-pptpd-process.patch
 Patch0060: 0060-Fix-UnicodeEncodeError-generating-ipsec-configs-45.patch
 Patch0061: 0061-Fix-error-when-using-fqdn-as-ipsec-peer-id-46.patch
 Patch0062: 0062-VPNaaS-deprecate-two-dpd-actions-47.patch
+Patch0063: 0063-Fix-error-when-checking-qos-target.patch
+Patch0064: 0064-FWaaS-fix-port-range-validation-51.patch
 
 BuildArch:	noarch
 
@@ -644,6 +646,8 @@ IPSec.
 %patch0060 -p1
 %patch0061 -p1
 %patch0062 -p1
+%patch0063 -p1
+%patch0064 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1105,6 +1109,10 @@ exit 0
 
 
 %changelog
+* Mon Oct 17 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-24.eayunstack.1.1
+- add patch 0063 from neutron-qos github pull request #21 (redmine#8579)
+- add patch 0064 from github pull request #51 (redmine#8601)
+
 * Fri Sep 30 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-23.eayunstack.1.1
 - add patch 0058 from neutron-qos github pull request #20
 - add patch 0059 from github pull request #44 (redmine#7991)
