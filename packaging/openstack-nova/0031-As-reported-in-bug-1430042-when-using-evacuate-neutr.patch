@@ -1,0 +1,96 @@
+From 892b5158be2d303011f4d4dfa977fa91feb12de0 Mon Sep 17 00:00:00 2001
+From: Chris Friesen <chris.friesen@windriver.com>
+Date: Wed, 1 Apr 2015 12:07:41 -0400
+Subject: [PATCH] As reported in bug #1430042 when using evacuate + neutron
+ virtual machines fail to evacuate because of a failure to update port
+ bindings.  A similar issue applies to FloatingIP setup for nova-network.
+
+A related fix was proposed in
+https://answers.launchpad.net/ubuntu/+source/nova/+question/257358
+and seemed to be fixing users.
+
+This handles things a bit differently in order to more cleanly
+use existing code.
+
+Change-Id: Iafa6d2e9eb76ea0389067c939f21ac2181df6f95
+Closes-Bug: #1430042
+Signed-off-by: fabian4 <cybing4@gmail.com>
+(cherry picked from commit 7c81be3c2952f26e30bb8394c8e2803d31fc3b26)
+
+Conflicts:
+	nova/tests/unit/compute/test_compute.py
+
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ nova/compute/manager.py            |  7 +++++++
+ nova/tests/compute/test_compute.py | 30 ++++++++++++++++++++----------
+ 2 files changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index d05a1c2..6ebadc2 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -2786,8 +2786,15 @@ class ComputeManager(manager.Manager):
+             instance.save(expected_task_state=[task_states.REBUILDING])
+ 
+             if recreate:
++                # Needed for nova-network, does nothing for neutron
+                 self.network_api.setup_networks_on_host(
+                         context, instance, self.host)
++                # For nova-network this is needed to move floating IPs
++                # For neutron this updates the host in the port binding
++                # TODO(cfriesen): this network_api call and the one above
++                # are so similar, we should really try to unify them.
++                self.network_api.setup_instance_network_on_host(
++                        context, instance, self.host)
+ 
+             network_info = compute_utils.get_nw_info_for_instance(instance)
+             if bdms is None:
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index bc7163f..4a6707c 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -11019,20 +11019,30 @@ class EvacuateHostTestCase(BaseTestCase):
+         super(EvacuateHostTestCase, self).tearDown()
+ 
+     def _rebuild(self, on_shared_storage=True):
+-        def fake(cls, ctxt, instance, *args, **kwargs):
+-            pass
+-
+-        self.stubs.Set(network_api.API, 'setup_networks_on_host', fake)
++        network_api = self.compute.network_api
++        ctxt = context.get_admin_context()
++        mock_context = mock.Mock()
++        mock_context.elevated.return_value = ctxt
+ 
+-        orig_image_ref = None
+-        image_ref = None
+-        injected_files = None
+-        bdms = db.block_device_mapping_get_all_by_instance(self.context,
++        @mock.patch.object(network_api, 'setup_networks_on_host')
++        @mock.patch.object(network_api, 'setup_instance_network_on_host')
++        def _test_rebuild(mock_setup_instance_network_on_host,
++                          mock_setup_networks_on_host):
++            orig_image_ref = None
++            image_ref = None
++            injected_files = None
++            bdms = db.block_device_mapping_get_all_by_instance(self.context,
+                 self.inst_ref['uuid'])
+-        self.compute.rebuild_instance(
+-                self.context, self._objectify(self.inst_ref), orig_image_ref,
++            self.compute.rebuild_instance(
++                mock_context, self.inst, orig_image_ref,
+                 image_ref, injected_files, 'newpass', {}, bdms, recreate=True,
+                 on_shared_storage=on_shared_storage)
++            mock_setup_networks_on_host.assert_called_once_with(
++                ctxt, self.inst, self.inst.host)
++            mock_setup_instance_network_on_host.assert_called_once_with(
++                ctxt, self.inst, self.inst.host)
++
++        _test_rebuild()
+ 
+     def test_rebuild_on_host_updated_target(self):
+         """Confirm evacuate scenario updates host and node."""
+-- 
+2.1.0
+

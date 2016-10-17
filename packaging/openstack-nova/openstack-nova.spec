@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6.4%{?dist_eayunstack}
+Release:          6.5%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -75,6 +75,7 @@ Patch0027: 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
 Patch0028: 0028-Fix-soft_delete-User-has-been-deleted-instance.patch
 Patch0029: 0029-fix-soft-delete-for-1.0.1.patch
 Patch0030: 0030-deleted-filter-does-not-work-properly.patch
+Patch0031: 0031-As-reported-in-bug-1430042-when-using-evacuate-neutr.patch
 
 
 BuildArch:        noarch
@@ -508,6 +509,7 @@ This package contains documentation files for nova.
 %patch0028 -p1
 %patch0029 -p1
 %patch0030 -p1
+%patch0031 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -865,6 +867,10 @@ exit 0
 %endif
 
 %changelog
+* Thu Sep 6 2016 fabian <cybing4@gmail.com> - 2014.2-6.5.eayunstack.1.0.1
+- Fix nova evacuate instance port bind
+- 0031-As-reported-in-bug-1430042-when-using-evacuate-neutr.patch
+
 * Tue Jun 14 2016 fabian <cybing4@gmail.com> - 2014.2-6.4.eayunstack.1.0.1
 - Fix soft delete use admin resotre and user Data Deduplication
 - 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
