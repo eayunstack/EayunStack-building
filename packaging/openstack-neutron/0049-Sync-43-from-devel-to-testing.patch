@@ -1,0 +1,43 @@
+From 1a76db542fd5c6d7f4ed685fa463f354fd4a0fc9 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Tue, 6 Sep 2016 13:42:35 +0800
+Subject: [PATCH 49/52] Sync #43 from devel to testing
+
+Fix router query error (#20)
+
+Fixes: f317640 ("qos_agent: stateless agent")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 6eef8789f8c220f7091e12f655b6846150c3da2a)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index f334b48..9320244 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -16,6 +16,7 @@
+ import sqlalchemy as sa
+ from sqlalchemy import orm, and_, or_
+ from sqlalchemy.orm import exc
++from sqlalchemy.sql.expression import true
+ 
+ from neutron.common import constants as n_constants
+ from neutron.db import model_base
+@@ -774,9 +775,9 @@ class QosPluginRpcDbMixin(object):
+             router_query = context.session.query(
+                 l3_db.Router
+             ).filter(
+-                l3_db.Router.router_id.in_(routers_bound_to_host)
++                l3_db.Router.id.in_(routers_bound_to_host)
+             ).filter(
+-                l3_db.Router.admin_state_up.is_(True))
++                l3_db.Router.admin_state_up == true())
+             routers_on_host = set(router.id for router in router_query)
+         except ext_agent.AgentNotFoundByTypeHost:
+             routers_on_host = set()
+-- 
+2.10.0
+

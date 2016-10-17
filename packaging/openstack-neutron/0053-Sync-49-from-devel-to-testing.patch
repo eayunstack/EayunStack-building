@@ -1,0 +1,41 @@
+From 6b6331a57c2a0964ce59fdc4775781bcc3827e5e Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Thu, 13 Oct 2016 10:50:17 +0800
+Subject: [PATCH] Sync #49 from devel to testing
+
+Fix error when checking qos target
+
+Fixes: b2eb0285 ("db: move target checker into db")
+Fixes: redmine #8579
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 1a5105fa73e8ba939f36f76d00f31454ab6b55b1)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 9320244..2d84348 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -216,14 +216,14 @@ class QosDb(ext_qos.QosPluginBase, base_db.CommonDbMixin):
+             # Need to check
+             try:
+                 if target_type == 'port':
+-                    target = self._core_plugin.get_port(context, target_id)
++                    target = self._core_plugin._get_port(context, target_id)
+                     if not target['device_owner'].startswith('compute'):
+                         raise ext_qos.QosInvalidPortType(
+                             port_id=target_id,
+                             port_type=target['device_owner'])
+                     ret['port_id'] = target_id
+                 elif target_type == 'router':
+-                    target = self._l3_plugin.get_router(context, target_id)
++                    target = self._l3_plugin._get_router(context, target_id)
+                     ret['router_id'] = target_id
+                 else:
+                     # Should not reach
+-- 
+2.10.0
+

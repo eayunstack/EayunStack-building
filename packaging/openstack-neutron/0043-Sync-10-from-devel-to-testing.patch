@@ -1,0 +1,754 @@
+From 654688a72492337cfd26ce679cacb3c5b47f3a69 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 16 Jul 2015 11:40:43 +0800
+Subject: [PATCH 43/52] Sync #10 from devel to testing
+
+This is a combination of 9 commits.
+This is the 1st commit message:
+portmapping: api entry
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 19cfbd7024adf9390dccc8fac536a5886724732f)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #2:
+
+portmapping: database initialization
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit f49b05749dd14e72312ec1c0ff551e03fa748910)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #3:
+
+portmapping: database operations
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 1f472fb6b348c7f3059a3961b6caef1c6fbcf271)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #4:
+
+portmapping: agent notification
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 04fe4e33c318311c63be26c9e42122ecddf9075c)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #5:
+
+portmapping: status handling
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 86e756f288685a6341cc2d4e057a29e2a2368986)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #6:
+
+portmapping: include portmappings' infomation when sync
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 630ddc57743c6dd2dea7ff4131023ad73885e105)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #7:
+
+portmapping: add a portmapping iptables chain
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 4ad8be29191b3f17bbbc0aee572a9e8565459cdc)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #8:
+
+portmapping: l3_agent iptables actions
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 99add20921ef72513adf311f09221fa33d07c7a1)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+This is the commit message #9:
+
+portmapping: check conflict when creating a portmapping
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit bfaca47ce10e5c916e986e0baaeca396be361f98)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Change-Id: Iea10e21d34536291877d15b42d5419fc4a3b8261
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/l3_agent.py                          |  52 +++++++
+ neutron/agent/linux/iptables_manager.py            |   5 +
+ neutron/api/rpc/handlers/l3_rpc.py                 |  13 ++
+ neutron/common/constants.py                        |   5 +
+ neutron/db/l3_db.py                                | 170 ++++++++++++++++++++-
+ neutron/db/l3_dvr_db.py                            |   5 +-
+ .../eayun_portmapping_init_ops.py                  |  39 +++++
+ .../db/migration/alembic_migrations/versions/HEAD  |   2 +-
+ .../versions/eayun_portmapping.py                  |  36 +++++
+ neutron/extensions/l3.py                           | 109 +++++++++++++
+ 10 files changed, 432 insertions(+), 4 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/eayun_portmapping_init_ops.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/eayun_portmapping.py
+
+diff --git a/neutron/agent/l3_agent.py b/neutron/agent/l3_agent.py
+index ff8ad47..d88b616 100644
+--- a/neutron/agent/l3_agent.py
++++ b/neutron/agent/l3_agent.py
+@@ -123,6 +123,13 @@ class L3PluginApi(n_rpc.RpcProxy):
+                                        fip_statuses=fip_statuses),
+                          version='1.1')
+ 
++    def update_portmapping_statuses(self, context, pm_statuses):
++        """Call the plugin update portmappings' operational statuses."""
++        return self.call(context,
++                         self.make_msg('update_portmapping_statuses',
++                                       pm_statuses=pm_statuses),
++                         version='1.1')
++
+     def get_ports_by_subnet(self, context, subnet_id):
+         """Retrieve ports by subnet id."""
+         return self.call(context,
+@@ -252,6 +259,7 @@ class RouterInfo(l3_ha_agent.RouterMixin):
+         self.snat_ports = []
+         self.floating_ips = set()
+         self.floating_ips_dict = {}
++        self.portmappings = set()
+         self.root_helper = root_helper
+         self.use_namespaces = use_namespaces
+         # Invoke the setter for establishing initial SNAT action
+@@ -963,6 +971,15 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             ri.perform_snat_action(self._handle_router_snat_rules,
+                                    internal_cidrs, interface_name)
+ 
++        pm_statuses = {}
++        if ex_gw_port:
++            existing_portmappings = ri.portmappings
++            portmappings = self.get_portmappings(ri)
++            self.process_router_portmapping_nat_rules(
++                ri, portmappings, ex_gw_port, interface_name)
++            for pm in portmappings:
++                pm_statuses[pm['id']] = l3_constants.PORTMAPPING_STATUS_ACTIVE
++
+         # Process SNAT/DNAT rules for floating IPs
+         fip_statuses = {}
+         try:
+@@ -988,6 +1005,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             # Update floating IP status on the neutron server
+             self.plugin_rpc.update_floatingip_statuses(
+                 self.context, ri.router_id, fip_statuses)
++            # Identify portmappings which were disabled
++            ri.portmappings = set(pm_statuses.keys())
++            for pm_id in existing_portmappings - ri.portmappings:
++                pm_statuses[pm_id] = l3_constants.PORTMAPPING_STATUS_DOWN
++            # Update portmapping status on the neutron server
++            self.plugin_rpc.update_portmapping_statuses(
++                self.context, pm_statuses)
+ 
+         # Update ex_gw_port and enable_snat on the router info cache
+         ri.ex_gw_port = ex_gw_port
+@@ -1079,6 +1103,19 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+ 
+         ri.iptables_manager.apply()
+ 
++    def process_router_portmapping_nat_rules(self, ri, portmappings,
++                                             ex_gw_port, interface_name):
++        ri.iptables_manager.ipv4['nat'].clear_rules_by_tag('portmapping')
++        for ip_addr in ex_gw_port['fixed_ips']:
++            ex_gw_ip = ip_addr['ip_address']
++            if netaddr.IPAddress(ex_gw_ip).version == 4:
++                for rule in self.portmapping_forward_rules(
++                    ex_gw_ip, portmappings, interface_name
++                ):
++                    ri.iptables_manager.ipv4['nat'].add_rule(
++                        'portmapping', rule, tag='portmapping')
++        ri.iptables_manager.apply()
++
+     def _get_external_device_interface_name(self, ri, ex_gw_port,
+                                             floating_ips):
+         if ri.router['distributed']:
+@@ -1249,6 +1286,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             floating_ips = [i for i in floating_ips if i['host'] == self.host]
+         return floating_ips
+ 
++    def get_portmappings(self, ri):
++        return ri.router.get(l3_constants.PORTMAPPING_KEY, [])
++
+     def _map_internal_interfaces(self, ri, int_port, snat_ports):
+         """Return the SNAT port for the given internal interface port."""
+         fixed_ip = int_port['fixed_ips'][0]
+@@ -1694,6 +1734,18 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+                 ('float-snat', '-s %s -j SNAT --to %s' %
+                  (fixed_ip, floating_ip))]
+ 
++    def portmapping_forward_rules(self, ex_gw_ip, portmappings,
++                                  interface_name):
++        rules = []
++        for portmapping in portmappings:
++            protocol = portmapping['protocol']
++            dport = portmapping['router_port']
++            to = '%s:%s' % (portmapping['destination_ip'],
++                            portmapping['destination_port'])
++            rules.append('-d %s -p %s --dport %s -j DNAT --to %s' %
++                         (ex_gw_ip, protocol, dport, to))
++        return rules
++
+     def router_deleted(self, context, router_id):
+         """Deal with router deletion RPC message."""
+         LOG.debug(_('Got router deleted notification for %s'), router_id)
+diff --git a/neutron/agent/linux/iptables_manager.py b/neutron/agent/linux/iptables_manager.py
+index d26c6cd..2c355be 100644
+--- a/neutron/agent/linux/iptables_manager.py
++++ b/neutron/agent/linux/iptables_manager.py
+@@ -365,6 +365,11 @@ class IptablesManager(object):
+             self.ipv4['nat'].add_chain('float-snat')
+             self.ipv4['nat'].add_rule('snat', '-j $float-snat')
+ 
++            # Add a portmapping chain for router portmapping feature.
++            self.ipv4['nat'].add_chain('portmapping')
++            self.ipv4['nat'].add_rule('PREROUTING', '-j $portmapping',
++                                      wrap=False)
++
+     def is_chain_empty(self, table, chain, ip_version=4, wrap=True):
+         try:
+             requested_table = {4: self.ipv4, 6: self.ipv6}[ip_version][table]
+diff --git a/neutron/api/rpc/handlers/l3_rpc.py b/neutron/api/rpc/handlers/l3_rpc.py
+index f5c7389..93f620f 100644
+--- a/neutron/api/rpc/handlers/l3_rpc.py
++++ b/neutron/api/rpc/handlers/l3_rpc.py
+@@ -184,6 +184,19 @@ class L3RpcCallback(n_rpc.RpcCallback):
+                 self.l3plugin.update_floatingip_status(
+                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
+ 
++    def update_portmapping_statuses(self, context, pm_statuses):
++        """Update operational status for portmappings."""
++        with context.session.begin(subtransactions=True):
++            for (pm_id, status) in pm_statuses.iteritems():
++                LOG.debug(
++                    _("New status for portmapping %(id)s: %(status)s"),
++                    {'id': pm_id, 'status': status})
++                try:
++                    self.l3plugin.update_portmapping_status(
++                        context, pm_id, status)
++                except l3.PortMappingNotFound:
++                    LOG.debug(_("Portmapping %s no longer present."), pm_id)
++
+     def get_ports_by_subnet(self, context, **kwargs):
+         """DVR: RPC called by dvr-agent to get all ports for subnet."""
+         subnet_id = kwargs.get('subnet_id')
+diff --git a/neutron/common/constants.py b/neutron/common/constants.py
+index 158e342..e6edc85 100644
+--- a/neutron/common/constants.py
++++ b/neutron/common/constants.py
+@@ -29,6 +29,10 @@ FLOATINGIP_STATUS_ACTIVE = 'ACTIVE'
+ FLOATINGIP_STATUS_DOWN = 'DOWN'
+ FLOATINGIP_STATUS_ERROR = 'ERROR'
+ 
++PORTMAPPING_STATUS_ACTIVE = 'ACTIVE'
++PORTMAPPING_STATUS_DOWN = 'DOWN'
++PORTMAPPING_STATUS_ERROR = 'ERROR'
++
+ DEVICE_OWNER_ROUTER_HA_INTF = "network:router_ha_interface"
+ DEVICE_OWNER_ROUTER_INTF = "network:router_interface"
+ DEVICE_OWNER_ROUTER_GW = "network:router_gateway"
+@@ -48,6 +52,7 @@ HA_ROUTER_STATE_KEY = '_ha_state'
+ METERING_LABEL_KEY = '_metering_labels'
+ FLOATINGIP_AGENT_INTF_KEY = '_floatingip_agent_interfaces'
+ SNAT_ROUTER_INTF_KEY = '_snat_router_interfaces'
++PORTMAPPING_KEY = '_portmappings'
+ 
+ HA_NETWORK_NAME = 'HA network tenant %s'
+ HA_SUBNET_NAME = 'HA subnet tenant %s'
+diff --git a/neutron/db/l3_db.py b/neutron/db/l3_db.py
+index 3400d62..5f7126a 100644
+--- a/neutron/db/l3_db.py
++++ b/neutron/db/l3_db.py
+@@ -103,6 +103,23 @@ class FloatingIP(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     router = orm.relationship(Router, backref='floating_ips')
+ 
+ 
++class PortMapping(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
++    name = sa.Column(sa.String(36))
++    status = sa.Column(sa.String(16))
++    admin_state_up = sa.Column(sa.Boolean, nullable=False)
++    protocol = sa.Column(sa.String(16), nullable=False)
++    router_id = sa.Column(sa.String(36),
++                          sa.ForeignKey('routers.id', ondelete='CASCADE'),
++                          nullable=False)
++    router_port = sa.Column(sa.Integer, nullable=False)
++    destination_ip = sa.Column(sa.String(64), nullable=False)
++    destination_port = sa.Column(sa.Integer, nullable=False)
++    router = orm.relationship(
++        Router,
++        backref=orm.backref(
++            'portmappings', cascade='all,delete', uselist=True))
++
++
+ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+     """Mixin class to add L3/NAT router methods to db_base_plugin_v2."""
+ 
+@@ -392,6 +409,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+         if self.get_floatingips_count(
+             admin_ctx, filters={'router_id': [router_id]}):
+             raise l3.RouterInUse(router_id=router_id)
++        if self.get_portmappings_count(
++            admin_ctx, filters={'router_id': [router_id]}
++        ):
++            raise l3.RouterInUse(router_id=router_id)
+         device_owner = self._get_device_owner(context, router)
+         if any(rp.port_type == device_owner
+                for rp in router.attached_ports.all()):
+@@ -920,6 +941,111 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+         return self._get_collection_count(context, FloatingIP,
+                                           filters=filters)
+ 
++    def _get_portmapping(self, context, id):
++        try:
++            portmapping = self._get_by_id(context, PortMapping, id)
++        except exc.NoResultFound:
++            raise l3.PortMappingNotFound(portmapping_id=id)
++        return portmapping
++
++    def _make_portmapping_dict(self, portmapping, fields=None):
++        res = {'id': portmapping['id'],
++               'tenant_id': portmapping['tenant_id'],
++               'name': portmapping['name'],
++               'status': portmapping['status'],
++               'admin_state_up': portmapping['admin_state_up'],
++               'protocol': portmapping['protocol'],
++               'router_id': portmapping['router_id'],
++               'router_port': portmapping['router_port'],
++               'destination_ip': portmapping['destination_ip'],
++               'destination_port': portmapping['destination_port']}
++        return self._fields(res, fields)
++
++    def create_portmapping(self, context, portmapping):
++        portmapping = portmapping['portmapping']
++        tenant_id = self._get_tenant_id_for_create(context, portmapping)
++        portmapping_id = uuidutils.generate_uuid()
++        router = self._get_router(context, portmapping['router_id'])
++        if tenant_id != tenant_id:
++            raise l3.RouterNotOwnedByTenant(router_id=router.id)
++        if self.get_portmappings(
++            context, {'protocol': [portmapping['protocol']],
++                      'router_id': [portmapping['router_id']],
++                      'router_port': [portmapping['router_port']]}
++        ):
++            raise l3.PortMappingAlreadyMapped(
++                protocol=portmapping['protocol'],
++                router_port=portmapping['router_port'],
++                router_id=portmapping['router_id'])
++        with context.session.begin(subtransactions=True):
++            portmapping_db = PortMapping(
++                id=portmapping_id,
++                tenant_id=tenant_id,
++                name=portmapping['name'],
++                status=l3_constants.PORTMAPPING_STATUS_DOWN,
++                admin_state_up=portmapping['admin_state_up'],
++                protocol=portmapping['protocol'],
++                router_id=portmapping['router_id'],
++                router_port=portmapping['router_port'],
++                destination_ip=portmapping['destination_ip'],
++                destination_port=portmapping['destination_port'])
++            context.session.add(portmapping_db)
++
++        return self._make_portmapping_dict(portmapping_db)
++
++    def _update_portmapping(self, context, id, portmapping):
++        portmapping = portmapping['portmapping']
++        portmapping_db = self._get_portmapping(context, id)
++        admin_state_changed = (
++            'admin_state_up' in portmapping and
++            portmapping_db['admin_state_up'] != portmapping['admin_state_up'])
++        with context.session.begin(subtransactions=True):
++            portmapping_db.update(portmapping)
++        return (admin_state_changed,
++                self._make_portmapping_dict(portmapping_db))
++
++    def update_portmapping(self, context, id, portmapping):
++        admin_state_changed, portmapping = self._update_portmapping(
++            context, id, portmapping)
++        return portmapping
++
++    def update_portmapping_status(self, context, pm_id, status):
++        """Update operational status for portmapping in neutron DB."""
++        pm_query = self._model_query(context, PortMapping).filter(
++            PortMapping.id == pm_id)
++        pm_query.update({'status': status}, synchronize_session=False)
++
++    def get_portmapping(self, context, id, fields=None):
++        portmapping = self._get_portmapping(context, id)
++        return self._make_portmapping_dict(portmapping, fields)
++
++    def _delete_portmapping(self, context, id):
++        portmapping = self._get_portmapping(context, id)
++        router_id = portmapping['router_id']
++        with context.session.begin(subtransactions=True):
++            context.session.delete(portmapping)
++        return router_id
++
++    def delete_portmapping(self, context, id):
++        self._delete_portmapping(context, id)
++
++    def get_portmappings(self, context, filters=None, fields=None,
++                         sorts=None, limit=None, marker=None,
++                         page_reverse=False):
++        marker_obj = self._get_marker_obj(context, 'portmapping',
++                                          limit, marker)
++        return self._get_collection(context, PortMapping,
++                                    self._make_portmapping_dict,
++                                    filters=filters, fields=fields,
++                                    sorts=sorts,
++                                    limit=limit,
++                                    marker_obj=marker_obj,
++                                    page_reverse=page_reverse)
++
++    def get_portmappings_count(self, context, filters=None):
++        return self._get_collection_count(context, PortMapping,
++                                          filters=filters)
++
+     def prevent_l3_port_deletion(self, context, port_id):
+         """Checks to make sure a port is allowed to be deleted.
+ 
+@@ -1013,6 +1139,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+             return []
+         return self.get_floatingips(context, {'router_id': router_ids})
+ 
++    def _get_sync_portmappings(self, context, router_ids):
++        """Query portmappings that relate to list of router_ids."""
++        if not router_ids:
++            return []
++        return self.get_portmappings(
++            context, {'router_id': router_ids, 'admin_state_up': [True]})
++
+     def get_sync_gw_ports(self, context, gw_port_ids):
+         if not gw_port_ids:
+             return []
+@@ -1103,6 +1236,15 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+                 router_interfaces.append(interface)
+                 router[l3_constants.INTERFACE_KEY] = router_interfaces
+ 
++    def _process_portmappings(self, routers_dict, portmappings):
++        for portmapping in portmappings:
++            router = routers_dict.get(portmapping['router_id'])
++            if router:
++                router_portmappings = router.get(l3_constants.PORTMAPPING_KEY,
++                                                 [])
++                router_portmappings.append(portmapping)
++                router[l3_constants.PORTMAPPING_KEY] = router_portmappings
++
+     def _get_router_info_list(self, context, router_ids=None, active=None,
+                               device_owners=None):
+         """Query routers and their related floating_ips, interfaces."""
+@@ -1114,14 +1256,18 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+             interfaces = self.get_sync_interfaces(
+                 context, router_ids, device_owners)
+             floating_ips = self._get_sync_floating_ips(context, router_ids)
+-            return (routers, interfaces, floating_ips)
++            portmappings = self._get_sync_portmappings(context, router_ids)
++            return (routers, interfaces, floating_ips, portmappings)
+ 
+     def get_sync_data(self, context, router_ids=None, active=None):
+-        routers, interfaces, floating_ips = self._get_router_info_list(
++        (
++            routers, interfaces, floating_ips, portmappings
++        ) = self._get_router_info_list(
+             context, router_ids=router_ids, active=active)
+         routers_dict = dict((router['id'], router) for router in routers)
+         self._process_floating_ips(context, routers_dict, floating_ips)
+         self._process_interfaces(routers_dict, interfaces)
++        self._process_portmappings(routers_dict, portmappings)
+         return routers_dict.values()
+ 
+ 
+@@ -1239,6 +1385,26 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
+ 
+         return router_ids
+ 
++    def create_portmapping(self, context, portmapping):
++        portmapping = super(
++            L3_NAT_db_mixin, self).create_portmapping(context, portmapping)
++        self.notify_router_updated(
++            context, portmapping['router_id'], 'create_portmapping', {})
++        return portmapping
++
++    def update_portmapping(self, context, id, portmapping):
++        admin_state_changed, portmapping = self._update_portmapping(
++            context, id, portmapping)
++        if admin_state_changed:
++            self.notify_router_updated(
++                context, portmapping['router_id'], 'update_portmapping', {})
++        return portmapping
++
++    def delete_portmapping(self, context, id):
++        router_id = self._delete_portmapping(context, id)
++        self.notify_router_updated(
++            context, router_id, 'delete_portmapping', {})
++
+     def notify_routers_updated(self, context, router_ids):
+         super(L3_NAT_db_mixin, self).notify_routers_updated(
+             context, list(router_ids), 'disassociate_floatingips', {})
+diff --git a/neutron/db/l3_dvr_db.py b/neutron/db/l3_dvr_db.py
+index f4af858..fd81af7 100644
+--- a/neutron/db/l3_dvr_db.py
++++ b/neutron/db/l3_dvr_db.py
+@@ -360,7 +360,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
+         return interfaces
+ 
+     def get_sync_data(self, context, router_ids=None, active=None):
+-        routers, interfaces, floating_ips = self._get_router_info_list(
++        (
++            routers, interfaces, floating_ips, portmappings
++        ) = self._get_router_info_list(
+             context, router_ids=router_ids, active=active,
+             device_owners=[l3_const.DEVICE_OWNER_ROUTER_INTF,
+                            DEVICE_OWNER_DVR_INTERFACE])
+@@ -370,6 +372,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
+         routers_dict = self._process_routers(context, routers)
+         self._process_floating_ips(context, routers_dict, floating_ips)
+         self._process_interfaces(routers_dict, interfaces)
++        self._process_portmappings(routers_dict, portmappings)
+         return routers_dict.values()
+ 
+     def get_vm_port_hostid(self, context, port_id, port=None):
+diff --git a/neutron/db/migration/alembic_migrations/eayun_portmapping_init_ops.py b/neutron/db/migration/alembic_migrations/eayun_portmapping_init_ops.py
+new file mode 100644
+index 0000000..2205a22
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/eayun_portmapping_init_ops.py
+@@ -0,0 +1,39 @@
++# Copyright (c) 2015 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.create_table(
++        'portmappings',
++        sa.Column('id', sa.String(length=36), nullable=False),
++        sa.Column('tenant_id', sa.String(length=255), nullable=True),
++        sa.Column('name', sa.String(length=36), nullable=True),
++        sa.Column('status', sa.String(length=16), nullable=True),
++        sa.Column('admin_state_up', sa.Boolean(), nullable=False),
++        sa.Column('protocol', sa.String(length=16), nullable=False),
++        sa.Column('router_id', sa.String(length=36), nullable=False),
++        sa.Column('router_port', sa.Integer(), nullable=False),
++        sa.Column('destination_ip', sa.String(length=64), nullable=False),
++        sa.Column('destination_port', sa.Integer(), nullable=False),
++        sa.ForeignKeyConstraint(['router_id'], ['routers.id']),
++        sa.PrimaryKeyConstraint('id')
++    )
++
++
++def downgrade():
++    op.drop_table('portmappings')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 062c02a..36542b9 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-eayun_neutron_qos_db_refine
++eayun_portmapping
+diff --git a/neutron/db/migration/alembic_migrations/versions/eayun_portmapping.py b/neutron/db/migration/alembic_migrations/versions/eayun_portmapping.py
+new file mode 100644
+index 0000000..7b57695
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/eayun_portmapping.py
+@@ -0,0 +1,36 @@
++# Copyright (c) 2015 Eayun, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""eayun_portmapping
++
++Revision ID: eayun_portmapping
++Revises: eayun_neutron_qos_db_refine
++Create Date: 2015-07-25 23:00:00.000000
++
++"""
++from neutron.db.migration.alembic_migrations import eayun_portmapping_init_ops
++
++
++# revision identifiers, used by Alembic.
++revision = 'eayun_portmapping'
++down_revision = 'eayun_neutron_qos_db_refine'
++
++
++def upgrade():
++    eayun_portmapping_init_ops.upgrade()
++
++
++def downgrade():
++    eayun_portmapping_init_ops.downgrade()
+diff --git a/neutron/extensions/l3.py b/neutron/extensions/l3.py
+index e1106cd..73360bd 100644
+--- a/neutron/extensions/l3.py
++++ b/neutron/extensions/l3.py
+@@ -76,6 +76,51 @@ class RouterExternalGatewayInUseByFloatingIp(qexception.InUse):
+                 "gateway to external network %(net_id)s is required by one or "
+                 "more floating IPs.")
+ 
++
++class RouterNotOwnedByTenant(qexception.Conflict):
++    message = _("The following router %(router_id)s is not owned by your "
++                "tenant.")
++
++
++class PortMappingNotFound(qexception.NotFound):
++    message = _("Portmapping %(portmapping_id)s could not be found.")
++
++
++class PortMappingAlreadyMapped(qexception.Conflict):
++    message = _("%(protocol)s port %(router_port)s of router %(router_id)s "
++                "has already been mapped.")
++
++
++class PortmappingInvalidProtocol(qexception.InvalidInput):
++    message = _("Portmapping protocol %(protocol)s is not supported. "
++                "Only protocol values %(values)s are supported.")
++
++
++class PortmappingInvalidPort(qexception.InvalidInput):
++    message = _("Invalid value for port: %(port)s. "
++                "It must be an integer between 1 to 65535.")
++
++portmapping_valid_protocols = [constants.TCP, constants.UDP]
++
++
++def convert_portmapping_protocol(value):
++    if value.lower() in portmapping_valid_protocols:
++        return value.lower()
++    else:
++        raise PortmappingInvalidProtocol(protocol=value,
++                                         values=portmapping_valid_protocols)
++
++
++def convert_to_portmapping_port(value):
++    try:
++        ret = int(value)
++        if not (ret >= 1 and ret <= 65535):
++            raise ValueError
++    except (ValueError, TypeError):
++        raise PortmappingInvalidPort(port=value)
++
++    return ret
++
+ ROUTERS = 'routers'
+ EXTERNAL_GW_INFO = 'external_gateway_info'
+ 
+@@ -144,6 +189,41 @@ RESOURCE_ATTRIBUTE_MAP = {
+         'status': {'allow_post': False, 'allow_put': False,
+                    'is_visible': True},
+     },
++    'portmappings': {
++        'id': {'allow_post': False, 'allow_put': False,
++               'validate': {'type:uuid': None},
++               'is_visible': True,
++               'primary_key': True},
++        'tenant_id': {'allow_post': True, 'allow_put': False,
++                      'required_by_policy': True,
++                      'validate': {'type:string': None},
++                      'is_visible': True},
++        'name': {'allow_post': True, 'allow_put': True, 'default': '',
++                 'validate': {'type:string': None},
++                 'is_visible': True},
++        'status': {'allow_post': False, 'allow_put': False,
++                   'is_visible': True},
++        'admin_state_up': {'allow_post': True, 'allow_put': True,
++                           'default': True,
++                           'convert_to': attr.convert_to_boolean,
++                           'is_visible': True},
++        'protocol': {'allow_post': True, 'allow_put': False,
++                     'is_visible': True, 'default': 'tcp',
++                     'convert_to': convert_portmapping_protocol,
++                     'validate': {'type:values': portmapping_valid_protocols}},
++        'router_id': {'allow_post': True, 'allow_put': False,
++                      'validate': {'type:uuid': None},
++                      'is_visible': True},
++        'router_port': {'allow_post': True, 'allow_put': False,
++                        'is_visible': True,
++                        'convert_to': convert_to_portmapping_port},
++        'destination_ip': {'allow_post': True, 'allow_put': False,
++                           'is_visible': True,
++                           'validate': {'type:ip_address': None}},
++        'destination_port': {'allow_post': True, 'allow_put': False,
++                             'is_visible': True,
++                             'convert_to': convert_to_portmapping_port},
++    },
+ }
+ 
+ l3_quota_opts = [
+@@ -155,6 +235,10 @@ l3_quota_opts = [
+                default=50,
+                help=_('Number of floating IPs allowed per tenant. '
+                       'A negative value means unlimited.')),
++    cfg.IntOpt('quota_portmapping',
++               default=50,
++               help=_('Number of portmappings allowed per tenant. '
++                      'A negative value means unlimited.')),
+ ]
+ cfg.CONF.register_opts(l3_quota_opts, 'QUOTAS')
+ 
+@@ -262,8 +346,33 @@ class RouterPluginBase(object):
+                         page_reverse=False):
+         pass
+ 
++    @abc.abstractmethod
++    def create_portmapping(self, context, portmapping):
++        pass
++
++    @abc.abstractmethod
++    def update_portmapping(self, context, id, portmapping):
++        pass
++
++    @abc.abstractmethod
++    def get_portmapping(self, context, id, fields=None):
++        pass
++
++    @abc.abstractmethod
++    def delete_portmapping(self, context, id):
++        pass
++
++    @abc.abstractmethod
++    def get_portmappings(self, context, filters=None, fields=None,
++                         sorts=None, limit=None, marker=None,
++                         page_reverse=False):
++        pass
++
+     def get_routers_count(self, context, filters=None):
+         raise NotImplementedError()
+ 
+     def get_floatingips_count(self, context, filters=None):
+         raise NotImplementedError()
++
++    def get_portmappings_count(self, context, filters=None):
++        raise NotImplementedError()
+-- 
+2.10.0
+
