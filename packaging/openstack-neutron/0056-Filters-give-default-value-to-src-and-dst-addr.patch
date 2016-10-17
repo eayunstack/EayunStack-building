@@ -1,0 +1,121 @@
+From 5e3cc8b0956af9106519a6bff061fc21164d84c8 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 28 Jul 2016 12:39:06 +0800
+Subject: [PATCH 56/57] Filters: give default value to src and dst addr
+
+Default addresses are always '0.0.0.0/0'(ANY).
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../2a853fe8a8b1_qos_filter_addr_not_null.py       | 56 ++++++++++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/db/qos/qos_db.py                           |  4 +-
+ neutron/extensions/qos.py                          |  4 +-
+ 4 files changed, 61 insertions(+), 5 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+
+diff --git a/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py b/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+new file mode 100644
+index 0000000..d193bb6
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/2a853fe8a8b1_qos_filter_addr_not_null.py
+@@ -0,0 +1,56 @@
++# Copyright (c) 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""qos_filter_addr_not_null
++
++Revision ID: 2a853fe8a8b1
++Revises: 50b192f357d5
++Create Date: 2016-07-14 19:14:22.811223
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '2a853fe8a8b1'
++down_revision = '50b192f357d5'
++
++from alembic import op
++import sqlalchemy as sa
++
++from neutron.db import migration
++
++
++def upgrade():
++    tc_filters = sa.sql.table(
++        'eayun_qosfilters',
++        sa.sql.column('src_addr'), sa.sql.column('dst_addr'))
++    op.execute(
++        tc_filters.update().where(tc_filters.c.src_addr==None).values(
++            src_addr='0.0.0.0/0'))
++    migration.alter_column_if_exists(
++        'eayun_qosfilters', 'src_addr',
++        type_=sa.types.String(255),
++        nullable=False)
++    op.execute(
++        tc_filters.update().where(tc_filters.c.dst_addr==None).values(
++            dst_addr='0.0.0.0/0'))
++    migration.alter_column_if_exists(
++        'eayun_qosfilters', 'dst_addr',
++        type_=sa.types.String(255),
++        nullable=False)
++
++
++def downgrade():
++    pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 7b619aa..c15e87b 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-50b192f357d5
++2a853fe8a8b1
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 1611399..916dad5 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -98,8 +98,8 @@ class QosFilter(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     protocol = sa.Column(sa.Integer)
+     src_port = sa.Column(sa.Integer)
+     dst_port = sa.Column(sa.Integer)
+-    src_addr = sa.Column(sa.String(255))
+-    dst_addr = sa.Column(sa.String(255))
++    src_addr = sa.Column(sa.String(255), nullable=False)
++    dst_addr = sa.Column(sa.String(255), nullable=False)
+     custom_match = sa.Column(sa.String(255))
+     qos = orm.relationship(
+         Qos,
+diff --git a/neutron/extensions/qos.py b/neutron/extensions/qos.py
+index ddee6ae..9a06b2b 100644
+--- a/neutron/extensions/qos.py
++++ b/neutron/extensions/qos.py
+@@ -348,10 +348,10 @@ RESOURCE_ATTRIBUTE_MAP = {
+                      'is_visible': True, 'default': None,
+                      'convert_to': convert_to_port},
+         'src_addr': {'allow_post': True, 'allow_put': True,
+-                     'is_visible': True, 'default': None,
++                     'is_visible': True, 'default': '0.0.0.0/0',
+                      'validate': {'type:subnet_or_none': None}},
+         'dst_addr': {'allow_post': True, 'allow_put': True,
+-                     'is_visible': True, 'default': None,
++                     'is_visible': True, 'default': '0.0.0.0/0',
+                      'validate': {'type:subnet_or_none': None}},
+         'custom_match': {'allow_post': True, 'allow_put': True,
+                          'is_visible': True, 'default': None,
+-- 
+2.9.3
+

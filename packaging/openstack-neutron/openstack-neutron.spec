@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	21%{?dist_eayunstack}
+Release:	24%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -91,6 +91,22 @@ Patch0045: 0045-Check-whether-PPTP-VPN-service-already-exists-for-ro.patch
 Patch0046: 0046-Lbaas-Enhancement-multi-VIP-bound-to-same-neutron-po.patch
 Patch0047: 0047-Lbaas-Enhancement-Multi-VIP-bound-to-same-neutron-po.patch
 Patch0048: 0048-Lbaas-Enable-create-and-remove-a-pool-to-from-lbaas-.patch
+Patch0049: 0049-PPTP-VPN-set-provider-of-the-existing-vpnservices-40.patch
+Patch0050: 0050-Enable-kill-pptpd-process-if-router-netns-does-not-e.patch
+Patch0051: 0051-qos_agent-fix-pep8-warning.patch
+Patch0052: 0052-db-move-target-checker-into-db.patch
+Patch0053: 0053-qos_db-minor-style-fix.patch
+Patch0054: 0054-Qos-queue-prio-could-not-be-null.patch
+Patch0055: 0055-Correctly-set-queue-s-ceil-value.patch
+Patch0056: 0056-Filters-give-default-value-to-src-and-dst-addr.patch
+Patch0057: 0057-qos_agent-stateless-agent.patch
+Patch0058: 0058-Fix-router-query-error-20.patch
+Patch0059: 0059-Fix-cannot-delete-pptpd-process.patch
+Patch0060: 0060-Fix-UnicodeEncodeError-generating-ipsec-configs-45.patch
+Patch0061: 0061-Fix-error-when-using-fqdn-as-ipsec-peer-id-46.patch
+Patch0062: 0062-VPNaaS-deprecate-two-dpd-actions-47.patch
+Patch0063: 0063-Fix-error-when-checking-qos-target.patch
+Patch0064: 0064-FWaaS-fix-port-range-validation-51.patch
 
 BuildArch:	noarch
 
@@ -616,6 +632,22 @@ IPSec.
 %patch0046 -p1
 %patch0047 -p1
 %patch0048 -p1
+%patch0049 -p1
+%patch0050 -p1
+%patch0051 -p1
+%patch0052 -p1
+%patch0053 -p1
+%patch0054 -p1
+%patch0055 -p1
+%patch0056 -p1
+%patch0057 -p1
+%patch0058 -p1
+%patch0059 -p1
+%patch0060 -p1
+%patch0061 -p1
+%patch0062 -p1
+%patch0063 -p1
+%patch0064 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -831,6 +863,7 @@ exit 0
 %{_bindir}/neutron-db-manage
 %{_bindir}/neutron-debug
 %{_bindir}/neutron-dhcp-agent
+%{_bindir}/neutron-get-htb-conf
 %{_bindir}/neutron-l3-agent
 %{_bindir}/neutron-lbaas-agent
 %{_bindir}/neutron-metadata-agent
@@ -1076,6 +1109,22 @@ exit 0
 
 
 %changelog
+* Mon Oct 17 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-24.eayunstack.1.1
+- add patch 0063 from neutron-qos github pull request #21 (redmine#8579)
+- add patch 0064 from github pull request #51 (redmine#8601)
+
+* Fri Sep 30 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-23.eayunstack.1.1
+- add patch 0058 from neutron-qos github pull request #20
+- add patch 0059 from github pull request #44 (redmine#7991)
+- add patch 0060 from github pull request #45 (redmine#8078)
+- add patch 0061 from github pull request #46 (redmine#8135)
+- add patch 0062 from github pull request #47 (redmine#8272)
+
+* Thu Aug 25 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-22.eayunstack.1.1
+- add patch 0049 from github pull request #40 (redmine#7693)
+- add patch 0050 from github pull request #41 (redmine#7694)
+- add patch 0051-0057 from neutron-qos github pull request #19 (redmine#7659)
+
 * Tue Jul 26 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-21.eayunstack.1.1
 - add patch 0034 from github pull request #26 (redmine#6468)
 - add patch 0035 from github pull request #27 (redmine#6469)

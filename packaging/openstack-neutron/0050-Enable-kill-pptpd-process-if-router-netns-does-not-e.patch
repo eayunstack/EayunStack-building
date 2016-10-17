@@ -1,0 +1,42 @@
+From 9353ca177fc8a6316c8825e3e6d59984a3c47057 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Tue, 16 Aug 2016 17:38:40 +0800
+Subject: [PATCH 50/57] Enable kill pptpd process if router netns does not
+ exist
+
+Pptpd process will alive on l3 agent if l3 router
+netnamespace destroyed prio to pptpd exit.
+
+Fixes: #7694
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/device_drivers/pptp.py | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/device_drivers/pptp.py b/neutron/services/vpn/device_drivers/pptp.py
+index 469fe62..c4a27b6 100644
+--- a/neutron/services/vpn/device_drivers/pptp.py
++++ b/neutron/services/vpn/device_drivers/pptp.py
+@@ -120,7 +120,17 @@ class PPTPProcess(object):
+     def stop(self):
+         self.enabled = False
+         if self.active:
+-            self._execute(['kill', '-9', '--', '-%s' % self.pid])
++            cmd = ['kill', '-9', '--', '-%s' % self.pid]
++            # check if namespace exists
++            ip_wrapper = ip_lib.IPWrapper(self.root_helper, self.namespace)
++            if ip_wrapper.netns.exists(self.namespace):
++                self._execute(cmd)
++            else:
++                LOG.info(_('Router netnamespace %(namespace)s not found, '
++                         'kill pptpd process id %(pid)s in root netnamespace'),
++                         {'namespace': self.namespace, 'pid': self.pid})
++                # just kill process in root netnamespace
++                utils.execute(cmd)
+ 
+     def update_ports_status(self):
+         changed = {}
+-- 
+2.9.3
+

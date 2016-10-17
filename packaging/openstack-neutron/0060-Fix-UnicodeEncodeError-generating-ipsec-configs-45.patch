@@ -1,0 +1,31 @@
+From 7daf2a45f1411fc19d006b0075194088a129c3f0 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Wed, 21 Sep 2016 09:57:48 +0800
+Subject: [PATCH 60/62] Fix UnicodeEncodeError generating ipsec configs (#45)
+
+Both VPN service name and PSK can be non-ascii, thus leads to a
+UnicodeEncodeError.
+
+Fixes: redmine #8078
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/device_drivers/ipsec.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/device_drivers/ipsec.py b/neutron/services/vpn/device_drivers/ipsec.py
+index 6c65472..3291174 100644
+--- a/neutron/services/vpn/device_drivers/ipsec.py
++++ b/neutron/services/vpn/device_drivers/ipsec.py
+@@ -165,7 +165,7 @@ class BaseSwanProcess():
+         """Update config file,  based on current settings for service."""
+         config_str = self._gen_config_content(template, vpnservice)
+         config_file_name = self._get_config_filename(kind)
+-        utils.replace_file(config_file_name, config_str)
++        utils.replace_file(config_file_name, config_str.encode("UTF-8"))
+ 
+     def remove_config(self):
+         """Remove whole config file."""
+-- 
+2.10.0
+

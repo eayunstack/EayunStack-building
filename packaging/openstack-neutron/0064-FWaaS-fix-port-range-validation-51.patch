@@ -1,0 +1,29 @@
+From 18037ab9edb726247846dba7d6843845c18ceb39 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Mon, 17 Oct 2016 10:06:55 +0800
+Subject: [PATCH] FWaaS: fix port range validation (#51)
+
+Fixes: redmine #8601
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/firewall.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/neutron/extensions/firewall.py b/neutron/extensions/firewall.py
+index a4141c5..eb03814 100644
+--- a/neutron/extensions/firewall.py
++++ b/neutron/extensions/firewall.py
+@@ -204,6 +204,9 @@ def _validate_port_range(data, key_specs=None):
+             msg = _("Invalid port '%s'") % p
+             LOG.debug(msg)
+             return msg
++    if len(ports) > 2 or ports[0] > ports[-1]:
++        msg = _("Invalid port range '%s'") % ports
++        return msg
+ 
+ 
+ def _validate_ip_or_subnet_or_none(data, valid_values=None):
+-- 
+2.10.0
+

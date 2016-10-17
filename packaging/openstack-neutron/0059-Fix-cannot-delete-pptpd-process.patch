@@ -1,0 +1,30 @@
+From 56c28cd23cc4db7a5872e1b97867ff03030f848d Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Mon, 19 Sep 2016 14:39:39 +0800
+Subject: [PATCH 59/62] Fix cannot delete pptpd process
+
+Fixes: redmine #7991
+Fixes: 9353ca1 ("Enable kill pptpd process if router netns does not exist")
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/device_drivers/pptp.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/device_drivers/pptp.py b/neutron/services/vpn/device_drivers/pptp.py
+index c4a27b6..05e051c 100644
+--- a/neutron/services/vpn/device_drivers/pptp.py
++++ b/neutron/services/vpn/device_drivers/pptp.py
+@@ -130,7 +130,7 @@ class PPTPProcess(object):
+                          'kill pptpd process id %(pid)s in root netnamespace'),
+                          {'namespace': self.namespace, 'pid': self.pid})
+                 # just kill process in root netnamespace
+-                utils.execute(cmd)
++                utils.execute(cmd, root_helper=self.root_helper)
+ 
+     def update_ports_status(self):
+         changed = {}
+-- 
+2.10.0
+

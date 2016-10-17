@@ -1,0 +1,30 @@
+From ffc98bcf7c2784f2bd6e153f62d4423c55600d2b Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu+github@gmail.com>
+Date: Thu, 22 Sep 2016 09:32:05 +0800
+Subject: [PATCH 61/62] Fix error when using fqdn as ipsec peer id (#46)
+
+Fixes: redmine #8135
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/service_drivers/ipsec.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/vpn/service_drivers/ipsec.py b/neutron/services/vpn/service_drivers/ipsec.py
+index cdc82f2..84deb59 100644
+--- a/neutron/services/vpn/service_drivers/ipsec.py
++++ b/neutron/services/vpn/service_drivers/ipsec.py
+@@ -143,8 +143,8 @@ class IPsecVPNDriver(service_drivers.VpnDriver):
+             try:
+                 netaddr.IPAddress(ipsec_site_connection['peer_id'])
+             except netaddr.core.AddrFormatError:
+-                ipsec_site_connection['peer_id'] = (
+-                    '@' + ipsec_site_connection['peer_id'])
++                ipsec_site_connection_dict['peer_id'] = (
++                    '@' + ipsec_site_connection_dict['peer_id'])
+             ipsec_site_connection_dict['ikepolicy'] = dict(
+                 ipsec_site_connection.ikepolicy)
+             ipsec_site_connection_dict['ipsecpolicy'] = dict(
+-- 
+2.10.0
+

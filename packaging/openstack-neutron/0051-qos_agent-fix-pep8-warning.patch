@@ -1,0 +1,35 @@
+From 824260683530a8fbce5da20b2cb07e843b8951fb Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Wed, 13 Jan 2016 19:43:54 +0800
+Subject: [PATCH 51/57] qos_agent: fix pep8 warning
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/agents/qos_agent.py | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index cbe2aaf..5db2da4 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -16,8 +16,6 @@
+ import sys
+ import uuid
+ import eventlet
+-eventlet.monkey_patch()
+-
+ 
+ from oslo.config import cfg
+ 
+@@ -35,6 +33,7 @@ from neutron import service as neutron_service
+ from neutron import context
+ from neutron import manager
+ 
++eventlet.monkey_patch()
+ LOG = logging.getLogger(__name__)
+ 
+ # Qos Info Dictionary:
+-- 
+2.9.3
+
