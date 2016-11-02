@@ -1,0 +1,65 @@
+From 905dbc2a4e2ef49e792700af75f5d2c3799cd1e9 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 1 Nov 2016 15:33:18 +0800
+Subject: [PATCH 72/73] Only send effective qos configurations to agent
+
+It is unneeded to send qos a configuration that has no devices to apply
+to.
+
+Also fix a log error.
+
+Fixes: redmine #8886
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py                 | 12 ++++++++----
+ neutron/services/qos/agents/qos_agent.py |  2 +-
+ 2 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index 2d84348..e0b6aac 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -664,7 +664,10 @@ class QosPluginRpcDbMixin(object):
+         if qos.router:
+             if qos.direction == 'egress':
+                 prefix = 'qg-'
+-                ports = [qos.router.gw_port_id]
++                if qos.router.gw_port_id:
++                    ports = [qos.router.gw_port_id]
++                else:
++                    ports = []
+             else:
+                 prefix = 'qr-'
+                 ports = [
+@@ -752,10 +755,11 @@ class QosPluginRpcDbMixin(object):
+ 
+     def _get_qos_for_agent(self, context, qos):
+         scheme = self._get_qos_conf_scheme(context, qos)
+-        if scheme is None:
++        devices = self._get_devices_for_qos(qos)
++        if not devices or scheme is None:
+             return None
+-        return {'devices': self._get_devices_for_qos(qos),
+-                'scheme': scheme}
++        else:
++            return {'devices': devices, 'scheme': scheme}
+ 
+     def sync_qos(self, context, host):
+         try:
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index f3d373e..4841bdc 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -78,7 +78,7 @@ class QosAgent(manager.Manager):
+             scheme = t['scheme']
+             for device in devices:
+                 if device not in current:
+-                    LOG.debug('Device %(device) is not on this host.',
++                    LOG.debug('Device %(device)s is not on this host.',
+                               {'device': device})
+                     continue
+                 tcmanager = TcManager(device, namespace,
+-- 
+2.10.2
+

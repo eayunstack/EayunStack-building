@@ -1,0 +1,54 @@
+From 0915a60ac52a2cec443bae222a9dad77c63c67d2 Mon Sep 17 00:00:00 2001
+From: Elena Ezhova <eezhova@mirantis.com>
+Date: Tue, 28 Jul 2015 16:17:53 +0300
+Subject: [PATCH 66/73] Enable usage of the MTU value of an IPSec connection
+
+It is possible to specify the MTU parameter when creating IPSec Site
+Connection but this parameter is ignored, because it is missing in
+ipsec.conf.template.
+This change adds the mtu option to OpenSwan ipsec.conf template.
+
+Refactored existing test_scenario and added a functional test for
+OpenSwan driver.
+
+DocImpact
+
+Change-Id: If822454a7acaa3fd003cae3e5e342c8b66ef656c
+Closes-Bug: #1478949
+
+Fixes: redmine #8765
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../vpn/device_drivers/template/openswan/ipsec.conf.template      | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template b/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
+index 3da5cd8..82ddc2d 100644
+--- a/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
++++ b/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
+@@ -15,6 +15,11 @@ conn %default
+     # [subnet]
+     leftsubnet={{vpnservice.subnet.cidr}}
+     # leftsubnet=networkA/netmaskA, networkB/netmaskB (IKEv2 only)
++    # [updown]
++    # What "updown" script to run to adjust routing and/or firewalling when
++    # the status of the connection changes (default "ipsec _updown").
++    # "--route yes" allows to specify such routing options as mtu and metric.
++    leftupdown="ipsec _updown --route yes"
+     ######################
+     # ipsec_site_connections
+     ######################
+@@ -26,8 +31,7 @@ conn %default
+     rightsubnets={ {{ipsec_site_connection['peer_cidrs']|join(' ')}} }
+     # rightsubnet=networkA/netmaskA, networkB/netmaskB (IKEv2 only)
+     # [mtu]
+-    # Note It looks like not supported in the strongswan driver
+-    # ignore it now
++    mtu={{ipsec_site_connection.mtu}}
+     # [dpd_action]
+     dpdaction={{ipsec_site_connection.dpd_action}}
+     # [dpd_interval]
+-- 
+2.10.2
+
