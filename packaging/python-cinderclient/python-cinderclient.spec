@@ -101,7 +101,7 @@ rm -fr html/.doctrees html/.buildinfo
 %doc html
 
 %changelog
-* Tue May 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.1.eayunstack.1.0
+* Tue May 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.1.eayunstack.1.0.1
 - add 0005-CLI-Non-disruptive-backup.patch
 
 * Fri Dec 11 2015 Dunrong Huang<dunrong.huang@eayun.com> 1.1.1-3.eayunstack.1.0.1
