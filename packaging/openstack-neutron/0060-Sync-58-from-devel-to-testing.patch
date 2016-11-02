@@ -1,0 +1,33 @@
+From ad96b1f4e5bf119425dc74e85709315bfff8113f Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Tue, 1 Nov 2016 17:02:20 +0800
+Subject: [PATCH 60/62] Sync #58 from devel to testing
+
+Enable non admin user to operation qos
+
+Fixes: redmine #8823
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 6422eb0ef52534cb947185e17805bb273f8d9153)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ etc/policy.json | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/etc/policy.json b/etc/policy.json
+index 61149da..649162d 100644
+--- a/etc/policy.json
++++ b/etc/policy.json
+@@ -95,9 +95,6 @@
+     "update_firewall_rule": "rule:admin_or_owner",
+     "delete_firewall_rule": "rule:admin_or_owner",
+ 
+-    "create_qos_queue": "rule:admin_only",
+-    "get_qos_queue": "rule:admin_only",
+-
+     "update_agent": "rule:admin_only",
+     "delete_agent": "rule:admin_only",
+     "get_agent": "rule:admin_only",
+-- 
+2.10.2
+

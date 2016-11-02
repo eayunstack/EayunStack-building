@@ -1,0 +1,65 @@
+From ca91bffa524518c1cd24918615bd376edc36f9ee Mon Sep 17 00:00:00 2001
+From: Elena Ezhova <eezhova@mirantis.com>
+Date: Tue, 21 Jul 2015 17:26:20 +0300
+Subject: [PATCH 55/62] Sync #52 from devel to testing
+
+Don't include encryption algorithm in phase2alg for the AH protocol
+
+AH protocol doesn't have any encryption. That is why phase2alg in
+ipsec.conf template should be modified to exclude encryption for AH.
+Modified statements in ipsec.template.conf to avoid generation of
+whitespaces during rendering.
+
+Also made sure that each test has its own copy of FAKE_VPN_SERVICE
+without overriding the original one. Added a helper method for
+generating of unified diff to make debugging tests that generate
+and compare long outputs (e.g. configs) easier.
+
+Change-Id: Iaefae0c41a1e5a5a09b9882cb345ba44d08d6465
+Closes-Bug: #1476681
+
+Fixes: redmine #8761
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 6e1195c4a94451ed9285bd4b315fa92bcae16805)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../vpn/device_drivers/template/openswan/ipsec.conf.template  | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template b/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
+index 3da5cd8..f606b64 100644
+--- a/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
++++ b/neutron/services/vpn/device_drivers/template/openswan/ipsec.conf.template
+@@ -6,7 +6,8 @@ conn %default
+     salifetime=60m
+     keyingtries=%forever
+ {% for ipsec_site_connection in vpnservice.ipsec_site_connections if ipsec_site_connection.admin_state_up
+-%}conn {{ipsec_site_connection.id}}
++-%}
++conn {{ipsec_site_connection.id}}
+     # NOTE: a default route is required for %defaultroute to work...
+     left={{vpnservice.external_ip}}
+     leftid={{vpnservice.external_ip}}
+@@ -51,11 +52,17 @@ conn %default
+     ##########################
+     # [transform_protocol]
+     auth={{ipsec_site_connection.ipsecpolicy.transform_protocol}}
++    {% if ipsec_site_connection.ipsecpolicy.transform_protocol == "ah" -%}
++    # AH protocol does not support encryption
++    # [auth_algorithm]-[pfs]
++    phase2alg={{ipsec_site_connection.ipsecpolicy.auth_algorithm}};{{ipsec_site_connection.ipsecpolicy.pfs}}
++    {% else -%}
+     # [encryption_algorithm]-[auth_algorithm]-[pfs]
+     phase2alg={{ipsec_site_connection.ipsecpolicy.encryption_algorithm}}-{{ipsec_site_connection.ipsecpolicy.auth_algorithm}};{{ipsec_site_connection.ipsecpolicy.pfs}}
++    {% endif -%}
+     # [encapsulation_mode]
+     type={{ipsec_site_connection.ipsecpolicy.encapsulation_mode}}
+     # [lifetime_value]
+     salifetime={{ipsec_site_connection.ipsecpolicy.lifetime_value}}s
+     # lifebytes=100000 if lifetime_units=kilobytes (IKEv2 only)
+-{% endfor %}
++{% endfor -%}
+-- 
+2.10.2
+

@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.3%{?dist_eayunstack}
+Release:	18.4%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -97,6 +97,14 @@ Patch0051: 0051-Sync-46-from-devel-to-testing.patch
 Patch0052: 0052-Sync-47-from-devel-to-testing.patch
 Patch0053: 0053-Sync-49-from-devel-to-testing.patch
 Patch0054: 0054-Sync-51-from-devel-to-testing.patch
+Patch0055: 0055-Sync-52-from-devel-to-testing.patch
+Patch0056: 0056-Sync-53-from-devel-to-testing.patch
+Patch0057: 0057-Sync-55-from-devel-to-testing.patch
+Patch0058: 0058-Sync-56-from-devel-to-testing.patch
+Patch0059: 0059-Sync-57-from-devel-to-testing.patch
+Patch0060: 0060-Sync-58-from-devel-to-testing.patch
+Patch0061: 0061-Sync-59-from-devel-to-testing.patch
+Patch0062: 0062-Sync-60-from-devel-to-testing.patch
 
 BuildArch:	noarch
 
@@ -628,6 +636,14 @@ IPSec.
 %patch0052 -p1
 %patch0053 -p1
 %patch0054 -p1
+%patch0055 -p1
+%patch0056 -p1
+%patch0057 -p1
+%patch0058 -p1
+%patch0059 -p1
+%patch0060 -p1
+%patch0061 -p1
+%patch0062 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1089,6 +1105,16 @@ exit 0
 
 
 %changelog
+* Wed Nov 02 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.4.eayunstack.1.0.1
+- add patch 0055 from github pull request #52 (redmine#8761)
+- add patch 0056 from github pull request #53 (redmine#8765)
+- add patch 0057 from gtthub pull request #55 (redmine#8878)
+- add patch 0058 from github pull request #56 (redmine#8685)
+- add patch 0059 from github pull request #57 (redmine#8884)
+- add patch 0060 from github pull request #58 (redmine#8823)
+- add patch 0061 from github pull request #59 (redmine#7735)
+- add patch 0062 from neutron-qos github pull request #22 (redmine#8886)
+
 * Mon Oct 17 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.3.eayunstack.1.0.1
 - add patch 0043 from github pull request #10 (redmine#4543)
 - add patch 0044 from github pull request #16
