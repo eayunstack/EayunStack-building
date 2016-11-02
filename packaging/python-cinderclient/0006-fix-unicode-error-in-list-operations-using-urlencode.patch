@@ -1,0 +1,273 @@
+From b2ced5e83da23a1c8bc865ba0c297e83c2803188 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 1 Nov 2016 16:29:03 +0800
+Subject: [PATCH 6/7] fix unicode error in list operations using urlencode.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinderclient/base.py                 | 12 ++++++++++++
+ cinderclient/tests/v1/test_shell.py  |  9 +++++++++
+ cinderclient/tests/v2/test_shell.py  | 13 +++++++++++++
+ cinderclient/v1/volume_snapshots.py  |  8 +-------
+ cinderclient/v1/volumes.py           |  6 +-----
+ cinderclient/v2/cgsnapshots.py       |  6 +-----
+ cinderclient/v2/consistencygroups.py |  6 +-----
+ cinderclient/v2/volume_snapshots.py  |  7 +------
+ cinderclient/v2/volumes.py           |  7 +------
+ 9 files changed, 40 insertions(+), 34 deletions(-)
+
+diff --git a/cinderclient/base.py b/cinderclient/base.py
+index 5274f24..af4a5f4 100644
+--- a/cinderclient/base.py
++++ b/cinderclient/base.py
+@@ -24,10 +24,12 @@ import hashlib
+ import os
+ 
+ import six
++from six.moves.urllib.parse import urlencode
+ 
+ from cinderclient import exceptions
+ from cinderclient.openstack.common.apiclient import base as common_base
+ from cinderclient import utils
++from cinderclient.openstack.common import strutils
+ 
+ 
+ Resource = common_base.Resource
+@@ -180,6 +182,16 @@ class ManagerWithFind(six.with_metaclass(abc.ABCMeta, Manager)):
+     def list(self):
+         pass
+ 
++    def _build_url(self, qparams):
++        """
++        Build request url from parameters
++        """
++        qparams = {k: strutils.safe_encode(v) for k, v in qparams.items()}
++        new_qparams = sorted(qparams.items(), key=lambda x: x[0])
++        query_string = "?%s" % urlencode(new_qparams)
++
++        return query_string
++
+     def find(self, **kwargs):
+         """
+         Find a single item with attributes matching ``**kwargs``.
+diff --git a/cinderclient/tests/v1/test_shell.py b/cinderclient/tests/v1/test_shell.py
+index fb42328..d43e771 100644
+--- a/cinderclient/tests/v1/test_shell.py
++++ b/cinderclient/tests/v1/test_shell.py
+@@ -1,3 +1,4 @@
++# -*- coding: utf-8 -*-
+ # Copyright 2010 Jacob Kaplan-Moss
+ 
+ # Copyright (c) 2011 OpenStack Foundation
+@@ -120,6 +121,10 @@ class ShellTest(utils.TestCase):
+         self.run_command('list --display-name=1234')
+         self.assert_called('GET', '/volumes/detail?display_name=1234')
+ 
++    def test_list_filter_with_unicode(self):
++        self.run_command('list --display-name=' + u'测试')
++        self.assert_called('GET', '/volumes/detail?display_name=%E6%B5%8B%E8%AF%95')
++
+     def test_list_all_tenants(self):
+         self.run_command('list --all-tenants=1')
+         self.assert_called('GET', '/volumes/detail?all_tenants=1')
+@@ -154,6 +159,10 @@ class ShellTest(utils.TestCase):
+         self.run_command('backup-restore 1234')
+         self.assert_called('POST', '/backups/1234/restore')
+ 
++    def test_snapshot_list_filter_with_unicode(self):
++        self.run_command('snapshot-list --display-name=' + u'测试')
++        self.assert_called('GET', '/snapshots/detail?display_name=%E6%B5%8B%E8%AF%95')
++
+     def test_snapshot_list_filter_volume_id(self):
+         self.run_command('snapshot-list --volume-id=1234')
+         self.assert_called('GET', '/snapshots/detail?volume_id=1234')
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index bbb7dc0..db5e7d6 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -1,3 +1,4 @@
++# -*- coding: utf-8 -*-
+ # Copyright (c) 2013 OpenStack Foundation
+ # All Rights Reserved.
+ #
+@@ -91,6 +92,10 @@ class ShellTest(utils.TestCase):
+         self.run_command('list --name=1234')
+         self.assert_called('GET', '/volumes/detail?name=1234')
+ 
++    def test_list_filter_with_unicode(self):
++        self.run_command('list --name=' + u'测试')
++        self.assert_called('GET', '/volumes/detail?name=%E6%B5%8B%E8%AF%95')
++
+     def test_list_all_tenants(self):
+         self.run_command('list --all-tenants=1')
+         self.assert_called('GET', '/volumes/detail?all_tenants=1')
+@@ -188,6 +193,10 @@ class ShellTest(utils.TestCase):
+                                       'backup_url': 'URL_STRING'}}
+         self.assert_called('POST', '/backups/import_record', expected)
+ 
++    def test_snapshot_list_filter_with_unicode(self):
++        self.run_command('snapshot-list --name=' + u'测试')
++        self.assert_called('GET', '/snapshots/detail?display_name=%E6%B5%8B%E8%AF%95')
++
+     def test_snapshot_list_filter_volume_id(self):
+         self.run_command('snapshot-list --volume-id=1234')
+         self.assert_called('GET', '/snapshots/detail?volume_id=1234')
+@@ -593,3 +602,7 @@ class ShellTest(utils.TestCase):
+         self.run_command('replication-reenable 1234')
+         self.assert_called('POST', '/volumes/1234/action',
+                            body={'os-reenable-replica': None})
++
++    def test_cgsnapshot_list_filter_with_unicode(self):
++        self.run_command('cgsnapshot-list --status=' + u'测试')
++        self.assert_called('GET', '/cgsnapshots/detail?status=%E6%B5%8B%E8%AF%95')
+diff --git a/cinderclient/v1/volume_snapshots.py b/cinderclient/v1/volume_snapshots.py
+index 690fd01..6e6e654 100644
+--- a/cinderclient/v1/volume_snapshots.py
++++ b/cinderclient/v1/volume_snapshots.py
+@@ -17,11 +17,6 @@
+ Volume snapshot interface (1.1 extension).
+ """
+ 
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+-
+ from cinderclient import base
+ import six
+ 
+@@ -123,8 +118,7 @@ class SnapshotManager(base.ManagerWithFind):
+         # Transform the dict to a sequence of two-element tuples in fixed
+         # order, then the encoded string will be consistent in Python 2&3.
+         if qparams:
+-            new_qparams = sorted(qparams.items(), key=lambda x: x[0])
+-            query_string = "?%s" % urlencode(new_qparams)
++            query_string = self._build_url(qparams)
+         else:
+             query_string = ""
+ 
+diff --git a/cinderclient/v1/volumes.py b/cinderclient/v1/volumes.py
+index 37a4b88..c2de863 100644
+--- a/cinderclient/v1/volumes.py
++++ b/cinderclient/v1/volumes.py
+@@ -17,10 +17,6 @@
+ Volume interface (1.1 extension).
+ """
+ 
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+ import six
+ from cinderclient import base
+ 
+@@ -210,7 +206,7 @@ class VolumeManager(base.ManagerWithFind):
+             if val:
+                 qparams[opt] = val
+ 
+-        query_string = "?%s" % urlencode(qparams) if qparams else ""
++        query_string = self._build_url(qparams) if qparams else ""
+ 
+         detail = ""
+         if detailed:
+diff --git a/cinderclient/v2/cgsnapshots.py b/cinderclient/v2/cgsnapshots.py
+index 29513a9..ff30bd2 100644
+--- a/cinderclient/v2/cgsnapshots.py
++++ b/cinderclient/v2/cgsnapshots.py
+@@ -16,10 +16,6 @@
+ """cgsnapshot interface (v2 extension)."""
+ 
+ import six
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+ 
+ from cinderclient import base
+ 
+@@ -87,7 +83,7 @@ class CgsnapshotManager(base.ManagerWithFind):
+             if val:
+                 qparams[opt] = val
+ 
+-        query_string = "?%s" % urlencode(qparams) if qparams else ""
++        query_string = self._build_url(qparams) if qparams else ""
+ 
+         detail = ""
+         if detailed:
+diff --git a/cinderclient/v2/consistencygroups.py b/cinderclient/v2/consistencygroups.py
+index b20cb8b..3f67399 100644
+--- a/cinderclient/v2/consistencygroups.py
++++ b/cinderclient/v2/consistencygroups.py
+@@ -16,10 +16,6 @@
+ """Consistencygroup interface (v2 extension)."""
+ 
+ import six
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+ 
+ from cinderclient import base
+ 
+@@ -90,7 +86,7 @@ class ConsistencygroupManager(base.ManagerWithFind):
+             if val:
+                 qparams[opt] = val
+ 
+-        query_string = "?%s" % urlencode(qparams) if qparams else ""
++        query_string = self._build_url(qparams) if qparams else ""
+ 
+         detail = ""
+         if detailed:
+diff --git a/cinderclient/v2/volume_snapshots.py b/cinderclient/v2/volume_snapshots.py
+index a398b0e..8c4fde1 100644
+--- a/cinderclient/v2/volume_snapshots.py
++++ b/cinderclient/v2/volume_snapshots.py
+@@ -16,10 +16,6 @@
+ """Volume snapshot interface (1.1 extension)."""
+ 
+ import six
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+ 
+ from cinderclient import base
+ 
+@@ -110,8 +106,7 @@ class SnapshotManager(base.ManagerWithFind):
+         # Transform the dict to a sequence of two-element tuples in fixed
+         # order, then the encoded string will be consistent in Python 2&3.
+         if qparams:
+-            new_qparams = sorted(qparams.items(), key=lambda x: x[0])
+-            query_string = "?%s" % urlencode(new_qparams)
++            query_string = self._build_url(qparams)
+         else:
+             query_string = ""
+ 
+diff --git a/cinderclient/v2/volumes.py b/cinderclient/v2/volumes.py
+index ae8ed29..4313afc 100644
+--- a/cinderclient/v2/volumes.py
++++ b/cinderclient/v2/volumes.py
+@@ -16,10 +16,6 @@
+ """Volume interface (v2 extension)."""
+ 
+ import six
+-try:
+-    from urllib import urlencode
+-except ImportError:
+-    from urllib.parse import urlencode
+ 
+ from cinderclient import base
+ 
+@@ -271,8 +267,7 @@ class VolumeManager(base.ManagerWithFind):
+         # Transform the dict to a sequence of two-element tuples in fixed
+         # order, then the encoded string will be consistent in Python 2&3.
+         if qparams:
+-            new_qparams = sorted(qparams.items(), key=lambda x: x[0])
+-            query_string = "?%s" % urlencode(new_qparams)
++            query_string = self._build_url(qparams)
+         else:
+             query_string = ""
+ 
+-- 
+2.10.1
+
