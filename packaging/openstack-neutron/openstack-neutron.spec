@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	24%{?dist_eayunstack}
+Release:	25%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -107,6 +107,15 @@ Patch0061: 0061-Fix-error-when-using-fqdn-as-ipsec-peer-id-46.patch
 Patch0062: 0062-VPNaaS-deprecate-two-dpd-actions-47.patch
 Patch0063: 0063-Fix-error-when-checking-qos-target.patch
 Patch0064: 0064-FWaaS-fix-port-range-validation-51.patch
+Patch0065: 0065-Don-t-include-encryption-algorithm-in-phase2alg-for-.patch
+Patch0066: 0066-Enable-usage-of-the-MTU-value-of-an-IPSec-connection.patch
+Patch0067: 0067-Fix-ipsec-error-with-unsupport-provider-name.patch
+Patch0068: 0068-VPNaaS-make-dpd_action-input-validation-work.patch
+Patch0069: 0069-Fix-race-condition-when-auto-scheduling-routers.patch
+Patch0070: 0070-Fix-error-when-invoke-firewall_deleted-rpc-function.patch
+Patch0071: 0071-Enable-non-admin-user-to-operation-qos.patch
+Patch0072: 0072-Only-send-effective-qos-configurations-to-agent.patch
+Patch0073: 0073-Fix-process-logical-in-haproxy-get_stats.patch
 
 BuildArch:	noarch
 
@@ -648,6 +657,15 @@ IPSec.
 %patch0062 -p1
 %patch0063 -p1
 %patch0064 -p1
+%patch0065 -p1
+%patch0066 -p1
+%patch0067 -p1
+%patch0068 -p1
+%patch0069 -p1
+%patch0070 -p1
+%patch0071 -p1
+%patch0072 -p1
+%patch0073 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1109,6 +1127,17 @@ exit 0
 
 
 %changelog
+* Wed Nov 02 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-25.eayunstack.1.1
+- add patch 0065 from github pull request #52 (redmine#8761)
+- add patch 0066 from github pull request #53 (redmine#8765)
+- add patch 0067 from github pull request #54 (redmine#7730)
+- add patch 0068 from github pull request #55 (redmine#8878)
+- add patch 0069 from github pull request #56 (redmine#8685)
+- add patch 0070 from github pull request #57 (redmine#8884)
+- add patch 0071 from github pull request #58 (redmine#8823)
+- add patch 0072 from neutron-qos github pull request #22 (redmine#8886)
+- add patch 0073 from github pull request #59 (redmine#7735)
+
 * Mon Oct 17 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-24.eayunstack.1.1
 - add patch 0063 from neutron-qos github pull request #21 (redmine#8579)
 - add patch 0064 from github pull request #51 (redmine#8601)

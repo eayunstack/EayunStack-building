@@ -1,0 +1,43 @@
+From ba14b9a69439cb0b77c20c20c320dc5f9d7b314d Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 1 Nov 2016 13:53:46 +0800
+Subject: [PATCH 69/73] Fix race condition when auto scheduling routers
+
+Fixes: redmine #8685
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/scheduler/l3_agent_scheduler.py | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/scheduler/l3_agent_scheduler.py b/neutron/scheduler/l3_agent_scheduler.py
+index c9b1efa..1537c15 100644
+--- a/neutron/scheduler/l3_agent_scheduler.py
++++ b/neutron/scheduler/l3_agent_scheduler.py
+@@ -27,6 +27,7 @@ from neutron.common import utils
+ from neutron.db import l3_agentschedulers_db
+ from neutron.db import l3_db
+ from neutron.db import l3_hamode_db
++from neutron.extensions import l3agentscheduler
+ from neutron.openstack.common.gettextutils import _LE
+ from neutron.openstack.common import log as logging
+ 
+@@ -204,7 +205,14 @@ class L3Scheduler(object):
+                         plugin, context, router['id'],
+                         router['tenant_id'], l3_agent)
+             else:
+-                self.bind_router(context, router['id'], l3_agent)
++                try:
++                    with context.session.begin(subtransactions=True):
++                        if plugin.check_agent_router_scheduling_needed(
++                            context, l3_agent, router
++                        ):
++                            self.bind_router(context, router['id'], l3_agent)
++                except l3agentscheduler.RouterHostedByL3Agent:
++                    continue
+ 
+     def bind_router(self, context, router_id, chosen_agent):
+         """Bind the router to the l3 agent which has been chosen."""
+-- 
+2.10.2
+
