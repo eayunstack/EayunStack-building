@@ -1,0 +1,73 @@
+From 7a587bf06146d9487c3c489ef613264586f1628c Mon Sep 17 00:00:00 2001
+From: Ivan Kolodyazhny <e0ne@e0ne.info>
+Date: Thu, 22 Sep 2016 14:56:20 +0300
+Subject: [PATCH 7/7] Fix error during set unicode metadata key
+
+Change-Id: I2940670b4174dae800e76667ceecc80c568e613f
+Closes-Bug: #1622631
+(cherry picked from commit 0fd11f30f4a06f7b8cb701fa476aae4f193ac963)
+---
+ cinderclient/openstack/common/apiclient/base.py | 13 +++++++++----
+ cinderclient/tests/v2/test_volumes.py           |  5 +++--
+ 2 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/cinderclient/openstack/common/apiclient/base.py b/cinderclient/openstack/common/apiclient/base.py
+index bc4a158..61ec07a 100644
+--- a/cinderclient/openstack/common/apiclient/base.py
++++ b/cinderclient/openstack/common/apiclient/base.py
+@@ -447,22 +447,27 @@ class Resource(object):
+     def _add_details(self, info):
+         for (k, v) in six.iteritems(info):
+             try:
+-                setattr(self, k, v)
++                try:
++                    setattr(self, k, v)
++                except UnicodeEncodeError:
++                    pass
+                 self._info[k] = v
+             except AttributeError:
+                 # In this case we already defined the attribute on the class
+                 pass
+ 
+     def __getattr__(self, k):
+-        if k not in self.__dict__:
+-            #NOTE(bcwaldon): disallow lazy-loading if already loaded once
++        if k not in self.__dict__ or k not in self._info:
++            # NOTE(bcwaldon): disallow lazy-loading if already loaded once
+             if not self.is_loaded():
+                 self.get()
+                 return self.__getattr__(k)
+ 
+             raise AttributeError(k)
+         else:
+-            return self.__dict__[k]
++            if k in self.__.dict__:
++                return self.__dict__[k]
++            return self._info[k]
+ 
+     def get(self):
+         # set_loaded() first ... so if we have to bail, we know we tried.
+diff --git a/cinderclient/tests/v2/test_volumes.py b/cinderclient/tests/v2/test_volumes.py
+index 165742d..49521c8 100644
+--- a/cinderclient/tests/v2/test_volumes.py
++++ b/cinderclient/tests/v2/test_volumes.py
+@@ -1,3 +1,4 @@
++# -*- coding: utf-8 -*-
+ # Copyright (c) 2013 OpenStack Foundation
+ #
+ # All Rights Reserved.
+@@ -113,9 +114,9 @@ class VolumesTest(utils.TestCase):
+         cs.assert_called('POST', '/volumes/1234/action')
+ 
+     def test_set_metadata(self):
+-        cs.volumes.set_metadata(1234, {'k1': 'v2'})
++        cs.volumes.set_metadata(1234, {'k1': 'v2', 'тест': 'тест'})
+         cs.assert_called('POST', '/volumes/1234/metadata',
+-                         {'metadata': {'k1': 'v2'}})
++                         {'metadata': {'k1': 'v2', 'тест': 'тест'}})
+ 
+     def test_delete_metadata(self):
+         keys = ['key1']
+-- 
+2.10.1
+

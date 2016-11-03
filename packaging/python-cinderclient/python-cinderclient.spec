@@ -2,7 +2,7 @@
 
 Name:             python-cinderclient
 Version:          1.1.1
-Release:          3.1%{?dist_eayunstack}
+Release:          3.2%{?dist_eayunstack}
 Summary:          Python API and CLI for OpenStack Cinder
 
 Group:            Development/Languages
@@ -15,6 +15,8 @@ Patch0002: 0002-Stop-pbr-from-installing-requirements-during-build.patch
 Patch0003: 0003-Fix-search_opts-error-with-backup-delete-command.patch
 Patch0004: 0004-Add-support-for-os-volume-type-access-extension.patch
 Patch0005: 0005-CLI-Non-disruptive-backup.patch
+Patch0006: 0006-fix-unicode-error-in-list-operations-using-urlencode.patch
+Patch0007: 0007-Fix-error-during-set-unicode-metadata-key.patch
 
 BuildArch:        noarch
 
@@ -57,6 +59,8 @@ This package contains auto-generated documentation.
 %patch0003 -p1
 %patch0004 -p1
 %patch0005 -p1
+%patch0006 -p1
+%patch0007 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATCINDERCLIENTVERSION/%{version}/ cinderclient/__init__.py
@@ -101,7 +105,11 @@ rm -fr html/.doctrees html/.buildinfo
 %doc html
 
 %changelog
-* Tue May 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.1.eayunstack.1.0
+* Wed Nov 02 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.2.eayunstack.1.0.1
+- add 0006-fix-unicode-error-in-list-operations-using-urlencode.patch
+- add 0007-Fix-error-during-set-unicode-metadata-key.patch
+
+* Tue May 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.1.eayunstack.1.0.1
 - add 0005-CLI-Non-disruptive-backup.patch
 
 * Fri Dec 11 2015 Dunrong Huang<dunrong.huang@eayun.com> 1.1.1-3.eayunstack.1.0.1
