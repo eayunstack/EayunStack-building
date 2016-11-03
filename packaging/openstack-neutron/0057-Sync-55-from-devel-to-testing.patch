@@ -1,0 +1,34 @@
+From 94fcd7c6a0a68bc918157c6ce9be079056962d78 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 31 Oct 2016 16:32:19 +0800
+Subject: [PATCH 57/62] Sync #55 from devel to testing
+
+VPNaaS: make dpd_action input validation work
+
+Fix a typo which causes the validation of dpd action is never performed.
+
+Fixes: redmine #8878
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 81e97167a8da1e78904ce954de4229f916d7d6e2)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/vpnaas.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/vpnaas.py b/neutron/extensions/vpnaas.py
+index 1338d6f..f9a7c49 100644
+--- a/neutron/extensions/vpnaas.py
++++ b/neutron/extensions/vpnaas.py
+@@ -187,7 +187,7 @@ RESOURCE_ATTRIBUTE_MAP = {
+                 'default': {},
+                 'validate': {
+                     'type:dict_or_empty': {
+-                        'actions': {
++                        'action': {
+                             'type:values': vpn_dpd_supported_actions,
+                         },
+                         'interval': {
+-- 
+2.10.2
+

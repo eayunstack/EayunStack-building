@@ -1,0 +1,33 @@
+From a538f91b495188e1683f1f8b1af0a2e4686e1e99 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Tue, 1 Nov 2016 17:29:17 +0800
+Subject: [PATCH 61/62] Sync #59 from devel to testing
+
+Fix process logical in haproxy get_stats
+
+Fixes: redmine #7735
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 0817427eb2f49ab998464969718de97b1251db86)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+index cc3cdc5..cc21aed 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+@@ -180,6 +180,9 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
+         return False
+ 
+     def get_stats(self, pool_id):
++        if pool_id not in self.pool_to_port_id:
++            return {}
++
+         socket_path = self._get_state_file_path(pool_id, 'sock', False)
+         TYPE_BACKEND_REQUEST = 2
+         TYPE_SERVER_REQUEST = 4
+-- 
+2.10.2
+
