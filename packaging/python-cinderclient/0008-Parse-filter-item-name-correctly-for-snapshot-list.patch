@@ -1,0 +1,54 @@
+From db08d198c01ec1afbf9d6414098d78c8208f71aa Mon Sep 17 00:00:00 2001
+From: Cao Shufeng <caosf.fnst@cn.fujitsu.com>
+Date: Fri, 19 Aug 2016 02:26:04 -0400
+Subject: [PATCH 08/11] Parse filter item "name" correctly for snapshot-list
+
+Cinderclient will parse filter item "name" to "display_name"
+when get snapshot list via v2/v3 api.
+This works for admin user. However for non-admin user,
+cinder-api[1] removes "display_name" as an invalid filter item
+and return the full snapshot list.
+This change use "name" as filter of snapshots rather than
+"display_name".
+
+[1]: https://github.com/openstack/cinder/blob/master/cinder/api/v2/snapshots.py#L87-#L93
+
+Co-Authored-By: cheneydc <dongc@neunn.com>
+
+Change-Id: I63b6049a417293534079012dc6ee2a5b25e176be
+Closes-Bug: #1554538
+(cherry picked from commit cd9850b715e2f6fd46bacbe2d864387ce7a4e5f4)
+---
+ cinderclient/tests/v2/test_shell.py | 2 +-
+ cinderclient/v2/shell.py            | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index db5e7d6..670391a 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -195,7 +195,7 @@ class ShellTest(utils.TestCase):
+ 
+     def test_snapshot_list_filter_with_unicode(self):
+         self.run_command('snapshot-list --name=' + u'测试')
+-        self.assert_called('GET', '/snapshots/detail?display_name=%E6%B5%8B%E8%AF%95')
++        self.assert_called('GET', '/snapshots/detail?name=%E6%B5%8B%E8%AF%95')
+ 
+     def test_snapshot_list_filter_volume_id(self):
+         self.run_command('snapshot-list --volume-id=1234')
+diff --git a/cinderclient/v2/shell.py b/cinderclient/v2/shell.py
+index bf0d527..cf6d8ba 100644
+--- a/cinderclient/v2/shell.py
++++ b/cinderclient/v2/shell.py
+@@ -529,7 +529,7 @@ def do_snapshot_list(cs, args):
+ 
+     search_opts = {
+         'all_tenants': all_tenants,
+-        'display_name': args.name,
++        'name': args.name,
+         'status': args.status,
+         'volume_id': args.volume_id,
+     }
+-- 
+2.10.2
+

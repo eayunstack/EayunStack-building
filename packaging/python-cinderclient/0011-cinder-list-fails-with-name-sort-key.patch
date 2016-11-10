@@ -1,0 +1,88 @@
+From 59fb1af4cb4da3a0db9d23a05f22efb224acbfca Mon Sep 17 00:00:00 2001
+From: Steven Kaufer <kaufer@us.ibm.com>
+Date: Fri, 19 Dec 2014 02:56:53 +0000
+Subject: [PATCH 11/11] cinder list fails with 'name' sort key
+
+The client restricts the sort keys that the user can supply. The
+'name' key is allowed but is not the correct key for sorting by name,
+it should be 'display_name'.
+
+If 'name' is used then the client returns with the error 500
+Internal Server Error.
+
+This patch will add support for mapping client sort keys (eg, 'name')
+to server sort keys (eg, 'display_name'), allowing the user to supply
+the 'name' key to sort by name.
+
+This patch also adds UT for the sort key and direction error cases
+when an invalid value is supplied.
+
+Change-Id: I0bdad6d61da83a3924a6b18678afe4722b5778d6
+Closes-Bug: 1404020
+(cherry picked from commit 0560f7883353ea74fd31bf52535883cc18adecf5)
+---
+ cinderclient/tests/v2/test_shell.py | 21 ++++++++++++++++++---
+ cinderclient/v2/volumes.py          |  5 ++++-
+ 2 files changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index 400aac7..0e2d6e8 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -109,9 +109,24 @@ class ShellTest(utils.TestCase):
+         self.run_command('list --limit=10')
+         self.assert_called('GET', '/volumes/detail?limit=10')
+ 
+-    def test_list_sort(self):
+-        self.run_command('list --sort_key=name --sort_dir=asc')
+-        self.assert_called('GET', '/volumes/detail?sort_dir=asc&sort_key=name')
++    def test_list_sort_valid(self):
++        self.run_command('list --sort_key=id --sort_dir=asc')
++        self.assert_called('GET', '/volumes/detail?sort_dir=asc&sort_key=id')
++
++    def test_list_sort_name(self):
++        # Client 'name' key is mapped to 'display_name'
++        self.run_command('list --sort_key=name')
++        self.assert_called('GET', '/volumes/detail?sort_key=display_name')
++
++    def test_list_sort_key_invalid(self):
++        self.assertRaises(ValueError,
++                          self.run_command,
++                          'list --sort_key=foo --sort_dir=asc')
++
++    def test_list_sort_dir_invalid(self):
++        self.assertRaises(ValueError,
++                          self.run_command,
++                          'list --sort_key=id --sort_dir=foo')
+ 
+     def test_list_reorder_with_sort(self):
+         # sortby_index is None if there is sort information
+diff --git a/cinderclient/v2/volumes.py b/cinderclient/v2/volumes.py
+index 4313afc..929a5d3 100644
+--- a/cinderclient/v2/volumes.py
++++ b/cinderclient/v2/volumes.py
+@@ -20,9 +20,12 @@ import six
+ from cinderclient import base
+ 
+ 
++# Valid sort directions and client sort keys
+ SORT_DIR_VALUES = ('asc', 'desc')
+ SORT_KEY_VALUES = ('id', 'status', 'size', 'availability_zone', 'name',
+                    'bootable', 'created_at')
++# Mapping of client keys to actual sort keys
++SORT_KEY_MAPPINGS = {'name': 'display_name'}
+ 
+ 
+ class Volume(base.Resource):
+@@ -252,7 +255,7 @@ class VolumeManager(base.ManagerWithFind):
+ 
+         if sort_key is not None:
+             if sort_key in SORT_KEY_VALUES:
+-                qparams['sort_key'] = sort_key
++                qparams['sort_key'] = SORT_KEY_MAPPINGS.get(sort_key, sort_key)
+             else:
+                 raise ValueError('sort_key must be one of the following: %s.'
+                                  % ', '.join(SORT_KEY_VALUES))
+-- 
+2.10.2
+

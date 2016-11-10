@@ -2,7 +2,7 @@
 
 Name:             python-cinderclient
 Version:          1.1.1
-Release:          3.2%{?dist_eayunstack}
+Release:          3.3%{?dist_eayunstack}
 Summary:          Python API and CLI for OpenStack Cinder
 
 Group:            Development/Languages
@@ -17,6 +17,10 @@ Patch0004: 0004-Add-support-for-os-volume-type-access-extension.patch
 Patch0005: 0005-CLI-Non-disruptive-backup.patch
 Patch0006: 0006-fix-unicode-error-in-list-operations-using-urlencode.patch
 Patch0007: 0007-Fix-error-during-set-unicode-metadata-key.patch
+Patch0008: 0008-Parse-filter-item-name-correctly-for-snapshot-list.patch
+Patch0009: 0009-Correctly-encode-params-in-list-actions.patch
+Patch0010: 0010-Client-output-is-not-sorted-by-sort_key.patch
+Patch0011: 0011-cinder-list-fails-with-name-sort-key.patch
 
 BuildArch:        noarch
 
@@ -61,6 +65,10 @@ This package contains auto-generated documentation.
 %patch0005 -p1
 %patch0006 -p1
 %patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
+%patch0010 -p1
+%patch0011 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATCINDERCLIENTVERSION/%{version}/ cinderclient/__init__.py
@@ -105,6 +113,12 @@ rm -fr html/.doctrees html/.buildinfo
 %doc html
 
 %changelog
+* Thu Nov 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.3.eayunstack.1.0.1
+- add 0008-Parse-filter-item-name-correctly-for-snapshot-list.patch
+- add 0009-Correctly-encode-params-in-list-actions.patch
+- add 0010-Client-output-is-not-sorted-by-sort_key.patch
+- add 0011-cinder-list-fails-with-name-sort-key.patch
+
 * Wed Nov 02 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.2.eayunstack.1.0.1
 - add 0006-fix-unicode-error-in-list-operations-using-urlencode.patch
 - add 0007-Fix-error-during-set-unicode-metadata-key.patch

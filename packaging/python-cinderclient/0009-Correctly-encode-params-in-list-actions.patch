@@ -1,0 +1,31 @@
+From f7a90ccf2eed9d4115c66bb5de474eadb4e46b7b Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Fri, 4 Nov 2016 14:48:47 +0800
+Subject: [PATCH 09/11] Correctly encode params in list actions.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinderclient/base.py | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/cinderclient/base.py b/cinderclient/base.py
+index af4a5f4..18243b0 100644
+--- a/cinderclient/base.py
++++ b/cinderclient/base.py
+@@ -186,7 +186,12 @@ class ManagerWithFind(six.with_metaclass(abc.ABCMeta, Manager)):
+         """
+         Build request url from parameters
+         """
+-        qparams = {k: strutils.safe_encode(v) for k, v in qparams.items()}
++        for k, v in qparams.items():
++            try:
++                qparams[k] = strutils.safe_encode(v)
++            except TypeError:
++                continue
++
+         new_qparams = sorted(qparams.items(), key=lambda x: x[0])
+         query_string = "?%s" % urlencode(new_qparams)
+ 
+-- 
+2.10.2
+

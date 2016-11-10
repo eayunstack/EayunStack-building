@@ -1,0 +1,177 @@
+From ce6fb02b60e8254ef092fb39d375221ee25792fb Mon Sep 17 00:00:00 2001
+From: Steven Kaufer <kaufer@us.ibm.com>
+Date: Mon, 15 Dec 2014 22:52:18 +0000
+Subject: [PATCH 10/11] Client output is not sorted by --sort_key
+
+The cinder client supports invoking the volumes REST API with the
+sort_dir and sort_key parameters. However, the client output table
+is always sorted by ID even though the REST API is returning in
+sorted order based on the sort key/direction provided.
+
+For example, the command below supplies the 'size' sort key but the
+output table is still sorted by ID:
+
+cinder list --sort_key size --sort_dir desc
+
+This fix contains:
+* Updates to the print_list utility to prevent any re-ordering so
+  that the current object order is maintained
+* Updates to the shell to disable re-ordering if the user supplies
+  sort parameters
+
+Change-Id: I4cc111a8bdd2b89158dfc4bb0d16fa6dbf36cc57
+Closes-Bug: 1402846
+(cherry picked from commit b0e4cc1b63911710524005855aeefadc0850f44b)
+---
+ cinderclient/tests/test_utils.py    | 33 ++++++++++++++++++++++++++++++++-
+ cinderclient/tests/v2/test_shell.py | 19 +++++++++++++++++++
+ cinderclient/utils.py               | 18 +++++++++++++++---
+ cinderclient/v2/shell.py            |  6 +++++-
+ 4 files changed, 71 insertions(+), 5 deletions(-)
+
+diff --git a/cinderclient/tests/test_utils.py b/cinderclient/tests/test_utils.py
+index a62af2f..b68bf1b 100644
+--- a/cinderclient/tests/test_utils.py
++++ b/cinderclient/tests/test_utils.py
+@@ -110,9 +110,10 @@ class PrintListTestCase(test_utils.TestCase):
+ 
+     def test_print_list_with_list(self):
+         Row = collections.namedtuple('Row', ['a', 'b'])
+-        to_print = [Row(a=1, b=2), Row(a=3, b=4)]
++        to_print = [Row(a=3, b=4), Row(a=1, b=2)]
+         with CaptureStdout() as cso:
+             utils.print_list(to_print, ['a', 'b'])
++        # Output should be sorted by the first key (a)
+         self.assertEqual("""\
+ +---+---+
+ | a | b |
+@@ -122,6 +123,36 @@ class PrintListTestCase(test_utils.TestCase):
+ +---+---+
+ """, cso.read())
+ 
++    def test_print_list_with_list_sortby(self):
++        Row = collections.namedtuple('Row', ['a', 'b'])
++        to_print = [Row(a=4, b=3), Row(a=2, b=1)]
++        with CaptureStdout() as cso:
++            utils.print_list(to_print, ['a', 'b'], sortby_index=1)
++        # Output should be sorted by the second key (b)
++        self.assertEqual("""\
+++---+---+
++| a | b |
+++---+---+
++| 2 | 1 |
++| 4 | 3 |
+++---+---+
++""", cso.read())
++
++    def test_print_list_with_list_no_sort(self):
++        Row = collections.namedtuple('Row', ['a', 'b'])
++        to_print = [Row(a=3, b=4), Row(a=1, b=2)]
++        with CaptureStdout() as cso:
++            utils.print_list(to_print, ['a', 'b'], sortby_index=None)
++        # Output should be in the order given
++        self.assertEqual("""\
+++---+---+
++| a | b |
+++---+---+
++| 3 | 4 |
++| 1 | 2 |
+++---+---+
++""", cso.read())
++
+     def test_print_list_with_generator(self):
+         Row = collections.namedtuple('Row', ['a', 'b'])
+ 
+diff --git a/cinderclient/tests/v2/test_shell.py b/cinderclient/tests/v2/test_shell.py
+index 670391a..400aac7 100644
+--- a/cinderclient/tests/v2/test_shell.py
++++ b/cinderclient/tests/v2/test_shell.py
+@@ -15,6 +15,7 @@
+ #    under the License.
+ 
+ import fixtures
++import mock
+ from requests_mock.contrib import fixture as requests_mock_fixture
+ 
+ from cinderclient import client
+@@ -112,6 +113,24 @@ class ShellTest(utils.TestCase):
+         self.run_command('list --sort_key=name --sort_dir=asc')
+         self.assert_called('GET', '/volumes/detail?sort_dir=asc&sort_key=name')
+ 
++    def test_list_reorder_with_sort(self):
++        # sortby_index is None if there is sort information
++        for cmd in ['list --sort_key=name',
++                    'list --sort_dir=asc',
++                    'list --sort_key=name --sort_dir=asc']:
++            with mock.patch('cinderclient.utils.print_list') as mock_print:
++                self.run_command(cmd)
++                mock_print.assert_called_once_with(
++                    mock.ANY, mock.ANY, sortby_index=None)
++
++    def test_list_reorder_without_sort(self):
++        # sortby_index is 0 without sort information
++        for cmd in ['list', 'list --all-tenants']:
++            with mock.patch('cinderclient.utils.print_list') as mock_print:
++                self.run_command(cmd)
++                mock_print.assert_called_once_with(
++                    mock.ANY, mock.ANY, sortby_index=0)
++
+     def test_list_availability_zone(self):
+         self.run_command('availability-zone-list')
+         self.assert_called('GET', '/os-availability-zone')
+diff --git a/cinderclient/utils.py b/cinderclient/utils.py
+index 018f12a..e28c036 100644
+--- a/cinderclient/utils.py
++++ b/cinderclient/utils.py
+@@ -154,7 +154,17 @@ def _print(pt, order):
+         print(strutils.safe_encode(pt.get_string(sortby=order)))
+ 
+ 
+-def print_list(objs, fields, formatters={}, order_by=None):
++def print_list(objs, fields, formatters=None, sortby_index=0):
++    '''Prints a list of objects.
++
++    @param objs: Objects to print
++    @param fields: Fields on each object to be printed
++    @param formatters: Custom field formatters
++    @param sortby_index: Results sorted against the key in the fields list at
++                         this index; if None then the object order is not
++                         altered
++    '''
++    formatters = formatters or {}
+     mixed_case_fields = ['serverId']
+     pt = prettytable.PrettyTable([f for f in fields], caching=False)
+     pt.aligns = ['l' for f in fields]
+@@ -176,8 +186,10 @@ def print_list(objs, fields, formatters={}, order_by=None):
+                 row.append(data)
+         pt.add_row(row)
+ 
+-    if order_by is None:
+-        order_by = fields[0]
++    if sortby_index is None:
++        order_by = None
++    else:
++        order_by = fields[sortby_index]
+     _print(pt, order_by)
+ 
+ 
+diff --git a/cinderclient/v2/shell.py b/cinderclient/v2/shell.py
+index cf6d8ba..09d1a4f 100644
+--- a/cinderclient/v2/shell.py
++++ b/cinderclient/v2/shell.py
+@@ -217,7 +217,11 @@ def do_list(cs, args):
+     else:
+         key_list = ['ID', 'Status', 'Name',
+                     'Size', 'Volume Type', 'Bootable', 'Attached to']
+-    utils.print_list(volumes, key_list)
++    if args.sort_key or args.sort_dir:
++        sortby_index = None
++    else:
++        sortby_index = 0
++    utils.print_list(volumes, key_list, sortby_index=sortby_index)
+ 
+ 
+ @utils.arg('volume',
+-- 
+2.10.2
+
