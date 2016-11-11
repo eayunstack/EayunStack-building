@@ -1,0 +1,56 @@
+From 4f7bc7096deb6e73055f9838bbcf8fb095cbb134 Mon Sep 17 00:00:00 2001
+From: shihanzhang <shihanzhang@huawei.com>
+Date: Mon, 1 Jun 2015 16:17:37 +0800
+Subject: [PATCH 74/75] Fix ipset can't be destroyed when last rule is deleted
+
+when it deletes a security group all rules, it should
+include this sg information in RPC method
+'security_group_info_for_devices', otherwise the ports
+in this sg can't corrcectly update their iptables and
+ipset sets.
+
+Change-Id: Ibb071ce84590bd46cda2c1e010a566e75e22b4d2
+Closes-bug: #1460562
+(cherry picked from commit 764f018f50ac7cd42c29efeabaccbb5aec21f6f4)
+
+Fixes: redmine #8916
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/securitygroups_rpc_base.py | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/neutron/db/securitygroups_rpc_base.py b/neutron/db/securitygroups_rpc_base.py
+index 1dda6bb..beb77a4 100644
+--- a/neutron/db/securitygroups_rpc_base.py
++++ b/neutron/db/securitygroups_rpc_base.py
+@@ -192,6 +192,11 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
+             if rule_dict not in sg_info['security_groups'][security_group_id]:
+                 sg_info['security_groups'][security_group_id].append(
+                     rule_dict)
++        # Update the security groups info if they don't have any rules
++        sg_ids = self._select_sg_ids_for_ports(context, ports)
++        for (sg_id, ) in sg_ids:
++            if sg_id not in sg_info['security_groups']:
++                sg_info['security_groups'][sg_id] = []
+ 
+         sg_info['sg_member_ips'] = remote_security_group_info
+         # the provider rules do not belong to any security group, so these
+@@ -211,6 +216,15 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
+                     sg_info['sg_member_ips'][sg_id][ethertype].append(ip)
+         return sg_info
+ 
++    def _select_sg_ids_for_ports(self, context, ports):
++        if not ports:
++            return []
++        sg_binding_port = sg_db.SecurityGroupPortBinding.port_id
++        sg_binding_sgid = sg_db.SecurityGroupPortBinding.security_group_id
++        query = context.session.query(sg_binding_sgid)
++        query = query.filter(sg_binding_port.in_(ports.keys()))
++        return query.all()
++
+     def _select_rules_for_ports(self, context, ports):
+         if not ports:
+             return []
+-- 
+2.10.2
+
