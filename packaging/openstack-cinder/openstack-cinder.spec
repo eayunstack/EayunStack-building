@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          4.2%{?dist_eayunstack}
+Release:          4.3%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -39,6 +39,9 @@ Patch0014: 0014-Fix-cleanup_temp_volume_snapshots-for-missing-vol.patch
 Patch0015: 0015-Handle-missing-temp-volume-and-snapshot-during-clean.patch
 Patch0016: 0016-Fix-backup-init_host-volume-cleanup.patch
 Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
+Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
+Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
+Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -178,6 +181,9 @@ This package contains documentation files for cinder.
 %patch0015 -p1
 %patch0016 -p1
 %patch0017 -p1
+%patch0018 -p1
+%patch0019 -p1
+%patch0020 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -318,6 +324,11 @@ exit 0
 %endif
 
 %changelog
+* Mon Nov 14 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.3.eayunstack.1.0.1
+- add Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
+- add Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
+- add Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
+
 * Mon May 16 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.2.eayunstack.1.0.1
 - add Patch0012: 0012-unittest-fix-test_migration_027.patch
 - add Patch0013: 0013-Non-disruptive-backup.patch

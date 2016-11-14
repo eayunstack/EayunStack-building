@@ -1,0 +1,66 @@
+From 39d64e4c4e611faeab0bc525b22e770d36805568 Mon Sep 17 00:00:00 2001
+From: Kuo-tung Kao <jelly.k@inwinstack.com>
+Date: Mon, 6 Jul 2015 14:40:07 +0800
+Subject: [PATCH 18/20] cinder list fails with 'name' sort key
+
+Change sort key from `name` to `display_name` if the key, `name` exists.
+
+Change-Id: I9e285c7de2e860b251f881ab82d8d2d93e1191d2
+Closes-Bug: #1404020
+(cherry picked from commit 3b77f765c065c5f29aef5af2febe086691affebc)
+---
+ cinder/api/v2/volumes.py            |  3 +++
+ cinder/tests/api/v2/test_volumes.py | 16 ++++++++++++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/cinder/api/v2/volumes.py b/cinder/api/v2/volumes.py
+index eda006d..534532d 100644
+--- a/cinder/api/v2/volumes.py
++++ b/cinder/api/v2/volumes.py
+@@ -224,6 +224,9 @@ class VolumeController(wsgi.Controller):
+                                             self._get_volume_filter_options())
+ 
+         # NOTE(thingee): v2 API allows name instead of display_name
++        if 'name' == sort_key:
++            sort_key = 'display_name'
++
+         if 'name' in filters:
+             filters['display_name'] = filters['name']
+             del filters['name']
+diff --git a/cinder/tests/api/v2/test_volumes.py b/cinder/tests/api/v2/test_volumes.py
+index 1fded89..c4eb203 100644
+--- a/cinder/tests/api/v2/test_volumes.py
++++ b/cinder/tests/api/v2/test_volumes.py
+@@ -20,6 +20,7 @@ from lxml import etree
+ from oslo.config import cfg
+ import six.moves.urllib.parse as urlparse
+ import webob
++import mock
+ 
+ from cinder.api import extensions
+ from cinder.api.v2 import volumes
+@@ -1388,6 +1389,21 @@ class VolumeApiTest(test.TestCase):
+                           'attached_mode': 'visible',
+                           'readonly': 'visible'})
+ 
++    @mock.patch('cinder.volume.api.API.get_all')
++    def test_get_volumes_sort_by_name(self, get_all):
++        """Name in client means display_name in database."""
++
++        req = mock.MagicMock()
++        ctxt = context.RequestContext('fake', 'fake', auth_token=True)
++        req.environ = {'cinder.context': ctxt}
++        req.params = {'sort_key': 'name'}
++        self.controller._view_builder.detail_list = mock.Mock()
++        self.controller._get_volumes(req, True)
++        get_all.assert_called_once_with(
++            ctxt, None, None,
++            'display_name', 'desc',
++            {}, viewable_admin_meta=True)
++
+ 
+ class VolumeSerializerTest(test.TestCase):
+     def _verify_volume_attachment(self, attach, tree):
+-- 
+2.10.2
+
