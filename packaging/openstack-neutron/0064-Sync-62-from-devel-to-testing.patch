@@ -1,0 +1,124 @@
+From 5cb110199173c23675ac3b3188c6030f237814e1 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 4 Nov 2016 14:03:49 +0800
+Subject: [PATCH 64/64] Sync #62 from devel to testing
+
+Fix the last qos in a namespace cannot be deleted
+
+If the last qos in a namespace is deleted, server will not send any
+information about that to the agent. Thus the agent should keep which
+namespaces it is hosting to be able to delete qdiscs which should be
+removed.
+
+Fixes: redmine #8954
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 86b28cbf0d2246261729fe16a896eb43b9512a22)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/qos/agents/qos_agent.py  | 10 ++++++++++
+ neutron/services/qos/agents/tc_manager.py |  2 --
+ neutron/services/qos/common/htb.py        |  2 +-
+ neutron/services/qos/common/netns.py      | 13 +++++++++++--
+ 4 files changed, 22 insertions(+), 5 deletions(-)
+
+diff --git a/neutron/services/qos/agents/qos_agent.py b/neutron/services/qos/agents/qos_agent.py
+index 4841bdc..789f497 100644
+--- a/neutron/services/qos/agents/qos_agent.py
++++ b/neutron/services/qos/agents/qos_agent.py
+@@ -29,6 +29,7 @@ from neutron.openstack.common import lockutils
+ from neutron.openstack.common import loopingcall
+ from neutron.openstack.common import periodic_task
+ from neutron.services.qos.agents.tc_manager import TcManager
++from neutron.services.qos.common import netns
+ from neutron.services.qos.common import topics as qos_topics
+ from neutron import service as neutron_service
+ from neutron import context
+@@ -69,6 +70,7 @@ class QosAgent(manager.Manager):
+         self.host = host
+         self.root_helper = config.get_root_helper(self.conf)
+         self.plugin_rpc = QosPluginRpc(qos_topics.QOS_PLUGIN, self.host)
++        self.known_namespaces = netns.get_related_ns()
+ 
+     def _compare_and_configure_qos(self, current, target, namespace):
+         LOG.debug('Current is %(current)s, target is %(target)s.',
+@@ -93,6 +95,14 @@ class QosAgent(manager.Manager):
+ 
+     @lockutils.synchronized('qos-agent', 'neutron-')
+     def _handle_qos_dict(self, qos_dict):
++        updated_namespaces = set(qos_dict.keys())
++
++        for namespace in self.known_namespaces:
++            if namespace not in qos_dict:
++                qos_dict.update({namespace: []})
++
++        self.known_namespaces = updated_namespaces
++
+         for namespace, target in qos_dict.iteritems():
+             if namespace == '_root':
+                 namespace = None
+diff --git a/neutron/services/qos/agents/tc_manager.py b/neutron/services/qos/agents/tc_manager.py
+index 1162290..d9ef83d 100644
+--- a/neutron/services/qos/agents/tc_manager.py
++++ b/neutron/services/qos/agents/tc_manager.py
+@@ -22,8 +22,6 @@ from neutron.services.qos.common import htb
+ 
+ utils.synchronized('tc', external=True)
+ 
+-ROUTER_NS_PREFIX = 'qrouter-'
+-
+ 
+ class TcManager(object):
+     """Wrapper for tc."""
+diff --git a/neutron/services/qos/common/htb.py b/neutron/services/qos/common/htb.py
+index b3016bb..47a35b3 100644
+--- a/neutron/services/qos/common/htb.py
++++ b/neutron/services/qos/common/htb.py
+@@ -388,7 +388,7 @@ class RTNetLink(netns.NetNSSwitcher):
+ def get_qos_conf_scheme(router_id=None, filter_by_name=None):
+     namespace = None
+     if router_id:
+-        namespace = 'qrouter-' + router_id
++        namespace = netns.ROUTER_NS_PREFIX + router_id
+ 
+     ret = {}
+ 
+diff --git a/neutron/services/qos/common/netns.py b/neutron/services/qos/common/netns.py
+index 4463db4..43c171d 100644
+--- a/neutron/services/qos/common/netns.py
++++ b/neutron/services/qos/common/netns.py
+@@ -28,12 +28,21 @@ __NR_setns = __NR_setns_map.get(
+ ).get(platform.architecture()[0], 308)
+ CLONE_NEWNET = 0x40000000
+ 
+-NETNS_RUN_DIR_PATH = '/var/run/netns/{namespace}'
++NETNS_RUN_DIR_PATH = '/var/run/netns'
+ NETNS_PID_PATH = '/proc/{pid}/ns/net'
++ROUTER_NS_PREFIX = 'qrouter-'
+ 
+ libc = None
+ 
+ 
++def get_related_ns():
++    namespaces = ['_root']  # root netns by default
++    if os.path.isdir(NETNS_RUN_DIR_PATH):
++        namespaces += [netns for netns in os.listdir(NETNS_RUN_DIR_PATH)
++                       if netns.startswith(ROUTER_NS_PREFIX)]
++    return set(namespaces)
++
++
+ def setns(netnsfd):
+     global libc
+     libc = libc or ctypes.CDLL('libc.so.6', use_errno=True)
+@@ -59,7 +68,7 @@ class NetNSSwitcher(object):
+     def __enter__(self):
+         if self._netns:
+             self._save_origin_netns()
+-            f = NETNS_RUN_DIR_PATH.format(namespace=self._netns)
++            f = os.path.join(NETNS_RUN_DIR_PATH, self._netns)
+             if os.path.isfile(f):
+                 nsfd = os.open(f, os.O_RDONLY)
+                 setns(nsfd)
+-- 
+2.10.2
+
