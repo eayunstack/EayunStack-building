@@ -1,0 +1,67 @@
+From 8ca03a8b2671ae4ddb2a8ec71257df2aa72c8b3e Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 8 Nov 2016 19:09:01 +0800
+Subject: [PATCH 19/20] restore volume status in create_backup when backup
+ status is not correct.
+
+When creating backup, if backup status is not correct, an exception of
+InvalidBackup will be raised, and volume status will be set to
+'available'. This behavior is good before we added non disruptive
+backup feature. But when doing a force backup, volume status should be
+restored to 'in-use'. So the right way is just restoring volume status
+to the attribute of 'previous_status'.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/manager.py    |  4 +++-
+ cinder/tests/test_backup.py | 13 +++++++++++++
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index 8bcadc8..16d10c1 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -365,7 +365,9 @@ class BackupManager(manager.SchedulerDependentManager):
+                 'expected_status': expected_status,
+                 'actual_status': actual_status,
+             }
+-            self.db.volume_update(context, volume_id, {'status': 'available'})
++            self.db.volume_update(context, volume_id,
++                                  {'status': previous_status,
++                                   'previous_status': 'error_backing-up'})
+             self.db.backup_update(context, backup_id, {'status': 'error',
+                                                        'fail_reason': err})
+             raise exception.InvalidBackup(reason=err)
+diff --git a/cinder/tests/test_backup.py b/cinder/tests/test_backup.py
+index 1e90044..89a4d60 100644
+--- a/cinder/tests/test_backup.py
++++ b/cinder/tests/test_backup.py
+@@ -438,12 +438,25 @@ class BackupTestCase(BaseBackupTest):
+     def test_create_backup_with_bad_backup_status(self):
+         """Test creating a backup with a backup with a bad status."""
+         vol_id = self._create_volume_db_entry(size=1)
++        vol2_id = self._create_volume_db_entry(previous_status='in-use',
++                                               size=1)
+         backup_id = self._create_backup_db_entry(status='available',
+                                                  volume_id=vol_id)
++        backup2_id = self._create_backup_db_entry(status='available',
++                                                  volume_id=vol2_id)
+         self.assertRaises(exception.InvalidBackup,
+                           self.backup_mgr.create_backup,
+                           self.ctxt,
+                           backup_id)
++        vol = db.volume_get(self.ctxt, vol_id)
++        self.assertEqual('available', vol['status'])
++
++        self.assertRaises(exception.InvalidBackup,
++                          self.backup_mgr.create_backup,
++                          self.ctxt,
++                          backup2_id)
++        vol2 = db.volume_get(self.ctxt, vol2_id)
++        self.assertEqual('in-use', vol2['status'])
+ 
+     @mock.patch('%s.%s' % (CONF.volume_driver, 'backup_volume'))
+     def test_create_backup_with_error(self, _mock_volume_backup):
+-- 
+2.10.2
+
