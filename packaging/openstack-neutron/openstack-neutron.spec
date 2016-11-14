@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	25%{?dist_eayunstack}
+Release:	26%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -116,6 +116,8 @@ Patch0070: 0070-Fix-error-when-invoke-firewall_deleted-rpc-function.patch
 Patch0071: 0071-Enable-non-admin-user-to-operation-qos.patch
 Patch0072: 0072-Only-send-effective-qos-configurations-to-agent.patch
 Patch0073: 0073-Fix-process-logical-in-haproxy-get_stats.patch
+Patch0074: 0074-Fix-ipset-can-t-be-destroyed-when-last-rule-is-delet.patch
+Patch0075: 0075-Fix-the-last-qos-in-a-namespace-cannot-be-deleted.patch
 
 BuildArch:	noarch
 
@@ -666,6 +668,8 @@ IPSec.
 %patch0071 -p1
 %patch0072 -p1
 %patch0073 -p1
+%patch0074 -p1
+%patch0075 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1127,6 +1131,10 @@ exit 0
 
 
 %changelog
+* Fri Nov 11 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-26.eayunstack.1.1
+- add patch 0074 from github pull request #61 (redmine#8916)
+- add patch 0075 from neutron-qos github pull request #23 (redmine#8954)
+
 * Wed Nov 02 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-25.eayunstack.1.1
 - add patch 0065 from github pull request #52 (redmine#8761)
 - add patch 0066 from github pull request #53 (redmine#8765)
