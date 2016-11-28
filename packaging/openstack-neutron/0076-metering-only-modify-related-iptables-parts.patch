@@ -1,0 +1,39 @@
+From 54ad02a01ef463cb17bf90f532fe9b27b723e551 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 14 Nov 2016 19:59:56 +0800
+Subject: [PATCH] metering: only modify related iptables parts
+
+Fixes: redmine #8984
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 177927a..e8e609b 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -30,7 +30,7 @@ LOG = logging.getLogger(__name__)
+ NS_PREFIX = 'qrouter-'
+ WRAP_NAME = 'neutron-meter'
+ EXTERNAL_DEV_PREFIX = 'qg-'
+-TOP_CHAIN = WRAP_NAME + "-local"
++TOP_CHAIN = "neutron-filter-top"
+ RULE = '-r-'
+ LABEL = '-l-'
+ 
+@@ -76,6 +76,10 @@ class RouterWithMetering(object):
+             namespace=self.ns_name,
+             binary_name=WRAP_NAME,
+             use_ipv6=ipv6_utils.is_enabled())
++        # Clear tables/chains/rules that has nothing to do with metering
++        self.iptables_manager.ipv4 = {
++            'filter': iptables_manager.IptablesTable(binary_name=WRAP_NAME)}
++        self.iptables_manager.ipv6 = {}
+         self.metering_labels = {}
+ 
+ 
+-- 
+2.10.2
+
