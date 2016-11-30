@@ -1,0 +1,83 @@
+From bf1ae72c9e6c4e333e0b82d8f3810e46f9f5a99d Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Fri, 25 Nov 2016 11:40:03 +0800
+Subject: [PATCH] only allow force create snapshot when volume is usable.
+
+Volume deleting may take a while, but create_snapshot_force
+ignors volume status. So if a snapshot is created while the
+volume is deleting, when the deletion is finished, this newly
+created snapshot will be left totally unusable. To resolve
+this, just allow force create snapshot if volume status is
+'available' or 'in-use' just like force backup.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/tests/test_volume.py | 23 +++++++++++++++++++----
+ cinder/volume/api.py        | 10 ++++++++--
+ 2 files changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/cinder/tests/test_volume.py b/cinder/tests/test_volume.py
+index ece1fa6..7b95a0b 100644
+--- a/cinder/tests/test_volume.py
++++ b/cinder/tests/test_volume.py
+@@ -1167,10 +1167,15 @@ class VolumeTestCase(BaseVolumeTestCase):
+                                        volume_type=db_vol_type)
+ 
+         volume_src['host'] = 'fake_host'
+-        snapshot_ref = volume_api.create_snapshot_force(self.context,
+-                                                        volume_src,
+-                                                        'name',
+-                                                        'description')
++        # no need to call create_snapshot_force,
++        # set volume['status'] to 'available' to meet only
++        # allowing 'available' and 'in-use' volumes which
++        # snapshots can be created on.
++        volume_src['status'] = 'available'
++        snapshot_ref = volume_api.create_snapshot(self.context,
++                                                  volume_src,
++                                                  'name',
++                                                  'description')
+         snapshot_ref['status'] = 'available'  # status must be available
+         volume_dst = volume_api.create(self.context,
+                                        1,
+@@ -1997,6 +2002,16 @@ class VolumeTestCase(BaseVolumeTestCase):
+         db.snapshot_destroy(self.context, snapshot_ref['id'])
+         db.volume_destroy(self.context, volume['id'])
+ 
++        # create snapshot of a deleting volume
++        volume = tests_utils.create_volume(self.context, **self.volume_params)
++        self.volume.create_volume(self.context, volume['id'])
++        db.volume_update(self.context, volume['id'], {'status': 'deleting'})
++        self.assertRaises(exception.InvalidVolume,
++                          volume_api.create_snapshot_force,
++                          self.context, volume,
++                          'fake_name', 'fake_description')
++        db.volume_destroy(self.context, volume['id'])
++
+     def test_create_snapshot_from_bootable_volume(self):
+         """Test create snapshot from bootable volume."""
+         # create bootable volume from image
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index ba9a909..a305eeb 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -552,8 +552,14 @@ class API(base.Base):
+             msg = _("Snapshot of secondary replica is not allowed.")
+             raise exception.InvalidVolume(reason=msg)
+ 
+-        if ((not force) and (volume['status'] != "available")):
+-            msg = _("must be available")
++        if volume['status'] not in ['available', 'in-use']:
++            msg = (_('Volume must be available or in-use, '
++                     'but the current status is "%s".')
++                   % volume['status'])
++            raise exception.InvalidVolume(reason=msg)
++        elif ((not force) and (volume['status'] == "in-use")):
++            msg = _('Creating a snapshot on in-use volume '
++                    'must use the force flag.')
+             raise exception.InvalidVolume(reason=msg)
+ 
+         try:
+-- 
+2.10.2
+

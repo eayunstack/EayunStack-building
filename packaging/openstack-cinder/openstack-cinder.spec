@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          4.3%{?dist_eayunstack}
+Release:          4.4%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -42,6 +42,7 @@ Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
 Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
 Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
 Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
+Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -184,6 +185,7 @@ This package contains documentation files for cinder.
 %patch0018 -p1
 %patch0019 -p1
 %patch0020 -p1
+%patch0021 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -324,6 +326,9 @@ exit 0
 %endif
 
 %changelog
+* Wed Nov 30 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.4.eayunstack.1.0.1
+- add Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
+
 * Mon Nov 14 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.3.eayunstack.1.0.1
 - add Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
 - add Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
