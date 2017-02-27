@@ -1,0 +1,208 @@
+From cd50304e6d6a5eea0e7f0ebf9c90e55f2090e274 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 5 Jan 2017 13:44:23 +0800
+Subject: [PATCH] Add active-backup model for lbaas
+
+Fixes: redmine #9249
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+---
+ neutron/api/v2/attributes.py                       | 12 +++++++
+ neutron/db/loadbalancer/loadbalancer_db.py         |  4 +++
+ ...163fab5_add_priority_column_for_lbaas_member.py | 41 ++++++++++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/extensions/loadbalancer.py                 |  5 +++
+ .../services/loadbalancer/drivers/haproxy/cfg.py   | 19 ++++++++++
+ 6 files changed, 82 insertions(+), 1 deletion(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/4798b163fab5_add_priority_column_for_lbaas_member.py
+
+diff --git a/neutron/api/v2/attributes.py b/neutron/api/v2/attributes.py
+index 21486db..267b7a4 100644
+--- a/neutron/api/v2/attributes.py
++++ b/neutron/api/v2/attributes.py
+@@ -141,6 +141,12 @@ def _validate_range(data, valid_values=None):
+         return msg
+ 
+ 
++def _validate_range_or_none(data, valid_values=None):
++    if data is None:
++        return
++    return _validate_range(data, valid_values)
++
++
+ def _validate_no_whitespace(data):
+     """Validates that input has no whitespace."""
+     if len(data.split()) > 1:
+@@ -492,6 +498,11 @@ def convert_to_int(data):
+         raise n_exc.InvalidInput(error_message=msg)
+ 
+ 
++def convert_to_int_if_not_none(data):
++    if data is not None:
++        return convert_to_int(data)
++
++
+ def convert_kvp_str_to_list(data):
+     """Convert a value of the form 'key=value' to ['key', 'value'].
+ 
+@@ -566,6 +577,7 @@ validators = {'type:dict': _validate_dict,
+               'type:nameservers': _validate_nameservers,
+               'type:non_negative': _validate_non_negative,
+               'type:range': _validate_range,
++              'type:range_or_none': _validate_range_or_none,
+               'type:regex': _validate_regex,
+               'type:regex_or_none': _validate_regex_or_none,
+               'type:string': _validate_string,
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index 305872f..75cce3e 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -105,6 +105,7 @@ class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+     protocol_port = sa.Column(sa.Integer, nullable=False)
+     weight = sa.Column(sa.Integer, nullable=False)
+     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
++    priority = sa.Column(sa.Integer, nullable=False, default=256)
+ 
+ 
+ class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+@@ -708,6 +709,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                'protocol_port': member['protocol_port'],
+                'weight': member['weight'],
+                'admin_state_up': member['admin_state_up'],
++               'priority': member['priority'],
+                'status': member['status'],
+                'status_description': member['status_description']}
+ 
+@@ -729,6 +731,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                                    weight=v['weight'],
+                                    admin_state_up=v['admin_state_up'],
+                                    status=constants.PENDING_CREATE)
++                if attributes.is_attr_set(v['priority']):
++                    member_db.priority = v['priority']
+                 context.session.add(member_db)
+                 return self._make_member_dict(member_db)
+         except exception.DBDuplicateEntry:
+diff --git a/neutron/db/migration/alembic_migrations/versions/4798b163fab5_add_priority_column_for_lbaas_member.py b/neutron/db/migration/alembic_migrations/versions/4798b163fab5_add_priority_column_for_lbaas_member.py
+new file mode 100644
+index 0000000..900144b
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/4798b163fab5_add_priority_column_for_lbaas_member.py
+@@ -0,0 +1,41 @@
++# Copyright 2017 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""add priority column for lbaas member table
++
++Revision ID: 4798b163fab5
++Revises: 1b9cf1809665
++Create Date: 2017-01-04 23:57:10.409817
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '4798b163fab5'
++down_revision = '1b9cf1809665'
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.add_column(
++        'members',
++        sa.Column('priority', sa.Integer, nullable=False,
++                  server_default='256')
++    )
++
++
++def downgrade():
++    op.drop_column('members', 'priority')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 1ea3484..007c9a5 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-1b9cf1809665
++4798b163fab5
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index cfa0fbd..1e57967 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -248,6 +248,11 @@ RESOURCE_ATTRIBUTE_MAP = {
+                            'default': True,
+                            'convert_to': attr.convert_to_boolean,
+                            'is_visible': True},
++        'priority': {'allow_post': True, 'allow_put': True,
++                     'default': None,
++                     'validate': {'type:range_or_none': [0, 255]},
++                     'convert_to': attr.convert_to_int_if_not_none,
++                     'is_visible': True},
+         'status': {'allow_post': False, 'allow_put': False,
+                    'is_visible': True},
+         'status_description': {'allow_post': False, 'allow_put': False,
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/cfg.py b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+index 1200cf8..c25088d 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/cfg.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+@@ -13,6 +13,7 @@
+ #    under the License.
+ 
+ import itertools
++import netaddr
+ from six import moves
+ 
+ from neutron.agent.linux import utils
+@@ -114,6 +115,19 @@ def _build_frontend(config):
+     )
+ 
+ 
++def _sort_members_by_priority_or_ip_port(members):
++    def _cmp_member(a, b):
++        return (
++            (int(a['priority']) - int(b['priority'])) or
++            (int(netaddr.IPAddress(a['address'])) -
++             int(netaddr.IPAddress(b['address']))) or
++            (int(a['protocol_port']) - int(b['protocol_port']))
++        )
++
++    members.sort(cmp=_cmp_member)
++    return members
++
++
+ def _build_backend(config):
+     protocol = config['pool']['protocol']
+     lb_method = config['pool']['lb_method']
+@@ -134,6 +148,9 @@ def _build_backend(config):
+     persist_opts = _get_session_persistence(config)
+     opts.extend(persist_opts)
+ 
++    # backup members need resort
++    config['members'] = _sort_members_by_priority_or_ip_port(config['members'])
++
+     # add the members
+     for member in config['members']:
+         if ((member['status'] in ACTIVE_PENDING_STATUSES or
+@@ -141,6 +158,8 @@ def _build_backend(config):
+             and member['admin_state_up']):
+             server = (('server %(id)s %(address)s:%(protocol_port)s '
+                        'weight %(weight)s') % member) + server_addon
++            if member['priority'] < 256:
++                server += ' backup'
+             if _has_http_cookie_persistence(config):
+                 server += ' cookie %d' % config['members'].index(member)
+             opts.append(server)
+-- 
+2.7.4
+
