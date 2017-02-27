@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	27%{?dist_eayunstack}
+Release:	28%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -119,6 +119,7 @@ Patch0073: 0073-Fix-process-logical-in-haproxy-get_stats.patch
 Patch0074: 0074-Fix-ipset-can-t-be-destroyed-when-last-rule-is-delet.patch
 Patch0075: 0075-Fix-the-last-qos-in-a-namespace-cannot-be-deleted.patch
 Patch0076: 0076-metering-only-modify-related-iptables-parts.patch
+Patch0077: 0077-Add-active-backup-model-for-lbaas.patch
 
 BuildArch:	noarch
 
@@ -672,6 +673,7 @@ IPSec.
 %patch0074 -p1
 %patch0075 -p1
 %patch0076 -p1
+%patch0077 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1133,6 +1135,9 @@ exit 0
 
 
 %changelog
+* Mon Feb 27 2017 Cheng Tang <cheng.tang@eayun.com> 2014.2-28.eayunstack.1.1
+- add patch 0077 from github pull request #69 (redmine#9249)
+
 * Mon Nov 28 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-27.eayunstack.1.1
 - add patch 0076 from github pull request #64 (redmine#8984)
 
