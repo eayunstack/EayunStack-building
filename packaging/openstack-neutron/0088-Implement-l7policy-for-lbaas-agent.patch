@@ -1,0 +1,213 @@
+From b53d28ec83fbfc5842fccdecff78d01d2f82cd53 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Mon, 27 Feb 2017 17:52:02 +0800
+Subject: [PATCH 88/88] Implement l7policy for lbaas agent
+
+Fixes: redmine #9518
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../services/loadbalancer/agent/agent_manager.py   | 24 ++++++++
+ .../drivers/common/agent_driver_base.py            | 16 ++++-
+ .../services/loadbalancer/drivers/haproxy/cfg.py   | 72 ++++++++++++++++++++++
+ .../drivers/haproxy/namespace_driver.py            | 18 ++++++
+ 4 files changed, 129 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/loadbalancer/agent/agent_manager.py b/neutron/services/loadbalancer/agent/agent_manager.py
+index d4f7381bd..e675cee14 100644
+--- a/neutron/services/loadbalancer/agent/agent_manager.py
++++ b/neutron/services/loadbalancer/agent/agent_manager.py
+@@ -332,3 +332,27 @@ class LbaasAgentManager(n_rpc.RpcCallback, periodic_task.PeriodicTasks):
+                              pool_id)
+                     self._destroy_pool(pool_id)
+             LOG.info(_("Agent_updated by server side %s!"), payload)
++
++    def create_l7policy(self, context, l7policy):
++        driver = self._get_driver(l7policy['pool_id'])
++        driver.create_l7policy(l7policy)
++
++    def update_l7policy(self, context, old_l7policy, l7policy):
++        driver = self._get_driver(l7policy['pool_id'])
++        driver.update_l7policy(old_l7policy, l7policy)
++
++    def delete_l7policy(self, context, l7policy):
++        driver = self._get_driver(l7policy['pool_id'])
++        driver.delete_l7policy(l7policy)
++
++    def update_l7rule(self, context, old_rule, rule, pool_id):
++        driver = self._get_driver(pool_id)
++        driver.update_l7rule(old_rule, rule. pool_id)
++
++    def create_l7policy_l7rule(self, context, l7policy):
++        driver = self._get_driver(l7policy['pool_id'])
++        driver.create_l7policy_l7rule(l7policy)
++
++    def delete_l7policy_l7rule(self, context, l7policy):
++        driver = self._get_driver(l7policy['pool_id'])
++        driver.delete_l7policy_l7rule(l7policy)
+diff --git a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+index 80e8bc324..d2453084d 100644
+--- a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
++++ b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+@@ -119,7 +119,21 @@ class LoadBalancerCallbacks(n_rpc.RpcCallback):
+             ]
+             retval['driver'] = (
+                 self.plugin.drivers[pool.provider.provider_name].device_driver)
+-
++            # policy and rules
++            retval['l7policies'] = [
++                {
++                    'policy': self.plugin._make_policy_dict(policy),
++                    'rules': [
++                        self.plugin._make_l7rule_dict(
++                            policy_rule_assoc.rule
++                        )
++                        for policy_rule_assoc in policy.policy_rule_assoc
++                        if policy_rule_assoc.rule.admin_state_up
++                    ]
++                }
++                for policy in pool.policies
++                if policy.admin_state_up
++            ]
+             return retval
+ 
+     def pool_deployed(self, context, pool_id):
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/cfg.py b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+index c25088da3..a450a4217 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/cfg.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+@@ -46,8 +46,24 @@ STATS_MAP = {
+     constants.STATS_RESPONSE_ERRORS: 'eresp'
+ }
+ 
++ACL_TYPE_MAP = {
++    'backServerId': 'be_id %(value)s',
++}
++
++ACL_COMPARE_MAP = {
++    'integerEq': 'eq %(compare_value)s',
++}
++
++POLICY_ACTION_MAP = {
++    'block': 'block',
++    'redirect': 'redirect location %(value)s',
++    'addHeader': 'rspadd %(value)s',
++}
++
+ ACTIVE_PENDING_STATUSES = qconstants.ACTIVE_PENDING_STATUSES
+ INACTIVE = qconstants.INACTIVE
++ACL_RULE_ID_LENGTH = 10
++ACL_RULE_NAME_LENGTH = 12
+ 
+ 
+ def save_config(conf_path, logical_config, socket_path=None,
+@@ -128,6 +144,55 @@ def _sort_members_by_priority_or_ip_port(members):
+     return members
+ 
+ 
++def _get_acl_name(rule):
++    return ('acl_' + rule['id'])[:ACL_RULE_NAME_LENGTH]
++
++
++def _get_acl_member_id(rule):
++    return int(('0x' + rule['value'])[:ACL_RULE_ID_LENGTH])
++
++
++def _build_acl(rule):
++    type_value_convert_map = {
++        'backServerId': _get_acl_member_id,
++    }
++
++    acl_name = 'acl %s' % _get_acl_name(rule)
++
++    rule_updater = type_value_convert_map.get(rule['type'], lambda rule: rule)
++    rule_updater(rule)
++
++    acl_match = ACL_TYPE_MAP[rule['type']] % rule
++    acl_compare = ACL_COMPARE_MAP[rule['compare_type']] % rule
++
++    return ' '.jion([acl_name, acl_match, acl_compare])
++
++
++def _build_policy_action(policy, rule):
++    kws = {
++        'value': policy['value'].replace(' ', '\ ') if policy['value'] else ''
++    }
++    acl = POLICY_ACTION_MAP[policy['action']] % kws
++
++    # add condition
++    acl += ' if %s' % _get_acl_name(rule)
++    return acl
++
++
++def _build_policy_and_acl(config):
++    opts = []
++    need_add_server_id = False
++    policies = config['l7policies']
++    for policy in policies:
++        for rule in policy['rules']:
++            if rule['type'] == 'backServerId':
++                need_add_server_id = True
++
++            opts.append(_build_acl(rule))
++            opts.append(_build_policy_action(policy['policy'], rule))
++    return need_add_server_id, opts
++
++
+ def _build_backend(config):
+     protocol = config['pool']['protocol']
+     lb_method = config['pool']['lb_method']
+@@ -150,6 +215,9 @@ def _build_backend(config):
+ 
+     # backup members need resort
+     config['members'] = _sort_members_by_priority_or_ip_port(config['members'])
++    # policy and acls
++    need_server_id, policy_opts = _build_policy_and_acl(config)
++    opts.extend(policy_opts)
+ 
+     # add the members
+     for member in config['members']:
+@@ -160,6 +228,10 @@ def _build_backend(config):
+                        'weight %(weight)s') % member) + server_addon
+             if member['priority'] < 256:
+                 server += ' backup'
++
++            if need_server_id:
++                server += ' id %d' % _get_acl_member_id(member['id'])
++
+             if _has_http_cookie_persistence(config):
+                 server += ' cookie %d' % config['members'].index(member)
+             opts.append(server)
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+index cc21aed31..2db456399 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+@@ -418,6 +418,24 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
+         # clean up unknown lbaas namespace
+         self._clean_up_unknown_namespace()
+ 
++    def create_l7policy(self, l7policy):
++        self._refresh_device(l7policy['pool_id'])
++
++    def update_l7policy(self, old_l7policy, l7policy):
++        self._refresh_device(l7policy['pool_id'])
++
++    def delete_l7policy(self, l7policy):
++        self._refresh_device(l7policy['pool_id'])
++
++    def update_l7rule(self, old_rule, rule, pool_id):
++        self._refresh_device(pool_id)
++
++    def create_l7policy_l7rule(self, l7policy):
++        self._refresh_device(l7policy['pool_id'])
++
++    def delete_l7policy_l7rule(self, l7policy):
++        self._refresh_device(l7policy['pool_id'])
++
+ 
+ # NOTE (markmcclain) For compliance with interface.py which expects objects
+ class Wrap(object):
+-- 
+2.12.0
+

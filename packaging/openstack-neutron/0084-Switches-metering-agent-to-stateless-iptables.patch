@@ -1,0 +1,55 @@
+From e156255e546cdf6d09788dc4ae3f69156a068666 Mon Sep 17 00:00:00 2001
+From: Dmitry Sutyagin <dsutyagin@mirantis.com>
+Date: Fri, 12 Feb 2016 12:18:14 +0300
+Subject: [PATCH 84/85] Switches metering agent to stateless iptables
+
+If state_less parameter is not specified then
+neutron-postrouting-bottom rule goes up in POSTROUTING
+chain, which causes premature NATing of traffic,
+for ex. traffic between internal networks becomes NATed.
+
+Closes-Bug: 1544508
+Co-Authored-By: Sergey Belous <sbelous@mirantis.com>
+Change-Id: I2e0011237d50a59d417cfee01dcd5f9d0da2e7f5
+(cherry picked from commit 5d2d1120fcdcd5977d3c760ac1520a841048d456)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py    | 1 +
+ .../tests/unit/services/metering/drivers/test_iptables_driver.py | 9 +++++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 177927aa2..be9e6c21a 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -75,6 +75,7 @@ class RouterWithMetering(object):
+             root_helper=self.root_helper,
+             namespace=self.ns_name,
+             binary_name=WRAP_NAME,
++            state_less=True,
+             use_ipv6=ipv6_utils.is_enabled())
+         self.metering_labels = {}
+ 
+diff --git a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+index 28d15f411..b8a75677c 100644
+--- a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
++++ b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+@@ -89,6 +89,15 @@ class IptablesDriverTestCase(base.BaseTestCase):
+                                              binary_name=mock.ANY,
+                                              use_ipv6=mock.ANY)
+ 
++    def test_create_stateless_iptables_manager(self):
++        routers = TEST_ROUTERS[:1]
++        self.metering.add_metering_label(None, routers)
++        self.iptables_cls.assert_called_with(
++            binary_name=mock.ANY,
++            namespace=mock.ANY,
++            state_less=True,
++            use_ipv6=mock.ANY)
++
+     def test_add_metering_label(self):
+         routers = TEST_ROUTERS[:1]
+ 
+-- 
+2.12.0
+
