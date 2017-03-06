@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	27%{?dist_eayunstack}
+Release:	28%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -119,6 +119,19 @@ Patch0073: 0073-Fix-process-logical-in-haproxy-get_stats.patch
 Patch0074: 0074-Fix-ipset-can-t-be-destroyed-when-last-rule-is-delet.patch
 Patch0075: 0075-Fix-the-last-qos-in-a-namespace-cannot-be-deleted.patch
 Patch0076: 0076-metering-only-modify-related-iptables-parts.patch
+Patch0077: 0077-Ovs-agent-adjust-internal-bridge-flow-priority.patch
+Patch0078: 0078-openvswitch-agent-implement-EW-DVR-using-OpenFlow-ru.patch
+Patch0079: 0079-Add-active-backup-model-for-lbaas.patch
+Patch0080: 0080-iptables_firewall-add-firewall-rules-to-meter-instan.patch
+Patch0081: 0081-Not-check-subnet-with-dhcp-disabled-when-get_isolate.patch
+Patch0082: 0082-iptables_firewall-use-ipset-to-track-private-address.patch
+Patch0083: 0083-Revert-metering-only-modify-related-iptables-parts.patch
+Patch0084: 0084-Switches-metering-agent-to-stateless-iptables.patch
+Patch0085: 0085-metering-extend-neutron-metering.patch
+Patch0086: 0086-l3_agent-implement-EayunStack-floating-ip-mechanism.patch
+Patch0087: 0087-Implement-lbaas-L7-policy-rule-model.patch
+Patch0088: 0088-Implement-l7policy-for-lbaas-agent.patch
+
 
 BuildArch:	noarch
 
@@ -672,6 +685,18 @@ IPSec.
 %patch0074 -p1
 %patch0075 -p1
 %patch0076 -p1
+%patch0077 -p1
+%patch0078 -p1
+%patch0079 -p1
+%patch0080 -p1
+%patch0081 -p1
+%patch0082 -p1
+%patch0083 -p1
+%patch0084 -p1
+%patch0085 -p1
+%patch0086 -p1
+%patch0087 -p1
+%patch0088 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1133,6 +1158,17 @@ exit 0
 
 
 %changelog
+* Mon Mar 06 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-28.eayunstack.1.1
+- add patch 0077-0078 from github pull request #65 (redmine#9118)
+- add patch 0079 from github pull request #69 (redmine#9249)
+- add patch 0080 from github pull request #66 (redmine#9154)
+- add patch 0081 from github pull request #71 (redmine#9433)
+- add patch 0082 from github pull request #70 (redmine#9400)
+- add patch 0083-0085 from github pull request #72 (redmine#9467)
+- add patch 0086 from github pull request #74 (redmine#9517)
+- add patch 0087 from github pull request #73 (redmine#9404)
+- add patch 0088 from github pull request #73 (redmine#9518)
+
 * Mon Nov 28 2016 Xu Meihong <meihong.xu@eayun.com> 2014.2-27.eayunstack.1.1
 - add patch 0076 from github pull request #64 (redmine#8984)
 

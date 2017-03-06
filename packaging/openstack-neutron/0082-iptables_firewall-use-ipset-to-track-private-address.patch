@@ -1,0 +1,134 @@
+From f88989cea6848dee8775cf71b0a979290f5ad709 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 6 Feb 2017 17:13:33 +0800
+Subject: [PATCH 82/82] iptables_firewall: use ipset to track private addresses
+ when enabled
+
+This commit also adds the support for setting such addresses/networks
+via neutron's configurations.
+
+Fixes: redmine #9400
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ etc/neutron/plugins/ml2/ml2_conf.ini     |  3 +++
+ neutron/agent/linux/ipset_manager.py     |  4 ++--
+ neutron/agent/linux/iptables_firewall.py | 34 ++++++++++++++++++++++----------
+ neutron/agent/securitygroups_rpc.py      |  9 ++++++++-
+ 4 files changed, 37 insertions(+), 13 deletions(-)
+
+diff --git a/etc/neutron/plugins/ml2/ml2_conf.ini b/etc/neutron/plugins/ml2/ml2_conf.ini
+index 4fb1a4a36..f0c1aa70c 100644
+--- a/etc/neutron/plugins/ml2/ml2_conf.ini
++++ b/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -69,3 +69,6 @@
+ # Use ipset to speed-up the iptables security groups. Enabling ipset support
+ # requires that ipset is installed on L2 agent node.
+ # enable_ipset = True
++
++# IP addresses that should be recognized as private.
++# private_nets = 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
+diff --git a/neutron/agent/linux/ipset_manager.py b/neutron/agent/linux/ipset_manager.py
+index ddd736e8e..c686a042a 100644
+--- a/neutron/agent/linux/ipset_manager.py
++++ b/neutron/agent/linux/ipset_manager.py
+@@ -24,8 +24,8 @@ class IpsetManager(object):
+         self.namespace = namespace
+ 
+     @utils.synchronized('ipset', external=True)
+-    def create_ipset_chain(self, chain_name, ethertype):
+-        cmd = ['ipset', 'create', '-exist', chain_name, 'hash:ip', 'family',
++    def create_ipset_chain(self, chain_name, ethertype, typename='hash:ip'):
++        cmd = ['ipset', 'create', '-exist', chain_name, typename, 'family',
+                self._get_ipset_chain_type(ethertype)]
+         self._apply(cmd)
+ 
+diff --git a/neutron/agent/linux/iptables_firewall.py b/neutron/agent/linux/iptables_firewall.py
+index 9aa7520c2..e0a1da757 100644
+--- a/neutron/agent/linux/iptables_firewall.py
++++ b/neutron/agent/linux/iptables_firewall.py
+@@ -36,6 +36,7 @@ DIRECTION_IP_PREFIX = {'ingress': 'source_ip_prefix',
+                        'egress': 'dest_ip_prefix'}
+ IPSET_DIRECTION = {INGRESS_DIRECTION: 'src',
+                    EGRESS_DIRECTION: 'dst'}
++PRIVATE_IPSET_NAME = 'ES-private-nets'
+ LINUX_DEV_LEN = 14
+ IPSET_CHAIN_LEN = 20
+ IPSET_CHANGE_BULK_THRESHOLD = 10
+@@ -68,6 +69,13 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+         self.pre_sg_members = None
+         self.ipset_chains = {}
+         self.enable_ipset = cfg.CONF.SECURITYGROUP.enable_ipset
++        self.private_nets = cfg.CONF.SECURITYGROUP.private_nets
++        if self.enable_ipset:
++            self.ipset.create_ipset_chain(
++                PRIVATE_IPSET_NAME, constants.IPv4, typename='hash:net')
++            for private_net in self.private_nets:
++                self.ipset.add_member_to_ipset_chain(
++                    PRIVATE_IPSET_NAME, private_net)
+ 
+     @property
+     def ports(self):
+@@ -175,11 +183,6 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+             # Only meter instances' ports
+             return '$' + chain_name
+         # Only support IPv4
+-        PRIVATE_INTERNET_ADDRESSES = [
+-            '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+-            '169.254.169.254/32']
+-        METER_IPADDR_DIRECTION = {INGRESS_DIRECTION: 's',
+-                                  EGRESS_DIRECTION: 'd'}
+         chains = self._metering_chain_names(port, direction)
+         for m_chain_name in chains:
+             self.iptables.ipv4['filter'].add_chain(m_chain_name, wrap=False)
+@@ -191,11 +194,22 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+         jump_rule = '-j %s' % orig_chain_name
+         self.iptables.ipv4['filter'].add_rule(metering_chain, jump_rule,
+                                               wrap=False)
+-        # Jump to the counting chain
+-        counting_rules = ['-%s %s -j %s' % (METER_IPADDR_DIRECTION[direction],
+-                                            private_address,
+-                                            counting_in_chain)
+-                          for private_address in PRIVATE_INTERNET_ADDRESSES]
++        # Jump to the counting chains
++        counting_rules = []
++        tmp_direction = IPSET_DIRECTION[direction]
++        if self.enable_ipset:
++            counting_rules += [
++                '-m set --match-set %s %s -j %s' % (
++                    PRIVATE_IPSET_NAME, tmp_direction, counting_in_chain
++                )
++            ]
++        else:
++            counting_rules += [
++                '--%s %s -j %s' % (
++                    tmp_direction, private_net, counting_in_chain
++                )
++                for private_net in self.private_nets
++            ]
+         counting_rules += ['-j %s' % counting_chain]
+         for rule in counting_rules:
+             self.iptables.ipv4['filter'].add_rule(metering_chain, rule,
+diff --git a/neutron/agent/securitygroups_rpc.py b/neutron/agent/securitygroups_rpc.py
+index 17b544502..892011ab2 100644
+--- a/neutron/agent/securitygroups_rpc.py
++++ b/neutron/agent/securitygroups_rpc.py
+@@ -41,7 +41,14 @@ security_group_opts = [
+     cfg.BoolOpt(
+         'enable_ipset',
+         default=True,
+-        help=_('Use ipset to speed-up the iptables based security groups.'))
++        help=_('Use ipset to speed-up the iptables based security groups.')),
++    cfg.ListOpt(
++        'private_nets',
++        default=[
++            '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',  # RFC 1918
++            '169.254.0.0/16'  # RFC 3927
++        ],
++        help=_('IP addresses that should be recognized as private.'))
+ ]
+ cfg.CONF.register_opts(security_group_opts, 'SECURITYGROUP')
+ 
+-- 
+2.12.0
+

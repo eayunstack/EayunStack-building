@@ -1,0 +1,834 @@
+From 06761cfb9c5e13c34ede97a8ae89680aa84865e8 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 20 Feb 2017 17:16:09 +0800
+Subject: [PATCH 85/85] metering: extend neutron-metering
+
+This new extension can be used to meter traffic ingress/egress to/from
+specific CIDR + tcp_port, which goes through, directly into, or out from
+selected routers.
+
+Fixes: redmine #9467
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../rpc/agentnotifiers/metering_rpc_agent_api.py   |   6 +
+ neutron/common/constants.py                        |   1 +
+ neutron/db/metering/es_metering_db.py              | 169 +++++++++++++++++++
+ .../versions/2c98f6c7b373_add_es_metering.py       |  54 ++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |   2 +-
+ neutron/extensions/es_metering.py                  | 167 +++++++++++++++++++
+ neutron/plugins/common/constants.py                |   1 +
+ neutron/services/metering/agents/metering_agent.py |  15 +-
+ .../drivers/iptables/es_iptables_driver.py         | 181 +++++++++++++++++++++
+ .../metering/drivers/iptables/iptables_driver.py   |   5 +-
+ .../services/metering/drivers/noop/noop_driver.py  |   8 +
+ neutron/services/metering/metering_plugin.py       |  53 +++++-
+ 12 files changed, 653 insertions(+), 9 deletions(-)
+ create mode 100644 neutron/db/metering/es_metering_db.py
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/2c98f6c7b373_add_es_metering.py
+ create mode 100644 neutron/extensions/es_metering.py
+ create mode 100644 neutron/services/metering/drivers/iptables/es_iptables_driver.py
+
+diff --git a/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py b/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
+index 915d999fc..5aa45a906 100644
+--- a/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
++++ b/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
+@@ -93,3 +93,9 @@ class MeteringAgentNotifyAPI(n_rpc.RpcProxy):
+ 
+     def remove_metering_label(self, context, routers):
+         self._notification(context, 'remove_metering_label', routers)
++
++    def add_es_metering_label(self, context, routers):
++        self._notification(context, 'add_es_metering_label', routers)
++
++    def remove_es_metering_label(self, context, routers):
++        self._notification(context, 'remove_es_metering_label', routers)
+diff --git a/neutron/common/constants.py b/neutron/common/constants.py
+index e6edc85ad..49e385dad 100644
+--- a/neutron/common/constants.py
++++ b/neutron/common/constants.py
+@@ -50,6 +50,7 @@ INTERFACE_KEY = '_interfaces'
+ HA_INTERFACE_KEY = '_ha_interface'
+ HA_ROUTER_STATE_KEY = '_ha_state'
+ METERING_LABEL_KEY = '_metering_labels'
++ES_METERING_LABEL_KEY = '_es_metering_labels'
+ FLOATINGIP_AGENT_INTF_KEY = '_floatingip_agent_interfaces'
+ SNAT_ROUTER_INTF_KEY = '_snat_router_interfaces'
+ PORTMAPPING_KEY = '_portmappings'
+diff --git a/neutron/db/metering/es_metering_db.py b/neutron/db/metering/es_metering_db.py
+new file mode 100644
+index 000000000..1876ef28b
+--- /dev/null
++++ b/neutron/db/metering/es_metering_db.py
+@@ -0,0 +1,169 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import sqlalchemy as sa
++from sqlalchemy import orm
++from sqlalchemy.orm import exc
++
++from neutron.common import constants
++from neutron.db import common_db_mixin as base_db
++from neutron.db import model_base
++from neutron.db import models_v2
++from neutron.db.l3_db import Router
++from neutron.extensions import es_metering
++from neutron.openstack.common import log as logging
++from neutron.openstack.common import uuidutils
++
++
++LOG = logging.getLogger(__name__)
++
++
++class EsMeteringLabel(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
++    __tablename__ = 'es_metering_labels'
++
++    name = sa.Column(sa.String(255))
++    description = sa.Column(sa.String(1024))
++    router_id = sa.Column(
++        sa.String(36), sa.ForeignKey('routers.id', ondelete='CASCADE'),
++        nullable=False)
++    direction = sa.Column(
++        sa.Enum('ingress', 'egress', name='es_metering_label_direction'),
++        nullable=False)
++    internal_ip = sa.Column(sa.String(64))
++    tcp_port = sa.Column(sa.Integer)
++    router = orm.relationship(
++        Router,
++        backref=orm.backref("es_metering_labels", lazy='joined', uselist=True)
++    )
++
++
++class EsMeteringDbMixin(es_metering.EsMeteringPluginBase,
++                        base_db.CommonDbMixin):
++
++    def _get_es_metering_label(self, context, label_id):
++        try:
++            es_metering_label = self._get_by_id(
++                context, EsMeteringLabel, label_id)
++        except exc.NoResultFound:
++            raise es_metering.EsMeteringLabelNotFound(label_id=label_id)
++        return es_metering_label
++
++    def _make_es_metering_label_dict(self, es_metering_label, fields=None):
++        res = {'id': es_metering_label['id'],
++               'tenant_id': es_metering_label['tenant_id'],
++               'name': es_metering_label['name'],
++               'description': es_metering_label['description'],
++               'router_id': es_metering_label['router_id'],
++               'direction': es_metering_label['direction'],
++               'internal_ip': es_metering_label['internal_ip'],
++               'tcp_port': es_metering_label['tcp_port']}
++        return self._fields(res, fields)
++
++    def create_es_metering_label(self, context, es_metering_label):
++        label = es_metering_label['es_metering_label']
++        tenant_id = self._get_tenant_id_for_create(context, label)
++        try:
++            self._get_by_id(context, Router, label['router_id'])
++        except exc.NoResultFound:
++            raise es_metering.RouterNotFound(router_id=label['router_id'])
++        with context.session.begin(subtransactions=True):
++            es_metering_label_db = EsMeteringLabel(
++                id=uuidutils.generate_uuid(),
++                tenant_id=tenant_id,
++                name=label['name'], description=label['description'],
++                router_id=label['router_id'], direction=label['direction'],
++                internal_ip=label['internal_ip'], tcp_port=label['tcp_port'])
++            context.session.add(es_metering_label_db)
++        return self._make_es_metering_label_dict(es_metering_label_db)
++
++    def update_es_metering_label(self, context, label_id, es_metering_label):
++        label = es_metering_label['es_metering_label']
++        with context.session.begin(subtransactions=True):
++            es_metering_label_db = self._get_es_metering_label(
++                context, label_id)
++            es_metering_label_db.updte(label)
++        return self._make_es_metering_label_dict(es_metering_label_db)
++
++    def delete_es_metering_label(self, context, label_id):
++        with context.session.begin(subtransactions=True):
++            es_metering_label_db = self._get_es_metering_label(
++                context, label_id)
++            context.session.delete(es_metering_label_db)
++
++    def get_es_metering_label(self, context, label_id, fields=None):
++        es_metering_label_db = self._get_es_metering_label(context, label_id)
++        return self._make_es_metering_label_dict(es_metering_label_db, fields)
++
++    def get_es_metering_labels(self, context, filters=None, fields=None,
++                               sorts=None, limit=None, marker=None,
++                               page_reverse=False):
++        marker_obj = self._get_marker_obj(
++            context, 'es_metering_labels', limit, marker)
++        return self._get_collection(context, EsMeteringLabel,
++                                    self._make_es_metering_label_dict,
++                                    filters=filters, fields=fields,
++                                    sorts=sorts, limit=limit,
++                                    marker_obj=marker_obj,
++                                    page_reverse=page_reverse)
++
++    @staticmethod
++    def _label_dict(label):
++        return {'id': label['id'],
++                'direction': label['direction'],
++                'internal_ip': label['internal_ip'],
++                'tcp_port': label['tcp_port']}
++
++    def get_sync_data_metering(self, context, label_id=None, router_ids=None):
++        ret = []
++        if not router_ids:
++            router_ids = set()
++            labels = context.session.query(EsMeteringLabel)
++            if label_id:
++                labels = labels.filter(EsMeteringLabel.id == label_id)
++            for label in labels:
++                router_ids.add(label.router_id)
++
++        for router_id in router_ids:
++            try:
++                router = self._get_by_id(context, Router, router_id)
++                if router['admin_state_up']:
++                    ret.append({
++                        'id': router['id'],
++                        'name': router['name'],
++                        'tenant_id': router['tenant_id'],
++                        'admin_state_up': router['admin_state_up'],
++                        'status': router['status'],
++                        'gw_port_id': router['gw_port_id'],
++                        constants.ES_METERING_LABEL_KEY: [
++                            self._label_dict(label)
++                            for label in router.es_metering_labels
++                            if label_id is None or label['id'] == label_id
++                        ]
++                    })
++            except exc.NoResultFound:
++                pass
++
++        return ret
++
++    def update_es_metering_labels_for_router(self, context, router):
++        try:
++            router_db = self._get_by_id(context, Router, router['id'])
++            if router_db.es_metering_labels:
++                router[constants.ES_METERING_LABEL_KEY] = [
++                    self._label_dict(label)
++                    for label in router_db.es_metering_labels
++                ]
++        except exc.NoResultFound:
++            pass
+diff --git a/neutron/db/migration/alembic_migrations/versions/2c98f6c7b373_add_es_metering.py b/neutron/db/migration/alembic_migrations/versions/2c98f6c7b373_add_es_metering.py
+new file mode 100644
+index 000000000..f06618330
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/2c98f6c7b373_add_es_metering.py
+@@ -0,0 +1,54 @@
++# Copyright 2017 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""add_es_metering
++
++Revision ID: 2c98f6c7b373
++Revises: 4798b163fab5
++Create Date: 2017-02-20 11:16:41.306333
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '2c98f6c7b373'
++down_revision = '4798b163fab5'
++
++from alembic import op
++import sqlalchemy as sa
++
++
++direction = sa.Enum('ingress', 'egress',
++                    name='es_metering_label_direction')
++
++
++def upgrade():
++    op.create_table(
++        'es_metering_labels',
++        sa.Column('id', sa.String(length=36), nullable=False),
++        sa.Column('tenant_id', sa.String(length=255), nullable=False),
++        sa.Column('name', sa.String(length=255), nullable=True),
++        sa.Column('description', sa.String(length=1024), nullable=True),
++        sa.Column('router_id', sa.String(length=36), nullable=False),
++        sa.Column('direction', direction, nullable=False),
++        sa.Column('internal_ip', sa.String(length=64), nullable=True),
++        sa.Column('tcp_port', sa.Integer(), nullable=True),
++        sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
++                                ondelete='CASCADE'),
++        sa.PrimaryKeyConstraint('id')
++    )
++
++
++def downgrade():
++    op.drop_table('es_metering_labels')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 007c9a5b1..17946d603 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-4798b163fab5
++2c98f6c7b373
+diff --git a/neutron/extensions/es_metering.py b/neutron/extensions/es_metering.py
+new file mode 100644
+index 000000000..7a7aed7b1
+--- /dev/null
++++ b/neutron/extensions/es_metering.py
+@@ -0,0 +1,167 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import abc
++import six
++
++from neutron.api import extensions
++from neutron.api.v2 import attributes as attr
++from neutron.api.v2 import resource_helper
++from neutron.common import exceptions
++from neutron.openstack.common import log as logging
++from neutron.plugins.common import constants
++from neutron.services import service_base
++
++LOG = logging.getLogger(__name__)
++
++
++class RouterNotFound(exceptions.NotFound):
++    message = _("Router %(router_id)s does not exist.")
++
++
++class EsMeteringLabelNotFound(exceptions.NotFound):
++    message = _("EsMeteringLabel %(label_id)s does not exist.")
++
++
++def _validate_tcp_port(data, _valid_values=None):
++    msg = None
++    if data is not None:
++        try:
++            val = int(data)
++        except(ValueError, TypeError):
++            msg = _("Port '%s' is not a valid number") % data
++        if val <= 0 or val > 65535:
++            msg = _("Invalid port '%s'") % data
++        if msg:
++            LOG.debug(msg)
++            return msg
++
++
++attr.validators['type:tcp_port_or_none'] = _validate_tcp_port
++
++RESOURCE_ATTRIBUTE_MAP = {
++    'es_metering_labels': {
++        'id': {'allow_post': False, 'allow_put': False,
++               'is_visible': True, 'primary_key': True},
++        'name': {'allow_post': True, 'allow_put': True,
++                 'is_visible': True, 'default': ''},
++        'description': {'allow_post': True, 'allow_put': True,
++                        'is_visible': True, 'default': ''},
++        'tenant_id': {'allow_post': True, 'allow_put': False,
++                      'is_visible': True, 'required_by_policy': True},
++        'router_id': {'allow_post': True, 'allow_put': False,
++                      'is_visible': True, 'required_by_policy': True,
++                      'validate': {'type:uuid': None}},
++        'direction': {'allow_post': True, 'allow_put': False,
++                      'is_visible': True,
++                      'validate': {'type:values': ['ingress', 'egress']}},
++        'internal_ip': {'allow_post': True, 'allow_put': False,
++                        'is_visible': True, 'default': None,
++                        'validate': {'type:subnet_or_none': None}},
++        'tcp_port': {'allow_post': True, 'allow_put': False,
++                     'is_visible': True, 'default': None,
++                     'validate': {'type:tcp_port_or_none': None},
++                     'convert_to': attr.convert_to_int_if_not_none}
++    }
++}
++
++
++class Es_metering(extensions.ExtensionDescriptor):
++
++    @classmethod
++    def get_name(cls):
++        return "EayunStack Neutron Metering"
++
++    @classmethod
++    def get_alias(cls):
++        return "es-metering"
++
++    @classmethod
++    def get_description(cls):
++        return "Eayunstack Neutron Metering extension."
++
++    @classmethod
++    def get_namespace(cls):
++        return "https://github.com/eayunstack"
++
++    @classmethod
++    def get_updated(cls):
++        return "2017-02-17:00:00-00:00"
++
++    @classmethod
++    def get_plugin_interface(cls):
++        return EsMeteringPluginBase
++
++    @classmethod
++    def get_resources(cls):
++        """Returns Ext Resources."""
++        plural_mappings = resource_helper.build_plural_mappings(
++            {}, RESOURCE_ATTRIBUTE_MAP)
++        attr.PLURALS.update(plural_mappings)
++        # PCM: Metering sets pagination and sorting to True. Do we have cfg
++        # entries for these so can be read? Else, must pass in.
++        return resource_helper.build_resource_info(plural_mappings,
++                                                   RESOURCE_ATTRIBUTE_MAP,
++                                                   constants.METERING,
++                                                   translate_name=True,
++                                                   allow_bulk=True)
++
++    def update_attributes_map(self, extended_attributes,
++                              extension_attrs_map=None):
++        super(Es_metering, self).update_attributes_map(
++            extended_attributes, extension_attrs_map=RESOURCE_ATTRIBUTE_MAP)
++
++    def get_extended_resources(self, version):
++        return RESOURCE_ATTRIBUTE_MAP if version == "2.0" else {}
++
++
++@six.add_metaclass(abc.ABCMeta)
++class EsMeteringPluginBase(service_base.ServicePluginBase):
++
++    def get_plugin_name(self):
++        return constants.ES_METERING
++
++    def get_plugin_description(self):
++        return constants.ES_METERING
++
++    def get_plugin_type(self):
++        return constants.ES_METERING
++
++    @abc.abstractmethod
++    def create_es_metering_label(self, context, es_metering_label):
++        """Create an EayunStack metering label."""
++        pass
++
++    @abc.abstractmethod
++    def update_es_metering_label(self, context, label_id, es_metering_label):
++        """Update an EayunStack metering label."""
++        pass
++
++    @abc.abstractmethod
++    def delete_es_metering_label(self, context, label_id):
++        """Delete an EayunStack metering label."""
++        pass
++
++    @abc.abstractmethod
++    def get_es_metering_label(self, context, label_id, fields=None):
++        """Get an EayunStack metering label."""
++        pass
++
++    @abc.abstractmethod
++    def get_es_metering_labels(self, context, filters=None, fields=None,
++                               sorts=None, limit=None, marker=None,
++                               page_reverse=False):
++        """List all EayunStack metering labels."""
++        pass
+diff --git a/neutron/plugins/common/constants.py b/neutron/plugins/common/constants.py
+index 10d2902d8..2f0163ed2 100644
+--- a/neutron/plugins/common/constants.py
++++ b/neutron/plugins/common/constants.py
+@@ -21,6 +21,7 @@ FIREWALL = "FIREWALL"
+ VPN = "VPN"
+ METERING = "METERING"
+ L3_ROUTER_NAT = "L3_ROUTER_NAT"
++ES_METERING = "ES_METERING"
+ 
+ 
+ #maps extension alias to service type
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 006fff267..4ba07526c 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -244,7 +244,20 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+                                    'remove_metering_label')
+ 
+ 
+-class MeteringAgentWithStateReport(MeteringAgent):
++class EsMeteringAgent(MeteringAgent):
++
++    def add_es_metering_label(self, context, routers):
++        LOG.debug(_("Creating a EayunStack metering label from agent"))
++        return self._invoke_driver(context, routers, 'add_es_metering_label')
++
++    def remove_es_metering_label(self, context, routers):
++        self._add_metering_infos()
++        LOG.debug(_("Delete a EayunStack metering label from agent"))
++        return self._invoke_driver(context, routers,
++                                   'remove_es_metering_label')
++
++
++class MeteringAgentWithStateReport(EsMeteringAgent):
+ 
+     def __init__(self, host, conf=None):
+         super(MeteringAgentWithStateReport, self).__init__(host=host,
+diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+new file mode 100644
+index 000000000..5854a13f7
+--- /dev/null
++++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+@@ -0,0 +1,181 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import six
++
++from neutron.agent.linux import iptables_manager
++from neutron.common import constants as constants
++from neutron.common import log
++from neutron.openstack.common import log as logging
++from neutron.services.metering.drivers.iptables import iptables_driver
++
++LOG = logging.getLogger(__name__)
++ES_METERING_MARK = 1
++
++
++class EsRouterWithMetering(iptables_driver.RouterWithMetering):
++    """Extend the original RouterWithMetering class."""
++
++    def __init__(self, conf, router):
++        super(EsRouterWithMetering, self).__init__(conf, router)
++        self.es_metering_labels = {}
++        self._update_iptables_manager_for_es_metering()
++
++    def _update_iptables_manager_for_es_metering(self):
++        im = self.iptables_manager
++        im.ipv4.update(
++            {'mangle': iptables_manager.IptablesTable(
++                binary_name=iptables_driver.WRAP_NAME)})
++        for chain in ['PREROUTING', 'INPUT', 'POSTROUTING']:
++            im.ipv4['mangle'].add_chain(chain)
++            im.ipv4['mangle'].add_rule(chain, '-j $%s' % (chain), wrap=False)
++        # Mark packets from external
++        mark_rule = '-i %s+ -j MARK --set-mark %d' % (
++            iptables_driver.EXTERNAL_DEV_PREFIX, ES_METERING_MARK)
++        im.ipv4['mangle'].add_rule('PREROUTING', mark_rule)
++
++    def iter_metering_labels(self):
++        return self.metering_labels.items() + self.es_metering_labels.items()
++
++
++class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
++    """Extend the original IptablesMeteringDriver class."""
++
++    def _update_router(self, router):
++        """
++        In IptablesMeteringDriver, router is initiated with RouterWithMetering,
++        we need to change to use EsRouterWithMetering.
++        """
++        r = self.routers.get(
++            router['id'], EsRouterWithMetering(self.conf, router))
++        # The router attribute of the RouterWithMetering is only useful
++        # in the original class.
++        r.router = router
++        self.routers[r.id] = r
++        return r
++
++    @log.log
++    def update_routers(self, context, routers):
++        """Deal with the EayunStack metering extension."""
++        super(EsIptablesMeteringDriver, self).update_routers(context, routers)
++
++        # The following lines are somehow duplicated with the base class,
++        # however they are more clear in this way.
++
++        # Removed routers
++        router_ids = set(router['id'] for router in routers)
++        for router_id, rm in six.iteritems(self.routers):
++            if router_id not in router_ids:
++                self._process_disassociate_es_metering_label(rm.router)
++
++        # Added or updated routers
++        for router in routers:
++            old_rm = self.routers.get(router['id'])
++            if old_rm:
++                old_es_metering_labels = set(old_rm.es_metering_labels.keys())
++                persist_labels = set()
++                with iptables_driver.IptablesManagerTransaction(
++                    old_rm.iptables_manager
++                ):
++                    labels = router.get(constants.ES_METERING_LABEL_KEY, [])
++                    for label in labels:
++                        label_id = label['id']
++                        if label_id in old_es_metering_labels:
++                            persist_labels.add(label_id)
++                        else:
++                            self._add_es_metering_label(old_rm, label)
++
++                    for label_id in old_es_metering_labels - persist_labels:
++                        self._remove_es_metering_label(old_rm, label_id)
++
++            else:
++                self._process_associate_es_metering_label(router)
++
++    @staticmethod
++    def _get_es_meter_rule(label, label_chain):
++        rule_parts = []
++        if label['direction'] == 'ingress':
++            rule_parts += ['-m mark --mark %s' % ES_METERING_MARK]
++            rule_dir = '-d'
++        else:
++            rule_parts += ['-o %s+' % iptables_driver.EXTERNAL_DEV_PREFIX]
++            rule_dir = '-s'
++
++        if label['internal_ip'] is not None:
++            rule_parts += ['%s %s' % (rule_dir, label['internal_ip'])]
++
++        if label['tcp_port'] is not None:
++            rule_parts += ['-p tcp --dport %s' % label['tcp_port']]
++
++        rule_parts += ['-j %s' % label_chain]
++
++        return ' '.join(rule_parts)
++
++    @staticmethod
++    def _get_label_chain_name(label_id):
++        return iptables_manager.get_chain_name(
++            iptables_driver.WRAP_NAME + iptables_driver.LABEL + label_id,
++            wrap=False)
++
++    def _add_es_metering_label(self, rm, label):
++        table = rm.iptables_manager.ipv4['mangle']
++        label_id = label['id']
++        label_chain = self._get_label_chain_name(label_id)
++        table.add_chain(label_chain, wrap=False)
++        es_meter_rule = self._get_es_meter_rule(label, label_chain)
++        table.add_rule('POSTROUTING', es_meter_rule)
++        if label['internal_ip'] is None and label['direction'] == 'ingress':
++            # If internal IP is unspecified, we should also count traffic
++            # directed to the router itself.
++            table.add_rule('INPUT', es_meter_rule)
++        table.add_rule(label_chain, '', wrap=False)
++        rm.es_metering_labels[label_id] = label
++
++    def _remove_es_metering_label(self, rm, label_id):
++        table = rm.iptables_manager.ipv4['mangle']
++        if label_id not in rm.es_metering_labels:
++            return
++        label_chain = self._get_label_chain_name(label_id)
++        table.remove_chain(label_chain, wrap=False)
++
++        del rm.es_metering_labels[label_id]
++
++    def _process_associate_es_metering_label(self, router):
++        self._update_router(router)
++        rm = self.routers.get(router['id'])
++
++        with iptables_driver.IptablesManagerTransaction(rm.iptables_manager):
++            labels = router.get(constants.ES_METERING_LABEL_KEY, [])
++            for label in labels:
++                self._add_es_metering_label(rm, label)
++
++    def _process_disassociate_es_metering_label(self, router):
++        rm = self.routers.get(router['id'])
++        if not rm:
++            return
++        with iptables_driver.IptablesManagerTransaction(rm.iptables_manager):
++            labels = router.get(constants.ES_METERING_LABEL_KEY, [])
++            for label in labels:
++                self._remove_es_metering_label(rm, label['id'])
++
++    @log.log
++    def add_es_metering_label(self, _context, routers):
++        for router in routers:
++            self._process_associate_es_metering_label(router)
++
++    @log.log
++    def remove_es_metering_label(self, _context, routers):
++        for router in routers:
++            self._process_disassociate_es_metering_label(router)
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index be9e6c21a..9137530bf 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -79,6 +79,9 @@ class RouterWithMetering(object):
+             use_ipv6=ipv6_utils.is_enabled())
+         self.metering_labels = {}
+ 
++    def iter_metering_labels(self):
++        return self.metering_labels.items()
++
+ 
+ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+ 
+@@ -269,7 +272,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 continue
+ 
+             router_to_reconfigure = False
+-            for label_id, label in rm.metering_labels.items():
++            for label_id, label in rm.iter_metering_labels():
+                 try:
+                     chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                             LABEL +
+diff --git a/neutron/services/metering/drivers/noop/noop_driver.py b/neutron/services/metering/drivers/noop/noop_driver.py
+index 977b922e2..3dd840fe6 100644
+--- a/neutron/services/metering/drivers/noop/noop_driver.py
++++ b/neutron/services/metering/drivers/noop/noop_driver.py
+@@ -41,3 +41,11 @@ class NoopMeteringDriver(abstract_driver.MeteringAbstractDriver):
+     @log.log
+     def get_traffic_counters(self, context, routers):
+         pass
++
++    @log.log
++    def add_es_metering_label(self, context, routers):
++        pass
++
++    @log.log
++    def remove_es_metering_label(self, context, routers):
++        pass
+diff --git a/neutron/services/metering/metering_plugin.py b/neutron/services/metering/metering_plugin.py
+index 046938da5..6abb29708 100644
+--- a/neutron/services/metering/metering_plugin.py
++++ b/neutron/services/metering/metering_plugin.py
+@@ -15,13 +15,15 @@
+ from neutron.api.rpc.agentnotifiers import metering_rpc_agent_api
+ from neutron.common import rpc as n_rpc
+ from neutron.common import topics
++from neutron.db.metering import es_metering_db
+ from neutron.db.metering import metering_db
+ from neutron.db.metering import metering_rpc
+ 
+ 
+-class MeteringPlugin(metering_db.MeteringDbMixin):
++class MeteringPlugin(metering_db.MeteringDbMixin,
++                     es_metering_db.EsMeteringDbMixin):
+     """Implementation of the Neutron Metering Service Plugin."""
+-    supported_extension_aliases = ["metering"]
++    supported_extension_aliases = ["metering", "es-metering"]
+ 
+     def __init__(self):
+         super(MeteringPlugin, self).__init__()
+@@ -39,13 +41,15 @@ class MeteringPlugin(metering_db.MeteringDbMixin):
+         label = super(MeteringPlugin, self).create_metering_label(
+             context, metering_label)
+ 
+-        data = self.get_sync_data_metering(context)
++        data = metering_db.MeteringDbMixin.get_sync_data_metering(
++            self, context)
+         self.meter_rpc.add_metering_label(context, data)
+ 
+         return label
+ 
+     def delete_metering_label(self, context, label_id):
+-        data = self.get_sync_data_metering(context, label_id)
++        data = metering_db.MeteringDbMixin.get_sync_data_metering(
++            self, context, label_id)
+         label = super(MeteringPlugin, self).delete_metering_label(
+             context, label_id)
+ 
+@@ -57,7 +61,8 @@ class MeteringPlugin(metering_db.MeteringDbMixin):
+         rule = super(MeteringPlugin, self).create_metering_label_rule(
+             context, metering_label_rule)
+ 
+-        data = self.get_sync_data_metering(context)
++        data = metering_db.MeteringDbMixin.get_sync_data_metering(
++            self, context)
+         self.meter_rpc.update_metering_label_rules(context, data)
+ 
+         return rule
+@@ -66,7 +71,43 @@ class MeteringPlugin(metering_db.MeteringDbMixin):
+         rule = super(MeteringPlugin, self).delete_metering_label_rule(
+             context, rule_id)
+ 
+-        data = self.get_sync_data_metering(context)
++        data = metering_db.MeteringDbMixin.get_sync_data_metering(
++            self, context)
+         self.meter_rpc.update_metering_label_rules(context, data)
+ 
+         return rule
++
++    def create_es_metering_label(self, context, es_metering_label):
++        label = super(MeteringPlugin, self).create_es_metering_label(
++            context, es_metering_label)
++
++        data = es_metering_db.EsMeteringDbMixin.get_sync_data_metering(
++            self, context)
++        self.meter_rpc.add_es_metering_label(context, data)
++
++        return label
++
++    def delete_es_metering_label(self, context, label_id):
++        data = es_metering_db.EsMeteringDbMixin.get_sync_data_metering(
++            self, context, label_id=label_id)
++        super(MeteringPlugin, self).delete_es_metering_label(context, label_id)
++        self.meter_rpc.remove_es_metering_label(context, data)
++
++    def get_sync_data_metering(self, context, label_id=None, router_ids=None):
++        # Get original metering labels first
++        routers = metering_db.MeteringDbMixin.get_sync_data_metering(
++            self, context, label_id=label_id, router_ids=router_ids)
++
++        # Update EayunStack metering labels for existing routers
++        router_ids_set = set(router_ids or [])
++        for router in routers:
++            self.update_es_metering_labels_for_router(context, router)
++            router_ids_set.discard(router['id'])
++
++        # Get routers with only EayunStack metering labels
++        if router_ids_set:
++            routers += es_metering_db.EsMeteringDbMixin.get_sync_data_metering(
++                self, context,
++                label_id=label_id, router_ids=list(router_ids_set))
++
++        return routers
+-- 
+2.12.0
+
