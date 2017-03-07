@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	28%{?dist_eayunstack}
+Release:	29%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -131,6 +131,7 @@ Patch0085: 0085-metering-extend-neutron-metering.patch
 Patch0086: 0086-l3_agent-implement-EayunStack-floating-ip-mechanism.patch
 Patch0087: 0087-Implement-lbaas-L7-policy-rule-model.patch
 Patch0088: 0088-Implement-l7policy-for-lbaas-agent.patch
+Patch0089: 0089-Fix-errors-in-lbaas-L7-policy-implemetation.patch
 
 
 BuildArch:	noarch
@@ -697,6 +698,7 @@ IPSec.
 %patch0086 -p1
 %patch0087 -p1
 %patch0088 -p1
+%patch0089 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1158,6 +1160,9 @@ exit 0
 
 
 %changelog
+* Tue Mar 07 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-29.eayunstack.dev
+- add patch 0089 from github pull request #75
+
 * Mon Mar 06 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-28.eayunstack.1.1
 - add patch 0077-0078 from github pull request #65 (redmine#9118)
 - add patch 0079 from github pull request #69 (redmine#9249)
