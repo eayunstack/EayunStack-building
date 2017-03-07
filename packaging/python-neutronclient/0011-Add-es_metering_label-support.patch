@@ -1,0 +1,189 @@
+From 8237648494715cd62c70ec62c7baa88c739720ab Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 6 Mar 2017 19:44:07 +0800
+Subject: [PATCH 11/11] Add es_metering_label support
+
+Fixes: redmine #9559
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/metering.py | 94 ++++++++++++++++++++++++++++++++++
+ neutronclient/shell.py                 |  5 ++
+ neutronclient/v2_0/client.py           | 29 +++++++++++
+ 3 files changed, 128 insertions(+)
+
+diff --git a/neutronclient/neutron/v2_0/metering.py b/neutronclient/neutron/v2_0/metering.py
+index 20ca757..61ece38 100644
+--- a/neutronclient/neutron/v2_0/metering.py
++++ b/neutronclient/neutron/v2_0/metering.py
+@@ -133,3 +133,97 @@ class DeleteMeteringLabelRule(neutronv20.DeleteCommand):
+     """Delete a given metering label."""
+ 
+     resource = 'metering_label_rule'
++
++
++class ListEsMeteringLabel(neutronv20.ListCommand):
++    """List EayunStack metering labels that belong to a given tenant."""
++
++    resource = "es_metering_label"
++    list_columns = ['id', 'name', 'description', 'router_id',
++                    'direction', 'internal_ip', 'tcp_port']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowEsMeteringLabel(neutronv20.ShowCommand):
++    """Show information of a given EayunStack metering label."""
++
++    resource = "es_metering_label"
++    allow_names = True
++
++
++class CreateEsMeteringLabel(neutronv20.CreateCommand):
++    """Create an EayunStack metering label for a given tenant."""
++
++    resource = "es_metering_label"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            'router_id', metavar='ROUTER_ID',
++            help=_('Router in which the label is to be created.'))
++        parser.add_argument(
++            'direction', metavar='DIRECTION',
++            choices=['ingress', 'egress'],
++            help=_('Direction of traffic, default: ingress.'))
++        parser.add_argument(
++            '--name',
++            help=_('Name of this EayunStack metering label.'))
++        parser.add_argument(
++            '--description',
++            help=_('Description of this EayunStack metering label.'))
++        parser.add_argument(
++            '--internal_ip',
++            help=_('Internal CIDR to match on.'))
++        parser.add_argument(
++            '--tcp_port',
++            help=_('TCP port to match on.'))
++
++    def args2body(self, parsed_args):
++        body = {
++            'es_metering_label': {
++                'router_id': parsed_args.router_id,
++                'direction': parsed_args.direction,
++            }
++        }
++        if parsed_args.name:
++            body['es_metering_label'].update({'name': parsed_args.name})
++        if parsed_args.description:
++            body['es_metering_label'].update(
++                {'description': parsed_args.description})
++        if parsed_args.internal_ip:
++            body['es_metering_label'].update(
++                {'internal_ip': parsed_args.internal_ip})
++        if parsed_args.tcp_port:
++            body['es_metering_label'].update(
++                {'tcp_port': parsed_args.tcp_port})
++        return body
++
++
++class UpdateEsMeteringLabel(neutronv20.UpdateCommand):
++    """Update a given EayunStack metering label."""
++
++    resource = "es_metering_label"
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--name',
++            help=_('Name of this EayunStack metering label.'))
++        parser.add_argument(
++            '--description',
++            help=_('Description of this EayunStack metering label.'))
++
++    def args2body(self, parsed_args):
++        body = {'es_metering_label': {}}
++        if parsed_args.name:
++            body['es_metering_label'].update({'name': parsed_args.name})
++        if parsed_args.description:
++            body['es_metering_label'].update(
++                {'description': parsed_args.description})
++        return body
++
++
++class DeleteEsMeteringLabel(neutronv20.DeleteCommand):
++    """Delete a given EayunStack metering label."""
++
++    resource = "es_metering_label"
++    allow_names = True
+diff --git a/neutronclient/shell.py b/neutronclient/shell.py
+index 0bf7178..af53752 100644
+--- a/neutronclient/shell.py
++++ b/neutronclient/shell.py
+@@ -327,6 +327,11 @@ COMMAND_V2 = {
+     'eayun-pptp-credential-create': eayun_pptp_credential.CreatePPTPCredential,
+     'eayun-pptp-credential-update': eayun_pptp_credential.UpdatePPTPCredential,
+     'eayun-pptp-credential-delete': eayun_pptp_credential.DeletePPTPCredential,
++    'es-meter-label-list': metering.ListEsMeteringLabel,
++    'es-meter-label-show': metering.ShowEsMeteringLabel,
++    'es-meter-label-create': metering.CreateEsMeteringLabel,
++    'es-meter-label-update': metering.UpdateEsMeteringLabel,
++    'es-meter-label-delete': metering.DeleteEsMeteringLabel,
+ }
+ 
+ COMMANDS = {'2.0': COMMAND_V2}
+diff --git a/neutronclient/v2_0/client.py b/neutronclient/v2_0/client.py
+index fbbfe69..96afe7c 100644
+--- a/neutronclient/v2_0/client.py
++++ b/neutronclient/v2_0/client.py
+@@ -236,6 +236,8 @@ class Client(object):
+     eayun_qos_qos_filter_path = '/eayun_qos/qos-filters/%s'
+     portmappings_path = "/portmappings"
+     portmapping_path = "/portmappings/%s"
++    es_metering_labels_path = "/metering/es-metering-labels"
++    es_metering_label_path = "/metering/es-metering-labels/%s"
+ 
+     # API has no way to report plurals, so we have to hard code them
+     EXTED_PLURALS = {'routers': 'router',
+@@ -266,6 +268,7 @@ class Client(object):
+                      'qos_queues': 'qos_queue',
+                      'qos_filters': 'qos_filter',
+                      'portmappings': 'portmapping',
++                     'es_metering_labels': 'es_metering_label',
+                      }
+     # 8192 Is the default max URI len for eventlet.wsgi.server
+     MAX_URI_LEN = 8192
+@@ -1358,6 +1361,32 @@ class Client(object):
+         """Delete the specified portmapping."""
+         return self.delete(self.portmapping_path % (portmapping))
+ 
++    @APIParamsCall
++    def list_es_metering_labels(self, retrieve_all=True, **_params):
++        """Fetches a list of all EayunStack metering labels for a tenant."""
++        return self.list('es_metering_labels', self.es_metering_labels_path,
++                         retrieve_all, **_params)
++
++    @APIParamsCall
++    def show_es_metering_label(self, label, **_params):
++        """Fetch information of a certain EayunStack metering label."""
++        return self.get(self.es_metering_label_path % (label), params=_params)
++
++    @APIParamsCall
++    def create_es_metering_label(self, body=None):
++        """Create a new EayunStack metering label."""
++        return self.post(self.es_metering_labels_path, body=body)
++
++    @APIParamsCall
++    def update_es_metering_label(self, label, body=None):
++        """Update a given EayunStack metering label."""
++        return self.put(self.es_metering_label_path % (label), body=body)
++
++    @APIParamsCall
++    def delete_es_metering_label(self, label):
++        """Delete a given EayunStack metering label."""
++        return self.delete(self.es_metering_label_path % (label))
++
+     def __init__(self, **kwargs):
+         """Initialize a new client for the Neutron v2.0 API."""
+         super(Client, self).__init__()
+-- 
+2.12.0
+
