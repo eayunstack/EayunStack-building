@@ -1,6 +1,6 @@
 %global sname oslo.messaging
 %global milestone a5
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:       python-oslo-messaging
 Version:    1.4.1

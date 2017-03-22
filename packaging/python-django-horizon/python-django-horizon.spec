@@ -2,7 +2,7 @@
 
 %global with_compression 1
 
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.dev
 
 Name:       python-django-horizon
 Version:    2014.2.1

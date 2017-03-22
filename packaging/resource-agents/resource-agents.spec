@@ -29,7 +29,7 @@
 %bcond_with rgmanager
 %bcond_without linuxha
 
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.dev
 
 Name:		resource-agents
 Summary:	Open Source HA Reusable Cluster Resource Scripts

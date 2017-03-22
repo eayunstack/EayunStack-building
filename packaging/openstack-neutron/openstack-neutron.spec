@@ -1,6 +1,6 @@
 %global release_name juno
 
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:		openstack-neutron
 Version:	2014.2

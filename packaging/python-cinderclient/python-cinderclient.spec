@@ -1,4 +1,4 @@
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:             python-cinderclient
 Version:          1.1.1
