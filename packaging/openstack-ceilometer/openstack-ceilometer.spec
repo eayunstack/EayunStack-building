@@ -2,7 +2,7 @@
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 %global pypi_name ceilometer
 %global release_name juno
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
