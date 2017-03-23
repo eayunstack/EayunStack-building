@@ -5,7 +5,7 @@
 %endif
 
 %global srcname kombu
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:           python-%{srcname}
 Version:        2.5.16

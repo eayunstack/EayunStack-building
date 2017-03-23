@@ -4,7 +4,7 @@
 
 %global release_name juno
 %global milestone rc2
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:             openstack-nova
 Version:          2014.2

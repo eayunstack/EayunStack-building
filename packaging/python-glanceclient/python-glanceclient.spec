@@ -1,4 +1,4 @@
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack.dev
 
 Name:             python-glanceclient
 Epoch:            1

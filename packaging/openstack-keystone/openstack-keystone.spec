@@ -3,7 +3,7 @@
 
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack.dev
 
 Name:           openstack-keystone
 Version:        2014.2
