@@ -1,5 +1,5 @@
 %global pypi_name django_openstack_auth
-%global dist_eayunstack .eayunstack.1.0
+%global dist_eayunstack .eayunstack
 
 Name:           python-django-openstack-auth
 Version:        1.1.7

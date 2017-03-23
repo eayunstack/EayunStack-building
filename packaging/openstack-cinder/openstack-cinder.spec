@@ -2,7 +2,7 @@
 
 %global with_doc %{!?_without_doc:1}%{?_without_doc:0}
 
-%global dist_eayunstack .eayunstack.1.0.1
+%global dist_eayunstack .eayunstack
 
 Name:             openstack-cinder
 Version:          2014.2.1

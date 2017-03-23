@@ -1,0 +1,261 @@
+From 80bc7cbf07a2b7decb4ddd5f0e09581434e179b5 Mon Sep 17 00:00:00 2001
+From: ZhiQiang Fan <aji.zqfan@gmail.com>
+Date: Mon, 17 Nov 2014 23:14:03 +0800
+Subject: [PATCH 2/2] Return a meaningful value or raise an excpetion for
+ libvirt
+
+Currently, there are some cases libvirt cannot inspect instance's memory
+usage, and it is a normal behavior so libvirt just logs messages and
+returns None. However, memory pollster doesn't check return value, so
+AttributeError will be raised in such case, which leading to unnecessary
+exception log messages in every cycle and for each instance, this will
+bother cloud operator.
+
+This patch uses virt.inspector exceptions for libvirt, so when there is no
+valid value can be returned, we raise an exception, pollsters can catch
+those exceptions and log proper messages. Since all of them are non-fatal
+exception, log level is set to warn, which is excatly same as previous.
+
+Note, this patch refactors some code of libvirt to suit this change.
+
+Yuanbing Chen (cybing4@gmail.com) update
+Note, this patch don't use i18n LOG(_LW),Memory usage update MB to % ,
+This PATCH Update Memory,The Other is not update
+
+Change-Id: I2c94aab90e827c75a602403d3c64fd6f67f73007
+Closes-Bug: #1393415
+(cherry picked from commit 98b43aad172c894d3c4e288e40eaa3c4f822d47f)
+
+Conflicts:
+	ceilometer/compute/pollsters/memory.py
+	ceilometer/compute/virt/libvirt/inspector.py
+	ceilometer/compute/virt/inspector.py
+	ceilometer/tests/compute/virt/libvirt/test_inspector.py
+	ceilometer/tests/compute/pollsters/test_memory.py
+---
+ ceilometer/compute/pollsters/memory.py             | 10 ++++-
+ ceilometer/compute/virt/inspector.py               |  8 ++++
+ ceilometer/compute/virt/libvirt/inspector.py       | 49 +++++++++++++---------
+ ceilometer/tests/compute/pollsters/test_memory.py  | 36 ++++++++++------
+ .../tests/compute/virt/libvirt/test_inspector.py   | 12 +++---
+ 5 files changed, 77 insertions(+), 38 deletions(-)
+
+diff --git a/ceilometer/compute/pollsters/memory.py b/ceilometer/compute/pollsters/memory.py
+index f8d8001..237d813 100644
+--- a/ceilometer/compute/pollsters/memory.py
++++ b/ceilometer/compute/pollsters/memory.py
+@@ -39,12 +39,20 @@ class MemoryUsagePollster(plugin.ComputePollster):
+                     instance,
+                     name='memory.usage',
+                     type=sample.TYPE_GAUGE,
+-                    unit='MB',
++                    unit='%',  # unit='MB',
+                     volume=memory_info.usage,
+                 )
+             except virt_inspector.InstanceNotFoundException as err:
+                 # Instance was deleted while getting samples. Ignore it.
+                 LOG.debug(_('Exception while getting samples %s'), err)
++            except virt_inspector.InstanceShutOffException as e:
++                LOG.warn(_('Instance  was shut off while '
++                           'getting samples of %(pollster)s: %(exc)s'),
++                         {'pollster': self.__class__.__name__, 'exc': e})
++            except virt_inspector.NoDataException as e:
++                LOG.warn(_('Cannot inspect data of %(pollster)s for '
++                           'non-fatal reason: %(exc)s'),
++                         {'pollster': self.__class__.__name__, 'exc': e})
+             except ceilometer.NotImplementedError:
+                 # Selected inspector does not implement this pollster.
+                 LOG.debug(_('Obtaining Memory Usage is not implemented for %s'
+diff --git a/ceilometer/compute/virt/inspector.py b/ceilometer/compute/virt/inspector.py
+index b266ef4..b4e7044 100644
+--- a/ceilometer/compute/virt/inspector.py
++++ b/ceilometer/compute/virt/inspector.py
+@@ -143,6 +143,14 @@ class InstanceNotFoundException(InspectorException):
+     pass
+ 
+ 
++class InstanceShutOffException(InspectorException):
++    pass
++
++
++class NoDataException(InspectorException):
++    pass
++
++
+ # Main virt inspector abstraction layering over the hypervisor API.
+ #
+ class Inspector(object):
+diff --git a/ceilometer/compute/virt/libvirt/inspector.py b/ceilometer/compute/virt/libvirt/inspector.py
+index b36a48f..98834cd 100644
+--- a/ceilometer/compute/virt/libvirt/inspector.py
++++ b/ceilometer/compute/virt/libvirt/inspector.py
+@@ -53,7 +53,7 @@ def retry_on_disconnect(function):
+             if (e.get_error_code() == libvirt.VIR_ERR_SYSTEM_ERROR and
+                 e.get_error_domain() in (libvirt.VIR_FROM_REMOTE,
+                                          libvirt.VIR_FROM_RPC)):
+-                LOG.debug('Connection to libvirt broken')
++                LOG.debug(_('Connection to libvirt broken'))
+                 self.connection = None
+                 return function(self, *args, **kwargs)
+             else:
+@@ -78,7 +78,7 @@ class LibvirtInspector(virt_inspector.Inspector):
+             global libvirt
+             if libvirt is None:
+                 libvirt = __import__('libvirt')
+-            LOG.debug('Connecting to libvirt: %s', self.uri)
++            LOG.debug(_('Connecting to libvirt: %s'), self.uri)
+             self.connection = libvirt.openReadOnly(self.uri)
+ 
+         return self.connection
+@@ -124,6 +124,19 @@ class LibvirtInspector(virt_inspector.Inspector):
+         dom_info = domain.info()
+         return virt_inspector.CPUStats(number=dom_info[3], time=dom_info[4])
+ 
++    def _get_domain_not_shut_off_or_raise(self, instance):
++        instance_name = util.instance_name(instance)
++        domain = self._lookup_by_name(instance_name)
++
++        state = domain.info()[0]
++        if state == libvirt.VIR_DOMAIN_SHUTOFF:
++            msg = _('Failed to inspect data of instance '
++                    '<name=%(name)s, id=%(id)s>, '
++                    'domain state is SHUTOFF.') % {
++                'name': instance_name, 'id': instance.id}
++            raise virt_inspector.InstanceShutOffException(msg)
++        return domain
++
+     def inspect_vnics(self, instance_name):
+         domain = self._lookup_by_name(instance_name)
+         state = domain.info()[0]
+@@ -183,13 +196,7 @@ class LibvirtInspector(virt_inspector.Inspector):
+ 
+     def inspect_memory_usage(self, instance, duration=None):
+         instance_name = util.instance_name(instance)
+-        domain = self._lookup_by_name(instance_name)
+-        state = domain.info()[0]
+-        if state == libvirt.VIR_DOMAIN_SHUTOFF:
+-            LOG.warn(_('Failed to inspect memory usage of %(instance_name)s, '
+-                       'domain is in state of SHUTOFF'),
+-                     {'instance_name': instance_name})
+-            return
++        domain = self._get_domain_not_shut_off_or_raise(instance)
+ 
+         try:
+             memory_stats = domain.memoryStats()
+@@ -199,16 +206,20 @@ class LibvirtInspector(virt_inspector.Inspector):
+                 memory_used = (memory_stats.get('available') -
+                                memory_stats.get('unused'))
+                 # Stat provided from libvirt is in KB, converting it to MB.
+-                memory_used = memory_used / units.Ki
++                # memory_used = memory_used / units.Ki
++                maxMemory = domain.maxMemory()
++                memory_used = float(memory_used) / float(maxMemory) * 100.0
+                 return virt_inspector.MemoryUsageStats(usage=memory_used)
+             else:
+-                LOG.warn(_('Failed to inspect memory usage of '
+-                           '%(instance_name)s, can not get info from libvirt'),
+-                         {'instance_name': instance_name})
+-        # memoryStats might launch an exception if the method
+-        # is not supported by the underlying hypervisor being
+-        # used by libvirt
++                msg = _('Failed to inspect memory usage of instance '
++                        '<name=%(name)s, id=%(id)s>, '
++                        'can not get info from libvirt.') % {
++                    'name': instance_name, 'id': instance.id}
++                raise virt_inspector.NoDataException(msg)
++        # memoryStats might launch an exception if the method is not supported
++        # by the underlying hypervisor being used by libvirt.
+         except libvirt.libvirtError as e:
+-            LOG.warn(_('Failed to inspect memory usage of %(instance_name)s, '
+-                       'can not get info from libvirt: %(error)s'),
+-                     {'instance_name': instance_name, 'error': e})
++            msg = _('Failed to inspect memory usage of %(instance_name)s, '
++                    'can not get info from libvirt: %(error)s') % {
++                'instance_name': instance_name, 'error': e}
++            raise virt_inspector.NoDataException(msg)
+diff --git a/ceilometer/tests/compute/pollsters/test_memory.py b/ceilometer/tests/compute/pollsters/test_memory.py
+index 969518e..dfa8899 100644
+--- a/ceilometer/tests/compute/pollsters/test_memory.py
++++ b/ceilometer/tests/compute/pollsters/test_memory.py
+@@ -31,24 +31,36 @@ class TestMemoryPollster(base.TestPollsterBase):
+         next_value = iter((
+             virt_inspector.MemoryUsageStats(usage=1.0),
+             virt_inspector.MemoryUsageStats(usage=2.0),
++            virt_inspector.NoDataException(),
++            virt_inspector.InstanceShutOffException(),
+         ))
+ 
+         def inspect_memory_usage(instance, duration):
+-            return next(next_value)
++            value = next(next_value)
++            if isinstance(value, virt_inspector.MemoryUsageStats):
++                return value
++            else:
++                raise value
+ 
+-        (self.inspector.
+-         inspect_memory_usage) = mock.Mock(side_effect=inspect_memory_usage)
++        self.inspector.inspect_memory_usage = mock.Mock(
++            side_effect=inspect_memory_usage)
+ 
+         mgr = manager.AgentManager()
+         pollster = memory.MemoryUsagePollster()
+ 
+-        def _verify_memory_metering(expected_memory_mb):
+-            cache = {}
+-            samples = list(pollster.get_samples(mgr, cache, [self.instance]))
+-            self.assertEqual(1, len(samples))
+-            self.assertEqual(set(['memory.usage']),
+-                             set([s.name for s in samples]))
+-            self.assertEqual(expected_memory_mb, samples[0].volume)
++        @mock.patch('ceilometer.compute.pollsters.memory.LOG')
++        def _verify_memory_metering(expected_count, expected_memory_mb, mylog):
++            samples = list(pollster.get_samples(mgr, {}, [self.instance]))
++            self.assertEqual(expected_count, len(samples))
++            if expected_count > 0:
++                self.assertEqual(set(['memory.usage']),
++                                 set([s.name for s in samples]))
++                self.assertEqual(expected_memory_mb, samples[0].volume)
++            else:
++                self.assertEqual(1, mylog.warn.call_count)
++            self.assertEqual(0, mylog.exception.call_count)
+ 
+-        _verify_memory_metering(1.0)
+-        _verify_memory_metering(2.0)
++        _verify_memory_metering(1, 1.0)
++        _verify_memory_metering(1, 2.0)
++        _verify_memory_metering(0, 0)
++        _verify_memory_metering(0, 0)
+diff --git a/ceilometer/tests/compute/virt/libvirt/test_inspector.py b/ceilometer/tests/compute/virt/libvirt/test_inspector.py
+index 429cc74..03d4aa9 100644
+--- a/ceilometer/tests/compute/virt/libvirt/test_inspector.py
++++ b/ceilometer/tests/compute/virt/libvirt/test_inspector.py
+@@ -267,9 +267,9 @@ class TestLibvirtInspection(base.BaseTestCase):
+             with mock.patch.object(self.domain, 'info',
+                                    return_value=(5L, 0L, 0L,
+                                                  2L, 999999L)):
+-                memory = self.inspector.inspect_memory_usage(
+-                    self.instance_name)
+-                self.assertIsNone(memory)
++                self.assertRaises(virt_inspector.InstanceShutOffException,
++                                  self.inspector.inspect_memory_usage,
++                                  self.instance)
+ 
+     def test_inspect_memory_usage_with_empty_stats(self):
+         connection = self.inspector.connection
+@@ -280,9 +280,9 @@ class TestLibvirtInspection(base.BaseTestCase):
+                                                  2L, 999999L)):
+                 with mock.patch.object(self.domain, 'memoryStats',
+                                        return_value={}):
+-                    memory = self.inspector.inspect_memory_usage(
+-                        self.instance_name)
+-                    self.assertIsNone(memory)
++                    self.assertRaises(virt_inspector.NoDataException,
++                                      self.inspector.inspect_memory_usage,
++                                      self.instance)
+ 
+ 
+ class TestLibvirtInspectionWithError(base.BaseTestCase):
+-- 
+2.1.0
+
