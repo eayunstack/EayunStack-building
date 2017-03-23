@@ -1,0 +1,79 @@
+From ecfda74062e51778e79e0d5b93ed4034c37da23e Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 9 Mar 2017 14:58:13 +0800
+Subject: [PATCH] Fix neutron lbaas l7 CLI error
+
+Fixes: redmine #9564
+Fixes: c97052ad7 ("Add lbaas l7policy l7rule CLI")
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/lb/l7policy.py | 19 ++++++++-----------
+ neutronclient/v2_0/client.py              |  2 +-
+ 2 files changed, 9 insertions(+), 12 deletions(-)
+
+diff --git a/neutronclient/neutron/v2_0/lb/l7policy.py b/neutronclient/neutron/v2_0/lb/l7policy.py
+index 25f2250..b6c5cff 100644
+--- a/neutronclient/neutron/v2_0/lb/l7policy.py
++++ b/neutronclient/neutron/v2_0/lb/l7policy.py
+@@ -48,17 +48,12 @@ class CreateL7policy(neutronV20.CreateCommand):
+             dest='admin_state', action='store_false',
+             help=_('Set admin state up to false.'))
+         parser.add_argument(
+-            '--description',
+-            help=_('Description of the l7policy.'))
+-        parser.add_argument(
+             '--priority',
+             required=True,
+-            help=_('The prority(valid in [0,255]) for l7policy'))
+-        parser.add_argument(
+-            '--name',
+-            help=_('The name of the l7policy.'))
++            help=_('The priority(valid in [0,255]) for l7policy'))
+         parser.add_argument(
+             '--pool-id', metavar='POOL',
++            default=None,
+             help=_('The l7policy of pool that belong.'))
+         parser.add_argument(
+             '--action',
+@@ -73,8 +68,10 @@ class CreateL7policy(neutronV20.CreateCommand):
+             help=_('The value of the l7policy action values.'))
+ 
+     def args2body(self, parsed_args):
+-        _pool_id = neutronV20.find_resourceid_by_name_or_id(
+-            self.get_client(), 'pool', parsed_args.pool_id)
++        _pool_id = None
++        if parsed_args.pool_id:
++            _pool_id = neutronV20.find_resourceid_by_name_or_id(
++                self.get_client(), 'pool', parsed_args.pool_id)
+         body = {
+             self.resource: {
+                 'admin_state_up': parsed_args.admin_state,
+@@ -82,8 +79,8 @@ class CreateL7policy(neutronV20.CreateCommand):
+             },
+         }
+         neutronV20.update_dict(parsed_args, body[self.resource],
+-                               ['description', 'prority', 'name',
+-                                'action', 'tenant_id', 'key', 'value'])
++                               ['priority', 'action', 'tenant_id',
++                                'key', 'value'])
+         return body
+ 
+ 
+diff --git a/neutronclient/v2_0/client.py b/neutronclient/v2_0/client.py
+index e76ee0c..55ed3bf 100644
+--- a/neutronclient/v2_0/client.py
++++ b/neutronclient/v2_0/client.py
+@@ -841,7 +841,7 @@ class Client(object):
+     def list_l7rules(self, retrieve_all=True, **_params):
+         """Fetches a list of all load balancer l7rules for a tenant."""
+         # Pass filters in "params" argument to do_request
+-        return self.list('l7rules', self.l7policies_path, retrieve_all,
++        return self.list('l7rules', self.l7rules_path, retrieve_all,
+                          **_params)
+ 
+     @APIParamsCall
+-- 
+2.12.1
+
