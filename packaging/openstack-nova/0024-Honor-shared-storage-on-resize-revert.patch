@@ -1,7 +1,7 @@
-From eaa5cd6ccc36fce523ef27d797575f95ef156aeb Mon Sep 17 00:00:00 2001
+From d33b0cb11ee0bec5535a576ea7a7c1d09c166ad2 Mon Sep 17 00:00:00 2001
 From: Jon Bernard <jobernar@redhat.com>
 Date: Fri, 5 Dec 2014 11:58:12 -0500
-Subject: [PATCH 35/36] Honor shared storage on resize revert
+Subject: [PATCH 24/26] Honor shared storage on resize revert
 
 This patch improves the logic in resize_revert() to properly honor
 shared storage when destroying the unneeded instance.  In the case of
@@ -34,10 +34,10 @@ NOTE(apporc): revert changes of 731e9200ed91a6122b3b71e7ac01be9bbc54b2fa.
  4 files changed, 73 insertions(+), 8 deletions(-)
 
 diff --git a/nova/compute/manager.py b/nova/compute/manager.py
-index b6d8436..82d0641 100644
+index 8c4df11..d05a1c2 100644
 --- a/nova/compute/manager.py
 +++ b/nova/compute/manager.py
-@@ -768,7 +768,7 @@ class ComputeManager(manager.Manager):
+@@ -767,7 +767,7 @@ class ComputeManager(manager.Manager):
                                      network_info,
                                      bdi, destroy_disks)
  
@@ -46,7 +46,7 @@ index b6d8436..82d0641 100644
          shared_storage = True
          data = None
          try:
-@@ -777,7 +777,7 @@ class ComputeManager(manager.Manager):
+@@ -776,7 +776,7 @@ class ComputeManager(manager.Manager):
              if data:
                  shared_storage = (self.compute_rpcapi.
                                    check_instance_shared_storage(context,
@@ -55,7 +55,7 @@ index b6d8436..82d0641 100644
          except NotImplementedError:
              LOG.warning(_('Hypervisor driver does not support '
                            'instance shared storage check, '
-@@ -3510,9 +3510,8 @@ class ComputeManager(manager.Manager):
+@@ -3503,9 +3503,8 @@ class ComputeManager(manager.Manager):
              block_device_info = self._get_instance_block_device_info(
                                  context, instance, bdms=bdms)
  
@@ -68,7 +68,7 @@ index b6d8436..82d0641 100644
                                  block_device_info, destroy_disks)
  
 diff --git a/nova/compute/rpcapi.py b/nova/compute/rpcapi.py
-index cc2d8e1..6ddba99 100644
+index 34466ac..2e8bd28 100644
 --- a/nova/compute/rpcapi.py
 +++ b/nova/compute/rpcapi.py
 @@ -368,13 +368,13 @@ class ComputeAPI(object):
@@ -88,10 +88,10 @@ index cc2d8e1..6ddba99 100644
          return cctxt.call(ctxt, 'check_instance_shared_storage',
                            instance=instance,
 diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
-index f4528a5..b3010e9 100644
+index 878fc25..bc7163f 100644
 --- a/nova/tests/compute/test_compute.py
 +++ b/nova/tests/compute/test_compute.py
-@@ -4266,6 +4266,8 @@ class ComputeTestCase(BaseTestCase):
+@@ -4236,6 +4236,8 @@ class ComputeTestCase(BaseTestCase):
              self.context, objects.Instance(), instance,
              expected_attrs=instance_obj.INSTANCE_DEFAULT_FIELDS)
          for operation in actions:
@@ -100,7 +100,7 @@ index f4528a5..b3010e9 100644
              if operation[0] in want_objects:
                  self._test_state_revert(inst_obj, *operation)
              else:
-@@ -6610,7 +6612,7 @@ class ComputeTestCase(BaseTestCase):
+@@ -6580,7 +6582,7 @@ class ComputeTestCase(BaseTestCase):
                  evacuated_instance).AndReturn({'filename': 'tmpfilename'})
          self.compute.compute_rpcapi.check_instance_shared_storage(fake_context,
                  evacuated_instance,
@@ -110,10 +110,10 @@ index f4528a5..b3010e9 100644
                  {'filename': 'tmpfilename'})
          self.compute.driver.destroy(fake_context, evacuated_instance,
 diff --git a/nova/tests/compute/test_compute_mgr.py b/nova/tests/compute/test_compute_mgr.py
-index b4fa1b6..193265b 100644
+index e21f34b..f1a2b3b 100644
 --- a/nova/tests/compute/test_compute_mgr.py
 +++ b/nova/tests/compute/test_compute_mgr.py
-@@ -3060,3 +3060,67 @@ class ComputeManagerMigrationTestCase(test.NoDBTestCase):
+@@ -3077,3 +3077,67 @@ class ComputeManagerMigrationTestCase(test.NoDBTestCase):
              )
              self.assertEqual("error", self.migration.status)
              migration_save.assert_has_calls([mock.call(elevated_context)])
@@ -182,5 +182,5 @@ index b4fa1b6..193265b 100644
 +    def test_revert_resize_instance_destroy_disks_non_shared_storage(self):
 +        self._test_revert_resize_instance_destroy_disks(is_shared=False)
 -- 
-2.4.3
+2.1.0
 

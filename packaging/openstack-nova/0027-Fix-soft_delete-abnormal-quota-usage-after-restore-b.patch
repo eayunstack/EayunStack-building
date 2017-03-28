@@ -1,0 +1,102 @@
+From 38c4d0b41a195ed07e13196e52db16f9cb6ef0ea Mon Sep 17 00:00:00 2001
+From: fabian4 <cybing4@gmail.com>
+Date: Mon, 27 Jun 2016 18:35:47 +0800
+Subject: [PATCH 1/4] Fix soft_delete,abnormal quota usage after restore by
+ admin Use upstream commit: c474b44bdcdda223b0ec90b7fa1673501cf690e7 Redmine
+ #7099 http://192.168.15.2/issues/7099
+
+Signed-off-by: fabian <cybing4@gmail.com>
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ nova/compute/api.py                    |  8 +++++---
+ nova/tests/compute/test_compute_api.py | 31 +++++++++++++++++++++++++++++--
+ 2 files changed, 34 insertions(+), 5 deletions(-)
+
+diff --git a/nova/compute/api.py b/nova/compute/api.py
+index a950f63..3eaa877 100644
+--- a/nova/compute/api.py
++++ b/nova/compute/api.py
+@@ -350,7 +350,7 @@ class API(base.Base):
+                 raise exception.OnsetFileContentLimitExceeded()
+ 
+     def _check_num_instances_quota(self, context, instance_type, min_count,
+-                                   max_count):
++                                   max_count, project_id=None, user_id=None):
+         """Enforce quota limits on number of instances created."""
+ 
+         # Determine requested cores and ram
+@@ -362,7 +362,8 @@ class API(base.Base):
+         try:
+             quotas = objects.Quotas(context)
+             quotas.reserve(context, instances=max_count,
+-                           cores=req_cores, ram=req_ram)
++                           cores=req_cores, ram=req_ram,
++                           project_id=project_id, user_id=user_id)
+         except exception.OverQuota as exc:
+             # OK, we exceeded quota; let's figure out why...
+             quotas = exc.kwargs['quotas']
+@@ -1799,8 +1800,9 @@ class API(base.Base):
+         """Restore a previously deleted (but not reclaimed) instance."""
+         # Reserve quotas
+         flavor = instance.get_flavor()
++        project_id, user_id = quotas_obj.ids_from_instance(context, instance)
+         num_instances, quotas = self._check_num_instances_quota(
+-                context, flavor, 1, 1)
++            context, flavor, 1, 1, project_id=project_id, user_id=user_id)
+ 
+         self._record_action_start(context, instance, instance_actions.RESTORE)
+ 
+diff --git a/nova/tests/compute/test_compute_api.py b/nova/tests/compute/test_compute_api.py
+index ae7bad5..b4a58f6 100644
+--- a/nova/tests/compute/test_compute_api.py
++++ b/nova/tests/compute/test_compute_api.py
+@@ -2066,8 +2066,31 @@ class _ComputeAPIUnitTestMixIn(object):
+     @mock.patch('nova.objects.Quotas.reserve')
+     @mock.patch('nova.objects.Instance.save')
+     @mock.patch('nova.objects.InstanceAction.action_start')
+-    def test_restore(self, action_start, instance_save, quota_reserve,
+-                     quota_commit):
++    def test_restore_by_admin(self, action_start, instance_save,
++                              quota_reserve, quota_commit):
++        admin_context = context.RequestContext('admin_user',
++                                               'admin_project',
++                                               True)
++        instance = self._create_instance_obj()
++        instance.vm_state = vm_states.SOFT_DELETED
++        instance.task_state = None
++        instance.save()
++        with mock.patch.object(self.compute_api, 'compute_rpcapi') as rpc:
++            self.compute_api.restore(admin_context, instance)
++            rpc.restore_instance.assert_called_once_with(admin_context,
++                                                         instance)
++        self.assertEqual(instance.task_state, task_states.RESTORING)
++        self.assertEqual(1, quota_commit.call_count)
++        quota_reserve.assert_called_once_with(instances=1,
++            cores=instance.flavor.vcpus, ram=instance.flavor.memory_mb,
++            project_id=instance.project_id, user_id=instance.user_id)
++
++    @mock.patch('nova.objects.Quotas.commit')
++    @mock.patch('nova.objects.Quotas.reserve')
++    @mock.patch('nova.objects.Instance.save')
++    @mock.patch('nova.objects.InstanceAction.action_start')
++    def test_restore_by_instance_owner(self, action_start, instance_save,
++                                       quota_reserve, quota_commit):
+         instance = self._create_instance_obj()
+         instance.vm_state = vm_states.SOFT_DELETED
+         instance.task_state = None
+@@ -2076,8 +2099,12 @@ class _ComputeAPIUnitTestMixIn(object):
+             self.compute_api.restore(self.context, instance)
+             rpc.restore_instance.assert_called_once_with(self.context,
+                                                          instance)
++        self.assertEqual(instance.project_id, self.context.project_id)
+         self.assertEqual(instance.task_state, task_states.RESTORING)
+         self.assertEqual(1, quota_commit.call_count)
++        quota_reserve.assert_called_once_with(instances=1,
++            cores=instance.flavor.vcpus, ram=instance.flavor.memory_mb,
++            project_id=instance.project_id, user_id=instance.user_id)
+ 
+     def test_external_instance_event(self):
+         instances = [
+-- 
+2.1.0
+
