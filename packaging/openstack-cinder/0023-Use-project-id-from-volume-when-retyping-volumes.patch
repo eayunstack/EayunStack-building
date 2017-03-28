@@ -1,0 +1,107 @@
+From cc3205d9718560559c59a5918bb6ef8cba71d7b0 Mon Sep 17 00:00:00 2001
+From: Ollie Leahy <oliver.leahy@hp.com>
+Date: Thu, 15 Oct 2015 15:20:28 +0000
+Subject: [PATCH 23/30] Use project id from volume when retyping volumes
+
+Use the project_id from the volume being retyped to reserve quota in
+get_volume_type_reservation(). Previously the project_id from the
+context was used, which could cause reservations to be made and never
+cleared.
+
+Change-Id: I25f7c00961e259102cdaea6ea9394d04ded96b92
+Closes-Bug: #1505307
+(cherry picked from commit ceb65b6f868284a6738b5202ea44ac91198d9f1f)
+---
+ cinder/quota_utils.py                           |  9 ++++++-
+ cinder/tests/api/contrib/test_volume_actions.py |  3 ++-
+ cinder/tests/test_quota.py                      | 36 +++++++++++++++++++++++++
+ 3 files changed, 46 insertions(+), 2 deletions(-)
+
+diff --git a/cinder/quota_utils.py b/cinder/quota_utils.py
+index da07cf81e..f493a0ca9 100644
+--- a/cinder/quota_utils.py
++++ b/cinder/quota_utils.py
+@@ -30,7 +30,14 @@ def get_volume_type_reservation(ctxt, volume, type_id):
+         QUOTAS.add_volume_type_opts(ctxt,
+                                     reserve_opts,
+                                     type_id)
+-        reservations = QUOTAS.reserve(ctxt, **reserve_opts)
++        # Note that usually the project_id on the volume will be the same as
++        # the project_id in the context. But, if they are different then the
++        # reservations must be recorded against the project_id that owns the
++        # volume.
++        project_id = volume['project_id']
++        reservations = QUOTAS.reserve(ctxt,
++                                      project_id=project_id,
++                                      **reserve_opts)
+     except exception.OverQuota as e:
+         overs = e.kwargs['overs']
+         usages = e.kwargs['usages']
+diff --git a/cinder/tests/api/contrib/test_volume_actions.py b/cinder/tests/api/contrib/test_volume_actions.py
+index 4aa23c752..b7edcffc3 100644
+--- a/cinder/tests/api/contrib/test_volume_actions.py
++++ b/cinder/tests/api/contrib/test_volume_actions.py
+@@ -52,7 +52,8 @@ class VolumeActionsTest(test.TestCase):
+             self.api_patchers[_meth].return_value = True
+ 
+         vol = {'id': 'fake', 'host': 'fake', 'status': 'available', 'size': 1,
+-               'migration_status': None, 'volume_type_id': 'fake'}
++               'migration_status': None, 'volume_type_id': 'fake',
++               'project_id': 'project_id'}
+         self.get_patcher = mock.patch('cinder.volume.API.get')
+         self.mock_volume_get = self.get_patcher.start()
+         self.addCleanup(self.get_patcher.stop)
+diff --git a/cinder/tests/test_quota.py b/cinder/tests/test_quota.py
+index 3c9945f3e..51f90e76e 100644
+--- a/cinder/tests/test_quota.py
++++ b/cinder/tests/test_quota.py
+@@ -29,6 +29,7 @@ from cinder.db.sqlalchemy import models as sqa_models
+ from cinder import exception
+ from cinder.openstack.common import timeutils
+ from cinder import quota
++from cinder import quota_utils
+ from cinder import test
+ import cinder.tests.image.fake
+ from cinder import volume
+@@ -1602,3 +1603,38 @@ class QuotaReserveSqlAlchemyTestCase(test.TestCase):
+                                        usage_id=self.usages['gigabytes'],
+                                        project_id='test_project',
+                                        delta=-2 * 1024), ])
++
++
++class QuotaVolumeTypeReservationTestCase(test.TestCase):
++
++    def setUp(self):
++        super(QuotaVolumeTypeReservationTestCase, self).setUp()
++
++        self.volume_type_name = CONF.default_volume_type
++        self.volume_type = db.volume_type_create(
++            context.get_admin_context(),
++            dict(name=self.volume_type_name))
++
++    @mock.patch.object(quota.QUOTAS, 'reserve')
++    @mock.patch.object(quota.QUOTAS, 'add_volume_type_opts')
++    def test_volume_type_reservation(self,
++                                     mock_add_volume_type_opts,
++                                     mock_reserve):
++        my_context = FakeContext('MyProject', None)
++        volume = {'name': 'my_vol_name',
++                  'id': 'my_vol_id',
++                  'size': '1',
++                  'project_id': 'vol_project_id',
++                  }
++        reserve_opts = {'volumes': 1, 'gigabytes': volume['size']}
++        quota_utils.get_volume_type_reservation(my_context,
++                                                volume,
++                                                self.volume_type['id'])
++        mock_add_volume_type_opts.assert_called_once_with(
++            my_context,
++            reserve_opts,
++            self.volume_type['id'])
++        mock_reserve.assert_called_once_with(my_context,
++                                             project_id='vol_project_id',
++                                             gigabytes='1',
++                                             volumes=1)
+-- 
+2.11.0
+

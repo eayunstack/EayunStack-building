@@ -1,0 +1,59 @@
+From 3be141e0d035a17bdd1f6e8236d38076d92283c0 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Wed, 9 Nov 2016 14:59:59 +0800
+Subject: [PATCH 20/20] take care of non-disruptive backup when detaching a
+ volume.
+
+Volume actions like 'os-detach' and 'os-force_detach' will in the end
+call db.volume_detached, which update volume status to 'available'
+directly. If at the same time, a backing-up is on the way, when backup
+is finished, volume status will be restored to 'in-use' other than
+'available'.
+
+So we should not change volume status when detaching a volume if there's
+an ongoing backing-up, only update previous_status. Then when backing-up
+is finished, volume previous_status should be checked again.
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/manager.py    | 4 ++++
+ cinder/db/sqlalchemy/api.py | 8 +++++++-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index 16d10c1..b759081 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -392,6 +392,10 @@ class BackupManager(manager.SchedulerDependentManager):
+                                        'fail_reason': unicode(err)})
+ 
+         # Restore the original status.
++        # Because backing-up a volume may takes a long time,
++        # we should check volume status again
++        volume = self.db.volume_get(context, volume_id)
++        previous_status = volume.get('previous_status', None)
+         self.db.volume_update(context, volume_id,
+                               {'status': previous_status,
+                                'previous_status': 'backing-up'})
+diff --git a/cinder/db/sqlalchemy/api.py b/cinder/db/sqlalchemy/api.py
+index ee3d994..a2294ba 100644
+--- a/cinder/db/sqlalchemy/api.py
++++ b/cinder/db/sqlalchemy/api.py
+@@ -1186,7 +1186,13 @@ def volume_detached(context, volume_id):
+     with session.begin():
+         volume_ref = _volume_get(context, volume_id, session=session)
+         # Hide status update from user if we're performing a volume migration
+-        if not volume_ref['migration_status']:
++        # Also hide status update when a non-disruptive backuping is on
++        # the way, and set previous_status to available
++        if volume_ref['migration_status']:
++            pass
++        elif volume_ref['status'] == 'backing-up':
++            volume_ref['previous_status'] = 'available'
++        else:
+             volume_ref['status'] = 'available'
+         volume_ref['mountpoint'] = None
+         volume_ref['attach_status'] = 'detached'
+-- 
+2.10.2
+

@@ -1,0 +1,63 @@
+From 45c4be735061576bc8bf0bc4f241d8a9fe451cb7 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Thu, 23 Mar 2017 14:26:14 +0800
+Subject: [PATCH 30/30] Correctly open rbd image in ceph backup driver.
+
+Currently in _check_restore_vol_size of ceph backup driver, destination
+rbd volume is opened by RADOSClient with authentication of cinder backup
+user. This will lead to PermissionError.
+
+In fact destination rbd volume is already opened as a RBDImageIOWrapper
+object, which is also passed to cinder-backup restore function, so we
+should just use it.
+
+Change-Id: Ibdfd0e0b09410eb47e3ebc6ce61d4473cf0d5677
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/drivers/ceph.py | 16 ++++------------
+ 1 file changed, 4 insertions(+), 12 deletions(-)
+
+diff --git a/cinder/backup/drivers/ceph.py b/cinder/backup/drivers/ceph.py
+index 68c7e94e7..a7809ae7c 100644
+--- a/cinder/backup/drivers/ceph.py
++++ b/cinder/backup/drivers/ceph.py
+@@ -921,8 +921,7 @@ class CephBackupDriver(BackupDriver):
+             finally:
+                 src_rbd.close()
+ 
+-    def _check_restore_vol_size(self, backup_base, restore_vol, restore_length,
+-                                src_pool):
++    def _check_restore_vol_size(self, backup_base, restore_vol, restore_length):
+         """Ensure that the restore volume is the correct size.
+ 
+         If the restore volume was bigger than the backup, the diff restore will
+@@ -941,14 +940,8 @@ class CephBackupDriver(BackupDriver):
+                 base_image.close()
+ 
+         if adjust_size:
+-            with rbd_driver.RADOSClient(self, src_pool) as client:
+-                dest_image = self.rbd.Image(client.ioctx,
+-                                            strutils.safe_encode(restore_vol))
+-                try:
+-                    LOG.debug("Adjusting restore vol size")
+-                    dest_image.resize(adjust_size)
+-                finally:
+-                    dest_image.close()
++            LOG.debug("Adjusting restore vol size")
++            restore_vol.rbd_image.resize(adjust_size)
+ 
+     def _diff_restore_rbd(self, base_name, restore_file, restore_name,
+                           restore_point, restore_length):
+@@ -977,8 +970,7 @@ class CephBackupDriver(BackupDriver):
+         # we will need to resize it after the diff import since import-diff
+         # appears to shrink the target rbd volume to the size of the original
+         # backup volume.
+-        self._check_restore_vol_size(base_name, restore_name, restore_length,
+-                                     rbd_pool)
++        self._check_restore_vol_size(base_name, restore_file, restore_length)
+ 
+         LOG.debug("Restore transfer completed in %.4fs" %
+                   (time.time() - before))
+-- 
+2.11.0
+

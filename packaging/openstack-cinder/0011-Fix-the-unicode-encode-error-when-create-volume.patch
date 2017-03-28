@@ -1,4 +1,4 @@
-From feddf40048839bacab155abfe93cefe0ddd38b9a Mon Sep 17 00:00:00 2001
+From b9e82de8ad82f5d06ddb480cbb0430fd87917bd2 Mon Sep 17 00:00:00 2001
 From: wanghao <wanghao749@huawei.com>
 Date: Fri, 27 Feb 2015 12:09:49 +0800
 Subject: [PATCH] Fix the unicode encode error when create volume
@@ -15,7 +15,7 @@ Closes-Bug: #1426203
  2 files changed, 13 insertions(+), 2 deletions(-)
 
 diff --git a/cinder/db/sqlalchemy/api.py b/cinder/db/sqlalchemy/api.py
-index f7c502c..845db3f 100644
+index 89b763f..ee3d994 100644
 --- a/cinder/db/sqlalchemy/api.py
 +++ b/cinder/db/sqlalchemy/api.py
 @@ -31,6 +31,7 @@ from oslo.db import exception as db_exc
@@ -26,7 +26,7 @@ index f7c502c..845db3f 100644
  import sqlalchemy
  from sqlalchemy import or_
  from sqlalchemy.orm import joinedload, joinedload_all
-@@ -2879,8 +2880,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
+@@ -2747,8 +2748,7 @@ def volume_glance_metadata_create(context, volume_id, key, value):
          vol_glance_metadata = models.VolumeGlanceMetadata()
          vol_glance_metadata.volume_id = volume_id
          vol_glance_metadata.key = key
@@ -37,10 +37,10 @@ index f7c502c..845db3f 100644
  
      return
 diff --git a/cinder/tests/test_db_api.py b/cinder/tests/test_db_api.py
-index 2a0f53c..0cdd8ef9 100644
+index 899a4bc..e61b342 100644
 --- a/cinder/tests/test_db_api.py
 +++ b/cinder/tests/test_db_api.py
-@@ -737,6 +737,17 @@ class DBAPIVolumeTestCase(BaseTest):
+@@ -717,6 +717,17 @@ class DBAPIVolumeTestCase(BaseTest):
          metadata.pop('c')
          self.assertEqual(metadata, db.volume_metadata_get(self.ctxt, 1))
  

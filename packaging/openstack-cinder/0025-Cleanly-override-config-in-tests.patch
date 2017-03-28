@@ -1,0 +1,323 @@
+From 0c949ad2841e7108c7bd355153a024b7d9268794 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Adrien=20Verg=C3=A9?= <adrien.verge@numergy.com>
+Date: Tue, 28 Oct 2014 22:00:09 +0100
+Subject: [PATCH 25/30] Cleanly override config in tests
+
+CONF.set_override() is often called in tests but CONF.clear_override()
+is never. Create a override_config() method in the base TestCase class
+that restores previous conf value after test, as it is done in other
+OpenStack projects.
+
+Change-Id: Id57b4502a2a37ea12047985cf2ea6c38c6f965fd
+(cherry picked from commit e5d69cb68e7d46e7635b9a4218d603f07c50d409)
+---
+ cinder/test.py                                  | 29 +++++++++++++++----------
+ cinder/tests/api/contrib/test_volume_actions.py |  2 +-
+ cinder/tests/test_backup.py                     |  6 ++---
+ cinder/tests/test_backup_swift.py               |  4 ++--
+ cinder/tests/test_glusterfs.py                  | 22 +++++++++----------
+ cinder/tests/test_image_utils.py                |  6 ++---
+ cinder/tests/test_nfs.py                        |  5 ++---
+ cinder/tests/test_service.py                    | 10 ++++-----
+ cinder/tests/test_volume.py                     |  4 ++--
+ 9 files changed, 46 insertions(+), 42 deletions(-)
+
+diff --git a/cinder/test.py b/cinder/test.py
+index 5f36942bc..46abeb90c 100644
+--- a/cinder/test.py
++++ b/cinder/test.py
+@@ -185,18 +185,18 @@ class TestCase(testtools.TestCase):
+ 
+         fake_notifier.stub_notifier(self.stubs)
+ 
+-        CONF.set_override('fatal_exception_format_errors', True)
++        self.override_config('fatal_exception_format_errors', True)
+         # This will be cleaned up by the NestedTempfile fixture
+-        CONF.set_override('lock_path', tempfile.mkdtemp())
+-        CONF.set_override('policy_file',
+-                          os.path.join(
+-                              os.path.abspath(
+-                                  os.path.join(
+-                                      os.path.dirname(__file__),
+-                                      '..',
+-                                  )
+-                              ),
+-                              'cinder/tests/policy.json'))
++        self.override_config('lock_path', tempfile.mkdtemp())
++        self.override_config('policy_file',
++                             os.path.join(
++                                 os.path.abspath(
++                                     os.path.join(
++                                         os.path.dirname(__file__),
++                                         '..',
++                                     )
++                                 ),
++                                 'cinder/tests/policy.json'))
+ 
+     def _common_cleanup(self):
+         """Runs after each test method to tear down test environment."""
+@@ -221,10 +221,15 @@ class TestCase(testtools.TestCase):
+         for key in [k for k in self.__dict__.keys() if k[0] != '_']:
+             del self.__dict__[key]
+ 
++    def override_config(self, name, override, group=None):
++        """Cleanly override CONF variables."""
++        CONF.set_override(name, override, group)
++        self.addCleanup(CONF.clear_override, name, group)
++
+     def flags(self, **kw):
+         """Override CONF variables for a test."""
+         for k, v in kw.iteritems():
+-            CONF.set_override(k, v)
++            self.override_config(k, v)
+ 
+     def log_level(self, level):
+         """Set logging level to the specified value."""
+diff --git a/cinder/tests/api/contrib/test_volume_actions.py b/cinder/tests/api/contrib/test_volume_actions.py
+index b7edcffc3..7a560626a 100644
+--- a/cinder/tests/api/contrib/test_volume_actions.py
++++ b/cinder/tests/api/contrib/test_volume_actions.py
+@@ -839,7 +839,7 @@ class VolumeImageActionsTest(test.TestCase):
+                     mock_copy_volume_to_image.side_effect = \
+                         self.fake_rpc_copy_volume_to_image
+ 
+-                    CONF.set_override('glance_core_properties', [])
++                    self.override_config('glance_core_properties', [])
+ 
+                     req = fakes.HTTPRequest.blank(
+                         '/v2/tenant1/volumes/%s/action' % id)
+diff --git a/cinder/tests/test_backup.py b/cinder/tests/test_backup.py
+index 89a4d6017..4a240288d 100644
+--- a/cinder/tests/test_backup.py
++++ b/cinder/tests/test_backup.py
+@@ -701,7 +701,7 @@ class BackupTestCase(BaseBackupTest):
+ 
+     def test_backup_manager_driver_name(self):
+         """"Test mapping between backup services and backup drivers."""
+-        cfg.CONF.set_override('backup_driver', "cinder.backup.services.swift")
++        self.override_config('backup_driver', "cinder.backup.services.swift")
+         backup_mgr = \
+             importutils.import_object(CONF.backup_manager)
+         self.assertEqual('cinder.backup.drivers.swift',
+@@ -825,8 +825,8 @@ class BackupTestCaseWithVerify(BaseBackupTest):
+     """Test Case for backups."""
+ 
+     def setUp(self):
+-        CONF.set_override("backup_driver",
+-                          "cinder.tests.backup.fake_service_with_verify")
++        self.override_config("backup_driver",
++                             "cinder.tests.backup.fake_service_with_verify")
+         super(BackupTestCaseWithVerify, self).setUp()
+ 
+     def test_import_record_with_verify(self):
+diff --git a/cinder/tests/test_backup_swift.py b/cinder/tests/test_backup_swift.py
+index 87d1e018c..34c830f6a 100644
+--- a/cinder/tests/test_backup_swift.py
++++ b/cinder/tests/test_backup_swift.py
+@@ -100,14 +100,14 @@ class BackupSwiftTestCase(test.TestCase):
+                                           u'adminURL': u'http://example.com'}]
+                                       }]
+         self.ctxt.project_id = "12345678"
+-        CONF.set_override("backup_swift_url", "http://public.example.com/")
++        self.override_config("backup_swift_url", "http://public.example.com/")
+         backup = SwiftBackupDriver(self.ctxt)
+         self.assertEqual("%s%s" % (CONF.backup_swift_url,
+                                    self.ctxt.project_id),
+                          backup.swift_url)
+ 
+     def test_backup_swift_info(self):
+-        CONF.set_override("swift_catalog_info", "dummy")
++        self.override_config("swift_catalog_info", "dummy")
+         self.assertRaises(exception.BackupDriverException,
+                           SwiftBackupDriver,
+                           self.ctxt)
+diff --git a/cinder/tests/test_glusterfs.py b/cinder/tests/test_glusterfs.py
+index 269d71116..8d326edcd 100644
+--- a/cinder/tests/test_glusterfs.py
++++ b/cinder/tests/test_glusterfs.py
+@@ -150,8 +150,8 @@ class GlusterFsDriverTestCase(test.TestCase):
+ 
+     def test_local_path(self):
+         """local_path common use case."""
+-        CONF.set_override("glusterfs_mount_point_base",
+-                          self.TEST_MNT_POINT_BASE)
++        self.override_config("glusterfs_mount_point_base",
++                             self.TEST_MNT_POINT_BASE)
+         drv = self._driver
+ 
+         volume = DumbVolume()
+@@ -257,8 +257,8 @@ class GlusterFsDriverTestCase(test.TestCase):
+         mox.StubOutWithMock(brick.remotefs.remotefs.RemoteFsClient,
+                             'get_mount_point')
+ 
+-        CONF.set_override("glusterfs_mount_point_base",
+-                          self.TEST_MNT_POINT_BASE)
++        self.override_config("glusterfs_mount_point_base",
++                             self.TEST_MNT_POINT_BASE)
+ 
+         brick.remotefs.remotefs.RemoteFsClient.\
+             get_mount_point(self.TEST_EXPORT1).AndReturn(hashed_path)
+@@ -420,8 +420,8 @@ class GlusterFsDriverTestCase(test.TestCase):
+         mox = self._mox
+         drv = self._driver
+ 
+-        CONF.set_override("glusterfs_shares_config",
+-                          self.TEST_SHARES_CONFIG_FILE)
++        self.override_config("glusterfs_shares_config",
++                             self.TEST_SHARES_CONFIG_FILE)
+ 
+         mox.StubOutWithMock(os.path, 'exists')
+         os.path.exists(self.TEST_SHARES_CONFIG_FILE).AndReturn(True)
+@@ -448,8 +448,8 @@ class GlusterFsDriverTestCase(test.TestCase):
+         mox = self._mox
+         drv = self._driver
+ 
+-        CONF.set_override("glusterfs_shares_config",
+-                          self.TEST_SHARES_CONFIG_FILE)
++        self.override_config("glusterfs_shares_config",
++                             self.TEST_SHARES_CONFIG_FILE)
+ 
+         self.stubs.Set(drv, '_load_shares_config',
+                        self._fake_load_shares_config)
+@@ -559,7 +559,7 @@ class GlusterFsDriverTestCase(test.TestCase):
+         drv = self._driver
+         volume = self._simple_volume()
+ 
+-        CONF.set_override('glusterfs_sparsed_volumes', True)
++        self.override_config('glusterfs_sparsed_volumes', True)
+ 
+         mox.StubOutWithMock(drv, '_create_sparsed_file')
+         mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
+@@ -1473,8 +1473,8 @@ class GlusterFsDriverTestCase(test.TestCase):
+     def test_get_backing_chain_for_path(self):
+         (mox, drv) = self._mox, self._driver
+ 
+-        CONF.set_override('glusterfs_mount_point_base',
+-                          self.TEST_MNT_POINT_BASE)
++        self.override_config('glusterfs_mount_point_base',
++                             self.TEST_MNT_POINT_BASE)
+ 
+         volume = self._simple_volume()
+         vol_filename = volume['name']
+diff --git a/cinder/tests/test_image_utils.py b/cinder/tests/test_image_utils.py
+index 86168c012..6d5b7d15a 100644
+--- a/cinder/tests/test_image_utils.py
++++ b/cinder/tests/test_image_utils.py
+@@ -220,7 +220,7 @@ class TestUtils(test.TestCase):
+                      "disk size: 0")
+ 
+         utils.is_blk_device(self.TEST_DEV_PATH).AndReturn(True)
+-        CONF.set_override('volume_copy_bps_limit', bps_limit)
++        self.override_config('volume_copy_bps_limit', bps_limit)
+ 
+         image_utils.create_temporary_file().AndReturn(self.TEST_DEV_PATH)
+ 
+@@ -447,7 +447,7 @@ class TestUtils(test.TestCase):
+                    "disk_size: 196K (200704 bytes)"
+ 
+         if bps_limit:
+-            CONF.set_override('volume_copy_bps_limit', bps_limit)
++            self.override_config('volume_copy_bps_limit', bps_limit)
+             prefix = ('cgexec', '-g', 'blkio:test')
+         else:
+             prefix = ()
+@@ -484,7 +484,7 @@ class TestUtils(test.TestCase):
+                    "cluster_size: 65536\n"\
+                    "disk_size: 196K (200704 bytes)"
+ 
+-        CONF.set_override('volume_copy_bps_limit', bps_limit)
++        self.override_config('volume_copy_bps_limit', bps_limit)
+         prefix = ('cgexec', '-g', 'blkio:test')
+ 
+         cmd = prefix + ('qemu-img', 'convert', '-O', 'qcow2',
+diff --git a/cinder/tests/test_nfs.py b/cinder/tests/test_nfs.py
+index f3693ab3f..44470bdc4 100644
+--- a/cinder/tests/test_nfs.py
++++ b/cinder/tests/test_nfs.py
+@@ -22,7 +22,6 @@ import mox as mox_lib
+ from mox import IgnoreArg
+ from mox import IsA
+ from mox import stubout
+-from oslo.config import cfg
+ 
+ from cinder import context
+ from cinder import exception
+@@ -467,7 +466,7 @@ class NfsDriverTestCase(test.TestCase):
+         drv = self._driver
+         volume = self._simple_volume()
+ 
+-        cfg.CONF.set_override('nfs_sparsed_volumes', True)
++        self.override_config('nfs_sparsed_volumes', True)
+ 
+         mox.StubOutWithMock(drv, '_create_sparsed_file')
+         mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
+@@ -487,7 +486,7 @@ class NfsDriverTestCase(test.TestCase):
+         self.configuration.nfs_sparsed_volumes = False
+         volume = self._simple_volume()
+ 
+-        cfg.CONF.set_override('nfs_sparsed_volumes', False)
++        self.override_config('nfs_sparsed_volumes', False)
+ 
+         mox.StubOutWithMock(drv, '_create_regular_file')
+         mox.StubOutWithMock(drv, '_set_rw_permissions_for_all')
+diff --git a/cinder/tests/test_service.py b/cinder/tests/test_service.py
+index 1b8109012..e7d1560df 100644
+--- a/cinder/tests/test_service.py
++++ b/cinder/tests/test_service.py
+@@ -198,8 +198,8 @@ class ServiceTestCase(test.TestCase):
+         self.assertFalse(serv.model_disconnected)
+ 
+     def test_service_with_long_report_interval(self):
+-        CONF.set_override('service_down_time', 10)
+-        CONF.set_override('report_interval', 10)
++        self.override_config('service_down_time', 10)
++        self.override_config('report_interval', 10)
+         service.Service.create(binary="test_service",
+                                manager="cinder.tests.test_service.FakeManager")
+         self.assertEqual(CONF.service_down_time, 25)
+@@ -237,18 +237,18 @@ class TestWSGIService(test.TestCase):
+         self.assertEqual(test_service.workers, processutils.get_worker_count())
+ 
+     def test_workers_set_good_user_setting(self):
+-        CONF.set_override('osapi_volume_workers', 8)
++        self.override_config('osapi_volume_workers', 8)
+         test_service = service.WSGIService("osapi_volume")
+         self.assertEqual(test_service.workers, 8)
+ 
+     def test_workers_set_zero_user_setting(self):
+-        CONF.set_override('osapi_volume_workers', 0)
++        self.override_config('osapi_volume_workers', 0)
+         test_service = service.WSGIService("osapi_volume")
+         # If a value less than 1 is used, defaults to number of procs available
+         self.assertEqual(test_service.workers, processutils.get_worker_count())
+ 
+     def test_workers_set_negative_user_setting(self):
+-        CONF.set_override('osapi_volume_workers', -1)
++        self.override_config('osapi_volume_workers', -1)
+         self.assertRaises(exception.InvalidInput,
+                           service.WSGIService,
+                           "osapi_volume")
+diff --git a/cinder/tests/test_volume.py b/cinder/tests/test_volume.py
+index 7b95a0b92..1e8582f70 100644
+--- a/cinder/tests/test_volume.py
++++ b/cinder/tests/test_volume.py
+@@ -471,14 +471,14 @@ class VolumeTestCase(BaseVolumeTestCase):
+                        fake_list_availability_zones)
+ 
+         # Test backwards compatibility, default_availability_zone not set
+-        CONF.set_override('storage_availability_zone', 'az2')
++        self.override_config('storage_availability_zone', 'az2')
+         volume = volume_api.create(self.context,
+                                    1,
+                                    'name',
+                                    'description')
+         self.assertEqual(volume['availability_zone'], 'az2')
+ 
+-        CONF.set_override('default_availability_zone', 'default-az')
++        self.override_config('default_availability_zone', 'default-az')
+         volume = volume_api.create(self.context,
+                                    1,
+                                    'name',
+-- 
+2.11.0
+

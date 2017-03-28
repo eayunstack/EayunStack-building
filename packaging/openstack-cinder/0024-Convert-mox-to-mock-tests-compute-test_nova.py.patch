@@ -1,0 +1,64 @@
+From d57c23567d1160e0dc2ff3f1c5e71da67f0ad4ec Mon Sep 17 00:00:00 2001
+From: Bala Gopal Raj <balagopalraj@techpatron.co.in>
+Date: Fri, 12 Dec 2014 04:30:43 -0500
+Subject: [PATCH 24/30] Convert mox to mock: tests/compute/test_nova.py
+
+Replace mox testing library by mock in the file
+cinder/tests/compute/test_nova.py
+
+Implements: blueprint mox-to-mock-conversion
+Change-Id: Ic819afb4391708a0afebe4fc2855c93e3cb3f4c4
+(cherry picked from commit be751cb7e354a621502ee94e72f431f826e14444)
+---
+ cinder/tests/compute/test_nova.py | 29 ++++++++++++++++++++---------
+ 1 file changed, 20 insertions(+), 9 deletions(-)
+
+diff --git a/cinder/tests/compute/test_nova.py b/cinder/tests/compute/test_nova.py
+index 0aff99d7e..9196917f2 100644
+--- a/cinder/tests/compute/test_nova.py
++++ b/cinder/tests/compute/test_nova.py
+@@ -12,6 +12,10 @@
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
+ 
++import contextlib
++
++import mock
++
+ from cinder.compute import nova
+ from cinder import context
+ from cinder import test
+@@ -39,14 +43,21 @@ class NovaApiTestCase(test.TestCase):
+         self.api = nova.API()
+         self.novaclient = FakeNovaClient()
+         self.ctx = context.get_admin_context()
+-        self.mox.StubOutWithMock(nova, 'novaclient')
+ 
+     def test_update_server_volume(self):
+-        nova.novaclient(self.ctx).AndReturn(self.novaclient)
+-        self.mox.StubOutWithMock(self.novaclient.volumes,
+-                                 'update_server_volume')
+-        self.novaclient.volumes.update_server_volume('server_id', 'attach_id',
+-                                                     'new_volume_id')
+-        self.mox.ReplayAll()
+-        self.api.update_server_volume(self.ctx, 'server_id', 'attach_id',
+-                                      'new_volume_id')
++        with contextlib.nested(
++                mock.patch.object(nova, 'novaclient'),
++                mock.patch.object(self.novaclient.volumes,
++                                  'update_server_volume')
++        ) as (mock_novaclient, mock_update_server_volume):
++            mock_novaclient.return_value = self.novaclient
++
++            self.api.update_server_volume(self.ctx, 'server_id',
++                                          'attach_id', 'new_volume_id')
++
++        mock_novaclient.assert_called_once_with(self.ctx)
++        mock_update_server_volume.assert_called_once_with(
++            'server_id',
++            'attach_id',
++            'new_volume_id'
++        )
+-- 
+2.11.0
+

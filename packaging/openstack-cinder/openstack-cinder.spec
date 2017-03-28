@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          6%{?dist_eayunstack}
+Release:          5%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -32,10 +32,26 @@ Patch0007: 0007-private-type-fix-db-scripts.patch
 Patch0008: 0008-usd-is_uuid_like-from-oslo_utils.patch
 Patch0009: 0009-fix-None-object-issue.patch
 Patch0010: 0010-Choose-volume-type-belong-to-project.patch
-Patch0011: 0011-Split-volume-driver-into-ABC-classes.patch
-Patch0012: 0012-Add-volume-multi-attach-support.patch
-Patch0013: 0013-output-log-to-cinder-all-log-file.patch
-Patch0014: 0014-Fix-the-unicode-encode-error-when-create-volume.patch
+Patch0011: 0011-Fix-the-unicode-encode-error-when-create-volume.patch
+Patch0012: 0012-unittest-fix-test_migration_027.patch
+Patch0013: 0013-Non-disruptive-backup.patch
+Patch0014: 0014-Fix-cleanup_temp_volume_snapshots-for-missing-vol.patch
+Patch0015: 0015-Handle-missing-temp-volume-and-snapshot-during-clean.patch
+Patch0016: 0016-Fix-backup-init_host-volume-cleanup.patch
+Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
+Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
+Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
+Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
+Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
+Patch0022: 0022-Get-the-consumer-in-a-correct-way-for-retyping-with-.patch
+Patch0023: 0023-Use-project-id-from-volume-when-retyping-volumes.patch
+Patch0024: 0024-Convert-mox-to-mock-tests-compute-test_nova.py.patch
+Patch0025: 0025-Cleanly-override-config-in-tests.patch
+Patch0026: 0026-Add-a-privileged-user-for-OpenStack-services.patch
+Patch0027: 0027-Pass-region-name-to-Nova-client.patch
+Patch0028: 0028-Add-ability-to-override-OpenStack-privileged-user-au.patch
+Patch0029: 0029-Support-front-end-qos-updates-in-volume-retype.patch
+Patch0030: 0030-Correctly-open-rbd-image-in-ceph-backup-driver.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -172,6 +188,22 @@ This package contains documentation files for cinder.
 %patch0012 -p1
 %patch0013 -p1
 %patch0014 -p1
+%patch0015 -p1
+%patch0016 -p1
+%patch0017 -p1
+%patch0018 -p1
+%patch0019 -p1
+%patch0020 -p1
+%patch0021 -p1
+%patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -312,13 +344,36 @@ exit 0
 %endif
 
 %changelog
-* Thu Apr 28 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-6.eayunstack.1.1
-- add 0014-Fix-the-unicode-encode-error-when-create-volume.patch
+* Tue Mar 28 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-5.eayunstack.dev
+- add Patch0022: 0022-Get-the-consumer-in-a-correct-way-for-retyping-with-.patch
+- add Patch0023: 0023-Use-project-id-from-volume-when-retyping-volumes.patch
+- add Patch0024: 0024-Convert-mox-to-mock-tests-compute-test_nova.py.patch
+- add Patch0025: 0025-Cleanly-override-config-in-tests.patch
+- add Patch0026: 0026-Add-a-privileged-user-for-OpenStack-services.patch
+- add Patch0027: 0027-Pass-region-name-to-Nova-client.patch
+- add Patch0028: 0028-Add-ability-to-override-OpenStack-privileged-user-au.patch
+- add Patch0029: 0029-Support-front-end-qos-updates-in-volume-retype.patch
+- add Patch0030: 0030-Correctly-open-rbd-image-in-ceph-backup-driver.patch
 
-* Wed Jan 06 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-5.eayunstack.1.1
-- add 0011-Split-volume-driver-into-ABC-classes.patch
-- add 0012-Add-volume-multi-attach-support.patch
-- add 0013-output-log-to-cinder-all-log-file.patch
+
+* Wed Nov 30 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.4.eayunstack.1.0.1
+- add Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
+
+* Mon Nov 14 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.3.eayunstack.1.0.1
+- add Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
+- add Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
+- add Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
+
+* Mon May 16 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.2.eayunstack.1.0.1
+- add Patch0012: 0012-unittest-fix-test_migration_027.patch
+- add Patch0013: 0013-Non-disruptive-backup.patch
+- add Patch0014: 0014-Fix-cleanup_temp_volume_snapshots-for-missing-vol.patch
+- add Patch0015: 0015-Handle-missing-temp-volume-and-snapshot-during-clean.patch
+- add Patch0016: 0016-Fix-backup-init_host-volume-cleanup.patch
+- add Patch0017: 0017-backup-init_host-cleanup-exception-handling.patch
+
+* Thu Apr 28 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.1.eayunstack.1.0.1
+- add Patch0011: 0011-Fix-the-unicode-encode-error-when-create-volume.patch
 
 * Fri Dec 11 2015 Dunrong Huang <dunrong.huang@eayun.com> - 2014.2.1-4.eayunstack.1.0.1
 - add Patch0006: 0006-Volume-type-access-extension.patch
