@@ -1,0 +1,178 @@
+From 13be93ab2d7404e6c193d890c629cf493fe46269 Mon Sep 17 00:00:00 2001
+From: ankitagrawal <ankit11.agrawal@nttdata.com>
+Date: Tue, 14 Apr 2015 03:38:47 -0700
+Subject: [PATCH 4/4] 'deleted' filter does not work properly
+
+While calling server list with deleted filter set to true/false, it
+always returns deleted instances to admin, because the code didn't
+convert string to boolean value. So even if we pass deleted='false' or
+any string value, it always returns True. Converted 'deleted' filter
+from string to its boolean value and set default to False if called with
+an invalid string.
+
+Use upstream commit: 5c7c852dc0e4ac44e167585938a2b944c1156d10
+
+Signed-off-by: fabian <cybing4@gmail.com>
+Signed-off-by: fabian4 <cybing4@gmail.com>
+---
+ nova/api/openstack/compute/plugins/v3/servers.py   |  6 +++
+ nova/api/openstack/compute/servers.py              |  6 +++
+ .../openstack/compute/plugins/v3/test_servers.py   | 49 ++++++++++++++++++++++
+ nova/tests/api/openstack/compute/test_servers.py   | 47 +++++++++++++++++++++
+ 4 files changed, 108 insertions(+)
+
+diff --git a/nova/api/openstack/compute/plugins/v3/servers.py b/nova/api/openstack/compute/plugins/v3/servers.py
+index 0f533f8..b402bca 100644
+--- a/nova/api/openstack/compute/plugins/v3/servers.py
++++ b/nova/api/openstack/compute/plugins/v3/servers.py
+@@ -276,6 +276,12 @@ class ServersController(wsgi.Controller):
+             if 'changes-since' not in search_opts:
+                 # No 'changes-since', so we only want non-deleted servers
+                 search_opts['deleted'] = False
++        else:
++            # Convert deleted filter value to a valid boolean.
++            # Return non-deleted servers if an invalid value
++            # is passed with deleted filter.
++            search_opts['deleted'] = strutils.bool_from_string(
++                search_opts['deleted'], default=False)
+ 
+         if search_opts.get("vm_state") == ['deleted']:
+             if context.is_admin:
+diff --git a/nova/api/openstack/compute/servers.py b/nova/api/openstack/compute/servers.py
+index 4162ade..6457a13 100644
+--- a/nova/api/openstack/compute/servers.py
++++ b/nova/api/openstack/compute/servers.py
+@@ -565,6 +565,12 @@ class Controller(wsgi.Controller):
+             if 'changes-since' not in search_opts:
+                 # No 'changes-since', so we only want non-deleted servers
+                 search_opts['deleted'] = False
++        else:
++            # Convert deleted filter value to a valid boolean.
++            # Return non-deleted servers if an invalid value
++            # is passed with deleted filter.
++            search_opts['deleted'] = strutils.bool_from_string(
++                search_opts['deleted'], default=False)
+ 
+         if search_opts.get("vm_state") == ['deleted']:
+             if context.is_admin:
+diff --git a/nova/tests/api/openstack/compute/plugins/v3/test_servers.py b/nova/tests/api/openstack/compute/plugins/v3/test_servers.py
+index 62cba6b..13efdb5 100644
+--- a/nova/tests/api/openstack/compute/plugins/v3/test_servers.py
++++ b/nova/tests/api/openstack/compute/plugins/v3/test_servers.py
+@@ -1065,6 +1065,55 @@ class ServersControllerTest(ControllerTest):
+         self.assertEqual(len(servers), 1)
+         self.assertEqual(servers[0]['id'], server_uuid)
+ 
++    @mock.patch.object(compute_api.API, 'get_all')
++    def test_get_servers_deleted_filter_str_to_bool(self, mock_get_all):
++        server_uuid = str(uuid.uuid4())
++
++        db_list = [fakes.stub_instance(100, uuid=server_uuid,
++                                       vm_state='deleted')]
++        mock_get_all.return_value = instance_obj._make_instance_list(
++            context, objects.InstanceList(), db_list, FIELDS)
++
++        req = fakes.HTTPRequestV3.blank('/servers?deleted=true',
++                                        use_admin_context=True)
++
++        servers = self.controller.detail(req)['servers']
++        self.assertEqual(1, len(servers))
++        self.assertEqual(server_uuid, servers[0]['id'])
++
++        # Assert that 'deleted' filter value is converted to boolean
++        # while calling get_all() method.
++        expected_search_opts = {'deleted': True, 'project_id': 'fake'}
++        mock_get_all.assert_called_once_with(
++            mock.ANY, search_opts=expected_search_opts,
++            limit=mock.ANY, expected_attrs=mock.ANY,
++            marker=mock.ANY, want_objects=mock.ANY,
++            sort_keys=mock.ANY, sort_dirs=mock.ANY)
++
++    @mock.patch.object(compute_api.API, 'get_all')
++    def test_get_servers_deleted_filter_invalid_str(self, mock_get_all):
++        server_uuid = str(uuid.uuid4())
++
++        db_list = [fakes.stub_instance(100, uuid=server_uuid)]
++        mock_get_all.return_value = instance_obj._make_instance_list(
++            context, objects.InstanceList(), db_list, FIELDS)
++
++        req = fakes.HTTPRequest.blank('/fake/servers?deleted=abc',
++                                      use_admin_context=True)
++
++        servers = self.controller.detail(req)['servers']
++        self.assertEqual(1, len(servers))
++        self.assertEqual(server_uuid, servers[0]['id'])
++
++        # Assert that invalid 'deleted' filter value is converted to boolean
++        # False while calling get_all() method.
++        expected_search_opts = {'deleted': False, 'project_id': 'fake'}
++        mock_get_all.assert_called_once_with(
++            mock.ANY, search_opts=expected_search_opts,
++            limit=mock.ANY, expected_attrs=mock.ANY,
++            marker=mock.ANY, want_objects=mock.ANY,
++            sort_keys=mock.ANY, sort_dirs=mock.ANY)
++
+     def test_get_servers_allows_changes_since(self):
+         server_uuid = str(uuid.uuid4())
+ 
+diff --git a/nova/tests/api/openstack/compute/test_servers.py b/nova/tests/api/openstack/compute/test_servers.py
+index 6f21605..882ed86 100644
+--- a/nova/tests/api/openstack/compute/test_servers.py
++++ b/nova/tests/api/openstack/compute/test_servers.py
+@@ -1027,6 +1027,53 @@ class ServersControllerTest(ControllerTest):
+         self.assertEqual(len(servers), 1)
+         self.assertEqual(servers[0]['id'], server_uuid)
+ 
++    @mock.patch.object(compute_api.API, 'get_all')
++    def test_get_servers_deleted_filter_str_to_bool(self, mock_get_all):
++        server_uuid = str(uuid.uuid4())
++
++        db_list = [fakes.stub_instance(100, uuid=server_uuid,
++                                       vm_state='deleted')]
++        mock_get_all.return_value = instance_obj._make_instance_list(
++            context, objects.InstanceList(), db_list, FIELDS)
++
++        req = fakes.HTTPRequest.blank('/fake/servers?deleted=true',
++                                      use_admin_context=True)
++
++        servers = self.controller.detail(req)['servers']
++        self.assertEqual(1, len(servers))
++        self.assertEqual(server_uuid, servers[0]['id'])
++
++        # Assert that 'deleted' filter value is converted to boolean
++        # while calling get_all() method.
++        expected_search_opts = {'deleted': True, 'project_id': 'fake'}
++        mock_get_all.assert_called_once_with(
++            mock.ANY, search_opts=expected_search_opts, limit=mock.ANY,
++            marker=mock.ANY, want_objects=mock.ANY,
++            sort_keys=mock.ANY, sort_dirs=mock.ANY)
++
++    @mock.patch.object(compute_api.API, 'get_all')
++    def test_get_servers_deleted_filter_invalid_str(self, mock_get_all):
++        server_uuid = str(uuid.uuid4())
++
++        db_list = [fakes.stub_instance(100, uuid=server_uuid)]
++        mock_get_all.return_value = instance_obj._make_instance_list(
++            context, objects.InstanceList(), db_list, FIELDS)
++
++        req = fakes.HTTPRequest.blank('/fake/servers?deleted=abc',
++                                      use_admin_context=True)
++
++        servers = self.controller.detail(req)['servers']
++        self.assertEqual(1, len(servers))
++        self.assertEqual(server_uuid, servers[0]['id'])
++
++        # Assert that invalid 'deleted' filter value is converted to boolean
++        # False while calling get_all() method.
++        expected_search_opts = {'deleted': False, 'project_id': 'fake'}
++        mock_get_all.assert_called_once_with(
++            mock.ANY, search_opts=expected_search_opts, limit=mock.ANY,
++            marker=mock.ANY, want_objects=mock.ANY,
++            sort_keys=mock.ANY, sort_dirs=mock.ANY)
++
+     def test_get_servers_allows_name(self):
+         server_uuid = str(uuid.uuid4())
+ 
+-- 
+2.1.0
+
