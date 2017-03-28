@@ -1,8 +1,8 @@
-From d126d13844860e34034199033f8c6cb310516cc3 Mon Sep 17 00:00:00 2001
+From 4dec8c94725a95df1a398a469570d2c13be0eb71 Mon Sep 17 00:00:00 2001
 From: blkart <blkart.org@gmail.com>
 Date: Fri, 20 Nov 2015 17:20:25 +0800
-Subject: [PATCH 31/34] output log to nova-all log file LMA monitor platform
- need get HTTP response infomation from nova-all.log
+Subject: [PATCH 22/26] output log to nova-all log file LMA monitor platform need
+ get HTTP response infomation from nova-all.log
 
 Signed-off-by: blkart <blkart.org@gmail.com>
 ---
@@ -28,5 +28,5 @@ index 5b8c685..8929737 100644
          except socket.error:
              log_root.error('Unable to add syslog handler. Verify that syslog'
 -- 
-2.4.3
+2.1.0
 

@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          10%{?dist_eayunstack}
+Release:          7%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -60,33 +60,27 @@ Patch0012: 0012-Updated-requirements-from-stable-juno.patch
 Patch0013: 0013-Bump-version-to-2014.2.1.patch
 Patch0014: 0014-fix-redmine-4122.patch
 Patch0015: 0015-fix-redmint-4544.patch
-Patch0016: 0016-Fix-swap_volumes.patch
-Patch0017: 0017-Use-session-in-cinderclient.patch
-Patch0018: 0018-virt-use-instance-object-for-attach-in-block_device.patch
-Patch0019: 0019-Better-error-message-when-check-volume-status.patch
-Patch0020: 0020-initialize-objects-with-context-in-block-device.patch
-Patch0021: 0021-Save-bdm.connection_info-before-calling-volume_api.a.patch
-Patch0022: 0022-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
-Patch0023: 0023-db-Allow-multiple-volume-attachments.patch
-Patch0024: 0024-obj-Allow-multiple-volume-attachments.patch
-Patch0025: 0025-virt-Allow-multiple-volume-attachments.patch
-Patch0026: 0026-comp-Allow-multiple-volume-attachments.patch
-Patch0027: 0027-WIP-REST-API-changes-to-support-multi-attach.patch
-Patch0028: 0028-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
-Patch0029: 0029-Update-network-resource-when-rescheduling-instance.patch
-Patch0030: 0030-Fix-nova-compute-start-issue-after-evacuate.patch
-Patch0031: 0031-output-log-to-nova-all-log-file.patch
-Patch0032: 0032-network-fix-instance-cache-refresh-for-empty-list.patch   
-Patch0033: 0033-fix-unicode-issue-in-vm-resuming-procedure.patch          
-Patch0034: 0034-Fix-nova-evacuate-issues-for-RBD.patch                    
-Patch0035: 0035-Honor-shared-storage-on-resize-revert.patch               
-Patch0036: 0036-eayunstack-channel.patch                                  
-Patch0037: 0037-construct-auth-plugin-for-admin-specifically.patch
-Patch0038: 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
-patch0039: 0039-use-same-snapshot-method-for-both-instances-booted-f.patch
-patch0040: 0040-get-back-image-id-for-instance-boot_from_image-creat.patch
-patch0041: 0041-allow-rbd-imagebackend-to-operate-on-volume-pool.patch
-patch0042: 0042-Move-the-original-createImage-for-volume-backed-inst.patch
+Patch0016: 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
+Patch0017: 0017-Update-network-resource-when-rescheduling-instance.patch
+Patch0018: 0018-Fix-nova-compute-start-issue-after-evacuate.patch
+Patch0019: 0019-eayunstack-channel.patch
+Patch0020: 0020-network-fix-instance-cache-refresh-for-empty-list.patch
+Patch0021: 0021-fix-unicode-issue-in-vm-resuming-procedure.patch
+Patch0022: 0022-output-log-to-nova-all-log-file.patch
+Patch0023: 0023-Fix-nova-evacuate-issues-for-RBD.patch
+Patch0024: 0024-Honor-shared-storage-on-resize-revert.patch
+Patch0025: 0025-create-image-from-instance-redmine-6456.patch
+Patch0026: 0026-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+Patch0027: 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
+Patch0028: 0028-Fix-soft_delete-User-has-been-deleted-instance.patch
+Patch0029: 0029-fix-soft-delete-for-1.0.1.patch
+Patch0030: 0030-deleted-filter-does-not-work-properly.patch
+Patch0031: 0031-As-reported-in-bug-1430042-when-using-evacuate-neutr.patch
+Patch0032: 0032-Fix-Bug-ES-8849-Nova-list-tenant.patch
+Patch0033: 0033-GET-details-REST-API-next-link-missing-details.patch
+Patch0034: 0034-Add-new-API-for-updating-Cinder-volume-QosSpecs.patch
+Patch0035: 0035-add-eayun-userdata-to-v2-API-extension.patch
+
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -524,13 +518,6 @@ This package contains documentation files for nova.
 %patch0033 -p1
 %patch0034 -p1
 %patch0035 -p1
-%patch0036 -p1
-%patch0037 -p1
-%patch0038 -p1
-%patch0039 -p1
-%patch0040 -p1
-%patch0041 -p1
-%patch0042 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -888,55 +875,56 @@ exit 0
 %endif
 
 %changelog
-* Wed Apr 06 2016 apporc <appleorchard2000@gmail.com> - 2014.2-10.eayunstack.1.1
-- 0039-use-same-snapshot-method-for-both-instances-booted-f.patch
-- 0040-get-back-image-id-for-instance-boot_from_image-creat.patch
-- 0041-allow-rbd-imagebackend-to-operate-on-volume-pool.patch
-- 0042-Move-the-original-createImage-for-volume-backed-inst.patch
+* Tue Mar 28 2017 Chen Yuanbin <cybing4@gmail.com> - 2014.2-7.eayunstack.1.0.1
+- Fix nova get details rest api next link missing 'details'
+- 0033-GET-details-REST-API-next-link-missing-details.patch
+- Add new api for update cinder volume qosspec
+- 0034-Add-new-API-for-updating-Cinder-volume-QosSpecs.patch
+- Add eayun user data update api
+- 0035-add-eayun-userdata-to-v2-API-extension.patch
 
-* Wed Mar 09 2016 apporc <appleorchard2000@gmail.com> - 2014.2-9.eayunstack.1.1
-- 0037-construct-auth-plugin-for-admin-specifically.patch
-- 0038-rebuild-fix-rebuild-of-server-with-volume-attached.patch
+* Mon Nov 14 2016 fabian <cybing4@gmail.com> - 2014.2-6.6.eayunstack.1.0.1
+- Fix nova list --tenant don't display tenant instance
+- 0032-Fix-Bug-ES-8849-Nova-list-tenant.patch
 
-* Tue Jan 19 2016 apporc <appleorchard2000@gmail.com> - 2014.2-8.eayunstack.1.1
-- delete patch 0032-eayunstack-channel.patch
-- delete patch 0033-network-fix-instance-cache-refresh-for-empty-list.patch
-- delete patch 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
-- add patch 0032-network-fix-instance-cache-refresh-for-empty-list.patch   
-- add patch 0033-fix-unicode-issue-in-vm-resuming-procedure.patch          
-- add patch 0034-Fix-nova-evacuate-issues-for-RBD.patch                    
-- add patch 0035-Honor-shared-storage-on-resize-revert.patch               
-- add patch 0036-eayunstack-channel.patch                                  
+* Thu Sep 6 2016 fabian <cybing4@gmail.com> - 2014.2-6.5.eayunstack.1.0.1
+- Fix nova evacuate instance port bind
+- 0031-As-reported-in-bug-1430042-when-using-evacuate-neutr.patch
 
-* Mon Jan 04 2016 apporc <appleorchard2000@gmail.com> - 2014.2-7.eayunstack.1.1
-- delete patch 0016-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
-- delete patch 0017-Update-network-resource-when-rescheduling-instance.patch
-- delete patch 0018-Fix-nova-compute-start-issue-after-evacuate.patch
-- delete patch 0019-eayunstack-channel.patch
-- add patch 0016-Fix-swap_volumes.patch
-- add patch 0017-Use-session-in-cinderclient.patch
-- add patch 0018-virt-use-instance-object-for-attach-in-block_device.patch
-- add patch 0019-Better-error-message-when-check-volume-status.patch
-- add patch 0020-initialize-objects-with-context-in-block-device.patch
-- add patch 0021-Save-bdm.connection_info-before-calling-volume_api.a.patch
-- add patch 0022-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
-- add patch 0023-db-Allow-multiple-volume-attachments.patch
-- add patch 0024-obj-Allow-multiple-volume-attachments.patch
-- add patch 0025-virt-Allow-multiple-volume-attachments.patch
-- add patch 0026-comp-Allow-multiple-volume-attachments.patch
-- add patch 0027-WIP-REST-API-changes-to-support-multi-attach.patch
-- add patch 0028-Add-setup-cleanup_instance_network_on_host-api-for-n.patch
-- add patch 0029-Update-network-resource-when-rescheduling-instance.patch
-- add patch 0030-Fix-nova-compute-start-issue-after-evacuate.patch
-- add patch 0031-output-log-to-nova-all-log-file.patch
-- add patch 0032-eayunstack-channel.patch
-- add patch 0033-network-fix-instance-cache-refresh-for-empty-list.patch
-- add patch 0034-fix-unicode-issue-in-vm-resuming-procedure.patch
+* Tue Jun 14 2016 fabian <cybing4@gmail.com> - 2014.2-6.4.eayunstack.1.0.1
+- Fix soft delete use admin resotre and user Data Deduplication
+- 0027-Fix-soft_delete-abnormal-quota-usage-after-restore-b.patch
+- 0028-Fix-soft_delete-User-has-been-deleted-instance.patch
+- Fix soft delete appear cinder question
+- 0029-fix-soft-delete-for-1.0.1.patch
+- Fix deleted filter does not work properly
+- 0030-deleted-filter-does-not-work-properly.patch
 
-* Fri Dec 18 2015 apporc <appleorchard2000@gmail.com> - 2014.2-6.eayunstack.1.0
+* Tue May 31 2016 blkart <blkart.org@gmail.com> - 2014.2-6.3.eayunstack.1.0.1
+remove:
+- 0020-fix-soft-delete-for-1.0.1.patch
+- 0021-create-image-from-instance-redmine-6456.patch
+- 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+add:
+- 0020-network-fix-instance-cache-refresh-for-empty-list.patch
+- 0021-fix-unicode-issue-in-vm-resuming-procedure.patch
+- 0022-output-log-to-nova-all-log-file.patch
+- 0023-Fix-nova-evacuate-issues-for-RBD.patch
+- 0024-Honor-shared-storage-on-resize-revert.patch
+- 0025-create-image-from-instance-redmine-6456.patch
+- 0026-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+
+* Fri May 13 2016 blkart <blkart.org@gmail.com> - 2014.2-6.2.eayunstack.1.0.1
+- 0021-create-image-from-instance-redmine-6456.patch
+- 0022-libvirt-make-snapshot-use-RBD-snapshot-clone-when-av.patch
+
+* Wed Mar 16 2016 apporc <appleorchard2000@gmail.com> - 2014.2-6.1.eayunstack.1.0.1
+- 0020-fix-soft-delete-for-1.0.1.patch
+
+* Fri Dec 18 2015 apporc <appleorchard2000@gmail.com> - 2014.2-6.eayunstack.1.0.1
 - 0019-eayunstack-channel.patch
 
-* Thu Dec 10 2015 apporc <appleorchard2000@gmail.com> - 2014.2-5.eayunstack.1.0
+* Thu Dec 10 2015 apporc <appleorchard2000@gmail.com> - 2014.2-5.eayunstack.1.0.1
 - 0008-Don-t-delete-rbd-ephemeral-disks-when-revert-resize-.patch
 - 0009-libvirt-remove-pointless-loop-after-live-migration-f.patch
 - 0010-libvirt-proper-monitoring-of-live-migration-progress.patch
