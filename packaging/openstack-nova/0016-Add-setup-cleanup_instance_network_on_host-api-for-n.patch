@@ -1,7 +1,7 @@
-From f5a4623fded83eba186deda560e860976d319c98 Mon Sep 17 00:00:00 2001
+From 020d2a19740d36a0f019cc13c7721ccd6989af6a Mon Sep 17 00:00:00 2001
 From: He Jie Xu <hejie.xu@intel.com>
 Date: Thu, 21 Aug 2014 15:27:11 +0800
-Subject: [PATCH 28/34] Add setup/cleanup_instance_network_on_host api for
+Subject: [PATCH 16/30] Add setup/cleanup_instance_network_on_host api for
  neutron/nova-network
 
 When reschedule/unshelve/evacuate/rebuild instance, the instance

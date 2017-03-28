@@ -1,7 +1,7 @@
-From 48e82996a302379a5b7ebbb499cf1177f4087efd Mon Sep 17 00:00:00 2001
+From d20753622ca52e1d0b843723439dd009091f214d Mon Sep 17 00:00:00 2001
 From: Sahid Orentino Ferdjaoui <sahid.ferdjaoui@redhat.com>
 Date: Thu, 28 May 2015 04:31:53 -0400
-Subject: [PATCH 32/36] network: fix instance cache refresh for empty list
+Subject: [PATCH 20/26] network: fix instance cache refresh for empty list
 
 The bug introduce a race condition makes network_info as an
 empty value. When trying to refresh cache we should use data
@@ -103,5 +103,5 @@ index 00d1795..e84cfa8 100644
          api = neutronapi.API()
  
 -- 
-2.4.3
+2.1.0
 

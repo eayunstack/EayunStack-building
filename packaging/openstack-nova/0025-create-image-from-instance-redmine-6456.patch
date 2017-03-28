@@ -1,0 +1,128 @@
+From 0674c8acb6840ad40b80b88c20a7827d79098f83 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Thu, 12 May 2016 19:32:05 +0800
+Subject: [PATCH 25/26] create image from instance (redmine #6456)
+
+use same snapshot method for both instances booted from image and volume
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ nova/api/openstack/compute/servers.py | 29 ++++-------------------------
+ nova/compute/api.py                   |  2 ++
+ nova/compute/utils.py                 | 15 +++++++++++++++
+ nova/virt/libvirt/imagebackend.py     |  3 ++-
+ 4 files changed, 23 insertions(+), 26 deletions(-)
+
+diff --git a/nova/api/openstack/compute/servers.py b/nova/api/openstack/compute/servers.py
+index ea68a09..4162ade 100644
+--- a/nova/api/openstack/compute/servers.py
++++ b/nova/api/openstack/compute/servers.py
+@@ -1449,32 +1449,11 @@ class Controller(wsgi.Controller):
+ 
+         instance = self._get_server(context, req, id)
+ 
+-        bdms = objects.BlockDeviceMappingList.get_by_instance_uuid(
+-                    context, instance.uuid)
+-
+         try:
+-            if self.compute_api.is_volume_backed_instance(context, instance,
+-                                                          bdms):
+-                img = instance['image_ref']
+-                if not img:
+-                    properties = bdms.root_metadata(
+-                            context, self.compute_api.image_api,
+-                            self.compute_api.volume_api)
+-                    image_meta = {'properties': properties}
+-                else:
+-                    image_meta = self.compute_api.image_api.get(context, img)
+-
+-                image = self.compute_api.snapshot_volume_backed(
+-                                                       context,
+-                                                       instance,
+-                                                       image_meta,
+-                                                       image_name,
+-                                                       extra_properties=props)
+-            else:
+-                image = self.compute_api.snapshot(context,
+-                                                  instance,
+-                                                  image_name,
+-                                                  extra_properties=props)
++            image = self.compute_api.snapshot(context,
++                                              instance,
++                                              image_name,
++                                              extra_properties=props)
+         except exception.InstanceInvalidState as state_error:
+             common.raise_http_conflict_for_instance_invalid_state(state_error,
+                         'createImage')
+diff --git a/nova/compute/api.py b/nova/compute/api.py
+index 4b71257..a950f63 100644
+--- a/nova/compute/api.py
++++ b/nova/compute/api.py
+@@ -2091,6 +2091,8 @@ class API(base.Base):
+             'image_type': image_type,
+         }
+         image_ref = instance.image_ref
++        if not image_ref:
++            image_ref = compute_utils.get_image_ref(context, instance)
+         sent_meta = compute_utils.get_image_metadata(
+             context, self.image_api, image_ref, instance)
+ 
+diff --git a/nova/compute/utils.py b/nova/compute/utils.py
+index 185c0fe..ce761d8 100644
+--- a/nova/compute/utils.py
++++ b/nova/compute/utils.py
+@@ -24,6 +24,7 @@ from nova import block_device
+ from nova.compute import flavors
+ from nova.compute import power_state
+ from nova.compute import task_states
++from nova import compute
+ from nova import exception
+ from nova.i18n import _LW
+ from nova.network import model as network_model
+@@ -220,6 +221,20 @@ def get_image_metadata(context, image_api, image_id_or_uri, instance):
+     return utils.get_image_from_system_metadata(system_meta)
+ 
+ 
++def get_image_ref(context, instance):
++    """Helper method to get image_ref."""
++    image_ref = None
++    compute_api = compute.API()
++    bdms = objects.BlockDeviceMappingList.get_by_instance_uuid(
++        context, instance['uuid'])
++    if compute_api.is_volume_backed_instance(context, instance, bdms):
++        props = bdms.root_metadata(
++            context, compute_api.image_api,
++            compute_api.volume_api)
++        image_ref = props['image_id']
++    return image_ref
++
++
+ def get_value_from_system_metadata(instance, key, type, default):
+     """Get a value of a specified type from image metadata.
+ 
+diff --git a/nova/virt/libvirt/imagebackend.py b/nova/virt/libvirt/imagebackend.py
+index a539335..93933e1 100644
+--- a/nova/virt/libvirt/imagebackend.py
++++ b/nova/virt/libvirt/imagebackend.py
+@@ -616,16 +616,17 @@ class Rbd(Image):
+         if path:
+             try:
+                 self.rbd_name = path.split('/')[1]
++                self.pool = path.split('/')[0].split(':')[1]
+             except IndexError:
+                 raise exception.InvalidDevicePath(path=path)
+         else:
+             self.rbd_name = '%s_%s' % (instance['uuid'], disk_name)
++            self.pool = CONF.libvirt.images_rbd_pool
+ 
+         if not CONF.libvirt.images_rbd_pool:
+             raise RuntimeError(_('You should specify'
+                                  ' images_rbd_pool'
+                                  ' flag to use rbd images.'))
+-        self.pool = CONF.libvirt.images_rbd_pool
+         self.discard_mode = get_hw_disk_discard(
+                 CONF.libvirt.hw_disk_discard)
+         self.rbd_user = CONF.libvirt.rbd_user
+-- 
+2.1.0
+
