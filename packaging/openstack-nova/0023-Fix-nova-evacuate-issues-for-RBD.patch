@@ -1,7 +1,7 @@
-From feb1bd5cd0124f0891cdec4e952920794854ca46 Mon Sep 17 00:00:00 2001
+From 1cce9568d660d835f5bd090e64df94ed7ccdfa7b Mon Sep 17 00:00:00 2001
 From: Fei Long Wang <flwang@catalyst.net.nz>
 Date: Tue, 16 Sep 2014 15:43:37 +1200
-Subject: [PATCH 34/36] Fix nova evacuate issues for RBD
+Subject: [PATCH 23/26] Fix nova evacuate issues for RBD
 
 For RBD scenario, there are some issues in Nova code
 now against evacuate function:
@@ -35,10 +35,10 @@ Change-Id: Idc8c45b055e986cf85730235d5d25777632ad1c1
  4 files changed, 64 insertions(+), 2 deletions(-)
 
 diff --git a/nova/compute/manager.py b/nova/compute/manager.py
-index 8a23ea0..b6d8436 100644
+index 598e167..8c4df11 100644
 --- a/nova/compute/manager.py
 +++ b/nova/compute/manager.py
-@@ -2823,7 +2823,8 @@ class ComputeManager(manager.Manager):
+@@ -2816,7 +2816,8 @@ class ComputeManager(manager.Manager):
                  attach_block_devices=self._prep_block_device,
                  block_device_info=block_device_info,
                  network_info=network_info,
@@ -49,10 +49,10 @@ index 8a23ea0..b6d8436 100644
                  self.driver.rebuild(**kwargs)
              except NotImplementedError:
 diff --git a/nova/tests/compute/test_compute_mgr.py b/nova/tests/compute/test_compute_mgr.py
-index 0a148e4..b4fa1b6 100644
+index 8682df4..e21f34b 100644
 --- a/nova/tests/compute/test_compute_mgr.py
 +++ b/nova/tests/compute/test_compute_mgr.py
-@@ -1960,6 +1960,50 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
+@@ -1977,6 +1977,50 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
  
          do_test()
  
@@ -104,7 +104,7 @@ index 0a148e4..b4fa1b6 100644
  class ComputeManagerBuildInstanceTestCase(test.NoDBTestCase):
      def setUp(self):
 diff --git a/nova/tests/virt/libvirt/test_driver.py b/nova/tests/virt/libvirt/test_driver.py
-index 12a6156..0be5810 100644
+index c781421..0b9bfce 100644
 --- a/nova/tests/virt/libvirt/test_driver.py
 +++ b/nova/tests/virt/libvirt/test_driver.py
 @@ -12591,6 +12591,17 @@ class LibvirtDriverTestCase(test.TestCase):
@@ -126,10 +126,10 @@ index 12a6156..0be5810 100644
  class LibvirtVolumeUsageTestCase(test.TestCase):
      """Test for LibvirtDriver.get_all_volume_usage."""
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index dff1636..7750332 100644
+index 9cae611..67a13b0 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
-@@ -6452,7 +6452,13 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -6459,7 +6459,13 @@ class LibvirtDriver(driver.ComputeDriver):
          # ensure directories exist and are writable
          instance_path = libvirt_utils.get_instance_path(instance)
          LOG.debug('Checking instance files accessibility %s', instance_path)
@@ -145,5 +145,5 @@ index dff1636..7750332 100644
      def inject_network_info(self, instance, nw_info):
          self.firewall_driver.setup_basic_filtering(instance, nw_info)
 -- 
-2.4.3
+2.1.0
 
