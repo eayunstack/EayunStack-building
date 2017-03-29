@@ -1,0 +1,31 @@
+From db0775afe6070d681c56c9ae40dc758644c0d2c9 Mon Sep 17 00:00:00 2001
+From: Ryan McNair <rdmcnair@us.ibm.com>
+Date: Mon, 23 Nov 2015 23:46:10 +0000
+Subject: [PATCH] Fix v2 qos-key command
+
+As part of commit 0d2bf657ae5271a01e9ec84d379d17910b263b7e,
+qos-key command's v2 support got broken again reintroducing
+bug #1284321.
+
+Change-Id: I30d60b060bd1b161bc96c4a529f4732b9ceef90d
+Closes-Bug: 1284321
+(cherry picked from commit 294acfd5c4054480729ffa3b24c58147499576af)
+---
+ cinderclient/v2/shell.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/cinderclient/v2/shell.py b/cinderclient/v2/shell.py
+index 09d1a4f..f36592b 100644
+--- a/cinderclient/v2/shell.py
++++ b/cinderclient/v2/shell.py
+@@ -1550,6 +1550,7 @@ def do_qos_disassociate_all(cs, args):
+            default=[],
+            help='Metadata key and value pair to set or unset. '
+            'For unset, specify only the key.')
++@utils.service_type('volumev2')
+ def do_qos_key(cs, args):
+     """Sets or unsets specifications for a qos spec."""
+     keypair = _extract_metadata(args)
+-- 
+2.11.0
+

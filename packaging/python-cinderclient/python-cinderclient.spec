@@ -2,7 +2,7 @@
 
 Name:             python-cinderclient
 Version:          1.1.1
-Release:          3.3%{?dist_eayunstack}
+Release:          4%{?dist_eayunstack}
 Summary:          Python API and CLI for OpenStack Cinder
 
 Group:            Development/Languages
@@ -21,6 +21,7 @@ Patch0008: 0008-Parse-filter-item-name-correctly-for-snapshot-list.patch
 Patch0009: 0009-Correctly-encode-params-in-list-actions.patch
 Patch0010: 0010-Client-output-is-not-sorted-by-sort_key.patch
 Patch0011: 0011-cinder-list-fails-with-name-sort-key.patch
+Patch0012: 0012-Fix-v2-qos-key-command.patch
 
 BuildArch:        noarch
 
@@ -69,6 +70,7 @@ This package contains auto-generated documentation.
 %patch0009 -p1
 %patch0010 -p1
 %patch0011 -p1
+%patch0012 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATCINDERCLIENTVERSION/%{version}/ cinderclient/__init__.py
@@ -113,6 +115,9 @@ rm -fr html/.doctrees html/.buildinfo
 %doc html
 
 %changelog
+* Wed Mar 29 2017 Zhao Chao <chao.zhao@eayun.com> 1.1.1-4.eayunstack
+- add 0012-Fix-v2-qos-key-command.patch
+
 * Thu Nov 10 2016 Zhao Chao <chao.zhao@eayun.com> 1.1.1-3.3.eayunstack.1.0.1
 - add 0008-Parse-filter-item-name-correctly-for-snapshot-list.patch
 - add 0009-Correctly-encode-params-in-list-actions.patch
