@@ -1,0 +1,32 @@
+From 67a09181b4238941cabce8f18d027ad6ad0a10bb Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 28 Apr 2017 09:51:52 +0800
+Subject: [PATCH 2/2] Enable ES port metering on lb vip ports
+
+Fixes: redmine #9969
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/network/services/discovery.py | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/ceilometer/network/services/discovery.py b/ceilometer/network/services/discovery.py
+index c40cebd..28fe24c 100644
+--- a/ceilometer/network/services/discovery.py
++++ b/ceilometer/network/services/discovery.py
+@@ -126,8 +126,9 @@ class ESMeteringPortDiscovery(_BaseServicesDiscovery):
+ 
+     def is_active_metering_port(self, port):
+         return (
+-            port['status'] == 'ACTIVE' and
+-            port['device_owner'].startswith('compute:'))
++            port['status'] == 'ACTIVE' and (
++                port['device_owner'].startswith('compute:') or
++                port['device_owner'] == 'neutron:LOADBALANCER'))
+ 
+     @plugin.check_keystone(cfg.CONF.service_types.neutron)
+     def discover(self, manager, param=None):
+-- 
+2.7.4
+
