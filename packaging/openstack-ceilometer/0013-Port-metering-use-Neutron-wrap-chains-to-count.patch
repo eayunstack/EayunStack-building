@@ -1,0 +1,61 @@
+From 0bdc2f7c2c92a154a7c93eac0a73c4a631b06397 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 9 Mar 2017 12:20:35 +0800
+Subject: [PATCH 7/7] Port-metering: use Neutron wrap chains to count
+
+Neutron changes the metering chains to using its wrap, so Ceilometer
+should follow the convention.
+
+Fixes: redmine #9155
+Fixes: 434b58a3 ("Add instance ports traffic meter")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/network/services/port_metering.py | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/ceilometer/network/services/port_metering.py b/ceilometer/network/services/port_metering.py
+index 03dc8b8..92aadb6 100644
+--- a/ceilometer/network/services/port_metering.py
++++ b/ceilometer/network/services/port_metering.py
+@@ -25,11 +25,20 @@ from ceilometer.openstack.common import processutils
+ LOG = log.getLogger(__name__)
+ 
+ IPT_CHAIN_NAME_LEN = 28
++NEUTRON_OPENVSWITCH_AGENT_BINARY_NAME = 'neutron-openvswitch-agent'
++WRAP_NAME = NEUTRON_OPENVSWITCH_AGENT_BINARY_NAME[:16]
+ 
+ 
+ class _ESPortMeteringPollster(plugin.PollsterBase):
+ 
+     @staticmethod
++    def _get_chain_name(direction, port_id, overall=True):
++        chain_name = "%s-%s%s%s" % (
++            WRAP_NAME, 'C' if overall else 'c', direction, port_id
++        )
++        return chain_name[:IPT_CHAIN_NAME_LEN]
++
++    @staticmethod
+     def _get_ipt_chain_counters(chain):
+         stats = {'packets': 0, 'bytes': 0}
+         cmd = ['iptables', '-t', 'filter', '-L', chain,
+@@ -59,11 +68,10 @@ class _ESPortMeteringPollster(plugin.PollsterBase):
+ 
+     def _get_port_stat(self, port_id):
+         port_stat = {}
+-        for direction, key_prefix in (('ingress', 'in'), ('egress', 'out')):
+-            overall_chain = '-'.join(
+-                ['counting', direction, port_id])[:IPT_CHAIN_NAME_LEN]
+-            internal_chain = '-'.join(
+-                ['counting-in', direction, port_id])[:IPT_CHAIN_NAME_LEN]
++        for direction, key_prefix in (('i', 'in'), ('o', 'out')):
++            overall_chain = self._get_chain_name(direction, port_id)
++            internal_chain = self._get_chain_name(
++                direction, port_id, overall=False)
+             overall_stats = self._get_ipt_chain_counters(overall_chain)
+             internal_stats = self._get_ipt_chain_counters(internal_chain)
+             for counter in ('packets', 'bytes'):
+-- 
+2.7.4
+

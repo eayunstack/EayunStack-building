@@ -1,0 +1,163 @@
+From 08ff8e27fc18183d94a704bb77ab704fc780896f Mon Sep 17 00:00:00 2001
+From: lzhijun <shanling2004@gmail.com>
+Date: Mon, 17 Nov 2014 15:27:12 +0800
+Subject: [PATCH 1/7] Expose vm's metadata to metrics
+
+We have customized ceilometer publisher to send metrics into openTSDB service.
+Hence, we need more user-friendly VM information (e.g. VM hostname, IP
+and project_cos) as metrics tags during populate metrics into openTSDB.
+
+So we expected samples can attach nova meta data at publisher.PublisherBase's
+publish_samples function. Then it's available for customized publisher
+to access metadata.
+
+However the current method add_reserved_user_metadata can't support various
+naming convention which didn't have one particular prefix. So we need to
+add one more config for metadata keys "reserved_metadata_keys" in
+ceilometer.conf, and user can define the key name they cared in
+instance.metadata.
+
+DocImpact
+
+Change-Id: I588aaf22a0e8593042dad4bbc37be27adc96c2b4
+Closes-bug: #1391778
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/compute/util.py                         | 19 +++++++++++++++
+ ceilometer/tests/compute/pollsters/base.py         |  4 ++++
+ .../tests/compute/pollsters/test_instance.py       | 28 ++++++++++++++++++++++
+ doc/source/measurements.rst                        | 11 ++++++++-
+ 4 files changed, 61 insertions(+), 1 deletion(-)
+
+diff --git a/ceilometer/compute/util.py b/ceilometer/compute/util.py
+index 56b3b1f..730c81f 100644
+--- a/ceilometer/compute/util.py
++++ b/ceilometer/compute/util.py
+@@ -19,6 +19,9 @@ from oslo.config import cfg
+ import six
+ 
+ 
++# Below config is for collecting metadata which user defined in nova or else,
++# and then storing it to Sample for future use according to user's requirement.
++# Such as using it as OpenTSDB tags for metrics.
+ OPTS = [
+     cfg.ListOpt('reserved_metadata_namespace',
+                 default=['metering.'],
+@@ -26,6 +29,11 @@ OPTS = [
+     cfg.IntOpt('reserved_metadata_length',
+                default=256,
+                help='Limit on length of reserved metadata values.'),
++    cfg.ListOpt('reserved_metadata_keys',
++                default=[],
++                help='List of metadata keys reserved for metering use. And '
++                     'these keys are additional to the ones included in the '
++                     'namespace.'),
+ ]
+ 
+ cfg.CONF.register_opts(OPTS)
+@@ -43,6 +51,17 @@ def add_reserved_user_metadata(src_metadata, dest_metadata):
+                 k[len(prefix):].replace('.', '_') not in dest_metadata)
+         )
+         user_metadata.update(md)
++
++    for metadata_key in cfg.CONF.reserved_metadata_keys:
++        md = dict(
++            (k.replace('.', '_'),
++             v[:limit] if isinstance(v, six.string_types) else v)
++            for k, v in src_metadata.items()
++            if (k == metadata_key and
++                k.replace('.', '_') not in dest_metadata)
++        )
++        user_metadata.update(md)
++
+     if user_metadata:
+         dest_metadata['user_metadata'] = user_metadata
+ 
+diff --git a/ceilometer/tests/compute/pollsters/base.py b/ceilometer/tests/compute/pollsters/base.py
+index 7858f60..1f9b5d4 100644
+--- a/ceilometer/tests/compute/pollsters/base.py
++++ b/ceilometer/tests/compute/pollsters/base.py
+@@ -37,6 +37,10 @@ class TestPollsterBase(base.BaseTestCase):
+         self.instance.flavor = {'name': 'm1.small', 'id': 2, 'vcpus': 1,
+                                 'ram': 512, 'disk': 20, 'ephemeral': 0}
+         self.instance.status = 'active'
++        self.instance.metadata = {
++            'fqdn': 'vm_fqdn',
++            'metering.stack': '2cadc4b4-8789-123c-b4eg-edd2f0a9c128',
++            'project_cos': 'dev'}
+ 
+         patch_virt = mockpatch.Patch(
+             'ceilometer.compute.virt.inspector.get_hypervisor_inspector',
+diff --git a/ceilometer/tests/compute/pollsters/test_instance.py b/ceilometer/tests/compute/pollsters/test_instance.py
+index 543643d..f1885d4 100644
+--- a/ceilometer/tests/compute/pollsters/test_instance.py
++++ b/ceilometer/tests/compute/pollsters/test_instance.py
+@@ -18,6 +18,7 @@
+ # under the License.
+ 
+ import mock
++from oslo.config import fixture as fixture_config
+ 
+ from ceilometer.compute import manager
+ from ceilometer.compute.pollsters import instance as pollsters_instance
+@@ -50,3 +51,30 @@ class TestInstancePollster(base.TestPollsterBase):
+         samples = list(pollster.get_samples(mgr, {}, [self.instance]))
+         self.assertEqual(1, len(samples))
+         self.assertEqual('instance:m1.small', samples[0].name)
++
++    @mock.patch('ceilometer.pipeline.setup_pipeline', mock.MagicMock())
++    def test_get_reserved_metadata_with_keys(self):
++        self.CONF = self.useFixture(fixture_config.Config()).conf
++        self.CONF.set_override('reserved_metadata_keys', ['fqdn'])
++
++        mgr = manager.AgentManager()
++        pollster = pollsters_instance.InstancePollster()
++        samples = list(pollster.get_samples(mgr, {}, [self.instance]))
++        self.assertEqual({'fqdn': 'vm_fqdn',
++                          'stack': '2cadc4b4-8789-123c-b4eg-edd2f0a9c128'},
++                         samples[0].resource_metadata['user_metadata'])
++
++    @mock.patch('ceilometer.pipeline.setup_pipeline', mock.MagicMock())
++    def test_get_reserved_metadata_with_namespace(self):
++        mgr = manager.AgentManager()
++        pollster = pollsters_instance.InstancePollster()
++        samples = list(pollster.get_samples(mgr, {}, [self.instance]))
++        self.assertEqual({'stack': '2cadc4b4-8789-123c-b4eg-edd2f0a9c128'},
++                         samples[0].resource_metadata['user_metadata'])
++
++        self.CONF = self.useFixture(fixture_config.Config()).conf
++        self.CONF.set_override('reserved_metadata_namespace', [])
++        mgr = manager.AgentManager()
++        pollster = pollsters_instance.InstancePollster()
++        samples = list(pollster.get_samples(mgr, {}, [self.instance]))
++        self.assertNotIn('user_metadata', samples[0].resource_metadata)
+diff --git a/doc/source/measurements.rst b/doc/source/measurements.rst
+index ab8cee6..4083181 100644
+--- a/doc/source/measurements.rst
++++ b/doc/source/measurements.rst
+@@ -423,12 +423,21 @@ User-defined sample metadata for Nova
+ 
+ Users are allowed to add additional metadata to samples of nova meter.
+ These additional metadata are stored in 'resource_metadata.user_metadata.*' of the sample.
+-To do so, users should add nova user metadata prefixed with 'metering.':
++
++To do so, users can add nova user metadata prefixed with 'metering.':
+ 
+ ::
+ 
+    $ nova boot --meta metering.custom_metadata=a_value my_vm
+ 
++Or users can define metadata keys they cared without any prefix in ceilometer.conf.
++For example,if users need to add "fqdn" of metadata to samples,
++they can add or modify as below into ceilometer.conf in [DEFAULT] group:
++
++::
++
++   reserved_metadata_keys=fqdn
++
+ Note: The name of the metadata shouldn't exceed 256 characters otherwise it will be cut off.
+ Also, if it has '.', this will be replaced by a '_' in ceilometer.
+ 
+-- 
+2.7.4
+
