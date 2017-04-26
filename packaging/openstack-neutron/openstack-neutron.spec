@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	30%{?dist_eayunstack}
+Release:	31%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -137,6 +137,9 @@ Patch0091: 0091-firewall_l3_agent-only-get-hosted-routers-info.patch
 Patch0092: 0092-metering-update-external-device-of-metering-iptables.patch
 Patch0093: 0093-Fix-lbaas-l7-implement-many-errors.patch
 Patch0094: 0094-Enable-egress-qos-to-be-set-on-floatingip-ports.patch
+Patch0095: 0095-Add-extra-action-for-lb-session-persistence.patch
+Patch0096: 0096-iptables_firewall-minor-fix-for-_setup_metering_chai.patch
+Patch0097: 0097-Validate-http_method-and-url_path-for-lbaas-health-m.patch
 
 
 BuildArch:	noarch
@@ -709,6 +712,9 @@ IPSec.
 %patch0092 -p1
 %patch0093 -p1
 %patch0094 -p1
+%patch0095 -p1
+%patch0096 -p1
+%patch0097 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1170,6 +1176,11 @@ exit 0
 
 
 %changelog
+* Wed Apr 26 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-31.eayunstack.dev
+- add patch 0095 from github pull request #82 (redmine#9667)
+- add patch 0096 from github pull request #83 (redmine#9154)
+- add patch 0097 from github pull request #85 (redmine#9861)
+
 * Thu Mar 23 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-30.eayunstack.dev
 - add patch 0090 from github pull request #76 (redmine#9154)
 - add patch 0091 from github pull request #77 (redmine#9588)
