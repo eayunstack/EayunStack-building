@@ -1,0 +1,97 @@
+From 2d3b1e7b04b4fa56eca16dd6f5904b398b425f09 Mon Sep 17 00:00:00 2001
+From: Jie Li <jie.li@easystack.cn>
+Date: Fri, 26 Dec 2014 20:22:21 +0800
+Subject: [PATCH 18/33] Fix some comments in a backporting review session
+
+  * add i18n support to some exception messages
+  * remove the return value of DecayingTimer.start()
+
+Relates to review: I898a236a384b3466147026abc7a1ee21801e8ca1
+
+Change-Id: I7adf5478732f1f46db1009b059b66ff8af6ecdc3
+(cherry picked from commit 3e2d142a871783ab2568a07efbdacbd476524fac)
+
+Conflicts:
+	modified:   oslo/messaging/_drivers/amqpdriver.py
+---
+ oslo/messaging/_drivers/amqpdriver.py  | 5 +++--
+ oslo/messaging/_drivers/common.py      | 5 ++---
+ oslo/messaging/_drivers/impl_qpid.py   | 3 ++-
+ oslo/messaging/_drivers/impl_rabbit.py | 3 ++-
+ 4 files changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/amqpdriver.py b/oslo/messaging/_drivers/amqpdriver.py
+index 48b2bac..9b5f450 100644
+--- a/oslo/messaging/_drivers/amqpdriver.py
++++ b/oslo/messaging/_drivers/amqpdriver.py
+@@ -202,7 +202,7 @@ class ReplyWaiter(object):
+     @staticmethod
+     def _raise_timeout_exception(msg_id):
+         raise messaging.MessagingTimeout(
+-            'Timed out waiting for a reply to message ID %s' % msg_id)
++            'Timed out waiting for a reply to message ID %s.' % msg_id)
+ 
+     def _process_reply(self, data):
+         result = None
+@@ -266,7 +266,8 @@ class ReplyWaiter(object):
+         # have the first thread take responsibility for passing replies not
+         # intended for itself to the appropriate thread.
+         #
+-        timer = rpc_common.DecayingTimer(duration=timeout).start()
++        timer = rpc_common.DecayingTimer(duration=timeout)
++        timer.start()
+         final_reply = None
+         while True:
+             if self.conn_lock.acquire(False):
+diff --git a/oslo/messaging/_drivers/common.py b/oslo/messaging/_drivers/common.py
+index ee08f5d..24fee5e 100644
+--- a/oslo/messaging/_drivers/common.py
++++ b/oslo/messaging/_drivers/common.py
+@@ -358,14 +358,13 @@ class DecayingTimer(object):
+     def start(self):
+         if self._duration is not None:
+             self._ends_at = time.time() + max(0, self._duration)
+-        return self
+ 
+     def check_return(self, timeout_callback, *args, **kwargs):
+         if self._duration is None:
+             return None
+         if self._ends_at is None:
+-            raise RuntimeError("Can not check/return a timeout from a timer"
+-                               " that has not been started")
++            raise RuntimeError(_("Can not check/return a timeout from a timer"
++                               " that has not been started."))
+ 
+         maximum = kwargs.pop('maximum', None)
+         left = self._ends_at - time.time()
+diff --git a/oslo/messaging/_drivers/impl_qpid.py b/oslo/messaging/_drivers/impl_qpid.py
+index 9fffa2a..8162271 100644
+--- a/oslo/messaging/_drivers/impl_qpid.py
++++ b/oslo/messaging/_drivers/impl_qpid.py
+@@ -623,7 +623,8 @@ class Connection(object):
+     def iterconsume(self, limit=None, timeout=None):
+         """Return an iterator that will consume from all queues/consumers."""
+ 
+-        timer = rpc_common.DecayingTimer(duration=timeout).start()
++        timer = rpc_common.DecayingTimer(duration=timeout)
++        timer.start()
+ 
+         def _raise_timeout(exc):
+             LOG.debug('Timed out waiting for RPC response: %s', exc)
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index f1359e4..1d2fb00 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -676,7 +676,8 @@ class Connection(object):
+     def iterconsume(self, limit=None, timeout=None):
+         """Return an iterator that will consume from all queues/consumers."""
+ 
+-        timer = rpc_common.DecayingTimer(duration=timeout).start()
++        timer = rpc_common.DecayingTimer(duration=timeout)
++        timer.start()
+ 
+         def _raise_timeout(exc):
+             LOG.debug('Timed out waiting for RPC response: %s', exc)
+-- 
+2.4.3
+

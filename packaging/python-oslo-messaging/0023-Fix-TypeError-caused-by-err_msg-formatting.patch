@@ -1,0 +1,32 @@
+From b68e37eb9a3202e5b65f1fb7412fe92f39220ff0 Mon Sep 17 00:00:00 2001
+From: Dan Prince <dprince@redhat.com>
+Date: Mon, 6 Apr 2015 10:27:34 -0400
+Subject: [PATCH 23/33] Fix TypeError caused by err_msg formatting
+
+The retry variable can be None which causes this exception to be
+formatted incorrectly. Switching from %(retry)d to %(retry)s
+should handle the case where retry is None more gracefully.
+
+Change-Id: I592ea3e44506afb4a676d8dbe1e659a0e649424e
+Closes-bug: #1440755
+(cherry picked from commit 48441a64a6c0a0f715771b5e197317ad8d5a7974)
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index d5bc7f1..0623e08 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -637,7 +637,7 @@ class Connection(object):
+             # NOTE(sileht): number of retry exceeded and the connection
+             # is still broken
+             msg = _('Unable to connect to AMQP server on '
+-                    '%(hostname)s:%(port)d after %(retry)d '
++                    '%(hostname)s:%(port)d after %(retry)s '
+                     'tries: %(err_str)s') % {
+                         'hostname': self.connection.hostname,
+                         'port': self.connection.port,
+-- 
+2.4.3
+

@@ -4,7 +4,7 @@
 
 Name:       python-oslo-messaging
 Version:    1.4.1
-Release:    4%{?dist_eayunstack}
+Release:    7%{?dist_eayunstack}
 Summary:    OpenStack common messaging library
 
 Group:      Development/Languages
@@ -12,15 +12,41 @@ License:    ASL 2.0
 URL:        https://launchpad.net/oslo
 Source0:    https://pypi.python.org/packages/source/o/%{sname}/%{sname}-1.4.1.tar.gz
 
-Patch0001: 0001-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
-Patch0002: 0002-Create-a-new-connection-when-a-process-fork-has-been.patch
-Patch0003: 0003-Fix-typo-in-reconnect-exception-handler.patch
-Patch0004: 0004-Fix-_poll_connection-not-timeout-issue-1-2.patch
-Patch0005: 0005-update-requirements-to-pass-unittest.patch
-Patch0006: 0006-Fix-_poll_connection-not-timeout-issue-2-2.patch
-Patch0007: 0007-Fix-possible-usage-of-undefined-variable.patch
-Patch0008: 0008-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
-Patch0009: 0009-Fix-list_opts-test-to-not-check-all-deps.patch
+Patch0001: 0001-update-requirements-to-pass-unittest.patch
+Patch0002: 0002-Cleanup-listener-after-stopping-rpc-server.patch
+Patch0003: 0003-Don-t-put-the-message-payload-into-warning-log.patch
+Patch0004: 0004-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
+Patch0005: 0005-Notification-listener-pools.patch
+Patch0006: 0006-rabbit-uses-kombu-instead-of-builtin-stuffs.patch
+Patch0007: 0007-Create-a-new-connection-when-a-process-fork-has-been.patch
+Patch0008: 0008-Fix-reconnect-race-condition-with-RabbitMQ-cluster.patch
+Patch0009: 0009-Have-the-timeout-decrement-inside-the-wait-method.patch
+Patch0010: 0010-Always-use-a-poll-timeout-in-the-executor.patch
+Patch0011: 0011-Set-correctly-the-messaging-driver-to-use-in-tests.patch
+Patch0012: 0012-Don-t-use-oslo.cfg-to-set-kombu-in-memory-driver.patch
+Patch0013: 0013-Rabbit-iterconsume-must-honor-timeout.patch
+Patch0014: 0014-Reintroduces-fake_rabbit-config-option.patch
+Patch0015: 0015-rabbit-more-precise-iterconsume-timeout.patch
+Patch0016: 0016-qpid-honor-iterconsume-timeout.patch
+Patch0017: 0017-The-executor-doesn-t-need-to-set-the-timeout.patch
+Patch0018: 0018-Fix-some-comments-in-a-backporting-review-session.patch
+Patch0019: 0019-safe_log-Sanitize-Passwords-in-List-of-Dicts.patch
+Patch0020: 0020-rabbit-fix-timeout-timer-when-duration-is-None.patch
+Patch0021: 0021-Ensure-kombu-channels-are-closed.patch
+Patch0022: 0022-Declare-DirectPublisher-exchanges-with-passive-True.patch
+Patch0023: 0023-Fix-TypeError-caused-by-err_msg-formatting.patch
+Patch0024: 0024-Refactor-the-replies-waiter-code.patch
+Patch0025: 0025-Remove-unuseful-param-of-the-ConnectionContext.patch
+Patch0026: 0026-rabbit-Fix-behavior-of-rabbit_use_ssl.patch
+Patch0027: 0027-Speedup-the-rabbit-tests.patch
+Patch0028: 0028-rabbit-heartbeat-implementation.patch
+Patch0029: 0029-cleanup-connection-pool-return.patch
+Patch0030: 0030-Reconnect-on-connection-lost-in-heartbeat-thread.patch
+Patch0031: 0031-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
+Patch0032: 0032-Fix-list_opts-test-to-not-check-all-deps.patch
+Patch0033: 0033-log-reconnection-event-after-reconnected.patch
+Patch0034: 0034-check-the-connection-status-before-heartbeating.patch
+Patch0035: 0035-use-kombu-s-ensure_connection.patch
 
 BuildArch:  noarch
 Requires:   python-setuptools
@@ -80,6 +106,32 @@ Documentation for the oslo.messaging library.
 %patch0007 -p1
 %patch0008 -p1
 %patch0009 -p1
+%patch0010 -p1
+%patch0011 -p1
+%patch0012 -p1
+%patch0013 -p1
+%patch0014 -p1
+%patch0015 -p1
+%patch0016 -p1
+%patch0017 -p1
+%patch0018 -p1
+%patch0019 -p1
+%patch0020 -p1
+%patch0021 -p1
+%patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
+%patch0031 -p1
+%patch0032 -p1
+%patch0033 -p1
+%patch0034 -p1
+%patch0035 -p1
 
 # Remove bundled egg-info
 rm -rf %{sname}.egg-info
@@ -122,6 +174,56 @@ rm -fr doc/build/html/.buildinfo
 %doc doc/build/html LICENSE
 
 %changelog
+* Wed Apr 26 2017 blkart <blkart.org@gmail.com> - 1.4.1-7.eayunstack.1.1
+- 0035-use-kombu-s-ensure_connection.patch
+
+* Tue Mar 08 2016 apporc <appleorchard2000@gmail.com> - 1.4.1-6.eayunstack.1.1
+- 0034-check-the-connection-status-before-heartbeating.patch
+
+* Wed Jan 06 2016 apporc <appleorchard2000@gmail.com> - 1.4.1-5.eayunstack.1.1
+- delete patch 0001-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
+- delete patch 0002-Create-a-new-connection-when-a-process-fork-has-been.patch
+- delete patch 0003-Fix-typo-in-reconnect-exception-handler.patch
+- delete patch 0004-Fix-_poll_connection-not-timeout-issue-1-2.patch
+- delete patch 0005-update-requirements-to-pass-unittest.patch
+- delete patch 0006-Fix-_poll_connection-not-timeout-issue-2-2.patch
+- delete patch 0007-Fix-possible-usage-of-undefined-variable.patch
+- delete patch 0008-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
+- delete patch 0009-Fix-list_opts-test-to-not-check-all-deps.patch
+- add patch 0001-update-requirements-to-pass-unittest.patch
+- add patch 0002-Cleanup-listener-after-stopping-rpc-server.patch
+- add patch 0003-Don-t-put-the-message-payload-into-warning-log.patch
+- add patch 0004-Enable-user-authentication-in-the-AMQP-1.0-driver.patch
+- add patch 0005-Notification-listener-pools.patch
+- add patch 0006-rabbit-uses-kombu-instead-of-builtin-stuffs.patch
+- add patch 0007-Create-a-new-connection-when-a-process-fork-has-been.patch
+- add patch 0008-Fix-reconnect-race-condition-with-RabbitMQ-cluster.patch
+- add patch 0009-Have-the-timeout-decrement-inside-the-wait-method.patch
+- add patch 0010-Always-use-a-poll-timeout-in-the-executor.patch
+- add patch 0011-Set-correctly-the-messaging-driver-to-use-in-tests.patch
+- add patch 0012-Don-t-use-oslo.cfg-to-set-kombu-in-memory-driver.patch
+- add patch 0013-Rabbit-iterconsume-must-honor-timeout.patch
+- add patch 0014-Reintroduces-fake_rabbit-config-option.patch
+- add patch 0015-rabbit-more-precise-iterconsume-timeout.patch
+- add patch 0016-qpid-honor-iterconsume-timeout.patch
+- add patch 0017-The-executor-doesn-t-need-to-set-the-timeout.patch
+- add patch 0018-Fix-some-comments-in-a-backporting-review-session.patch
+- add patch 0019-safe_log-Sanitize-Passwords-in-List-of-Dicts.patch
+- add patch 0020-rabbit-fix-timeout-timer-when-duration-is-None.patch
+- add patch 0021-Ensure-kombu-channels-are-closed.patch
+- add patch 0022-Declare-DirectPublisher-exchanges-with-passive-True.patch
+- add patch 0023-Fix-TypeError-caused-by-err_msg-formatting.patch
+- add patch 0024-Refactor-the-replies-waiter-code.patch
+- add patch 0025-Remove-unuseful-param-of-the-ConnectionContext.patch
+- add patch 0026-rabbit-Fix-behavior-of-rabbit_use_ssl.patch
+- add patch 0027-Speedup-the-rabbit-tests.patch
+- add patch 0028-rabbit-heartbeat-implementation.patch
+- add patch 0029-cleanup-connection-pool-return.patch
+- add patch 0030-Reconnect-on-connection-lost-in-heartbeat-thread.patch
+- add patch 0031-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
+- add patch 0032-Fix-list_opts-test-to-not-check-all-deps.patch
+- add patch 0033-log-reconnection-event-after-reconnected.patch
+
 * Fri Dec 11 2015 apporc <appleorchard2000@gmail.com> - 1.4.1-4.eayunstack.1.0.1
 - 0004-Fix-_poll_connection-not-timeout-issue-1-2.patch
 - 0005-update-requirements-to-pass-unittest.patch

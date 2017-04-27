@@ -1,0 +1,39 @@
+From 8f7740c988220907d01ad8400f4417c1c6bb2d43 Mon Sep 17 00:00:00 2001
+From: Mehdi Abaakouk <mehdi.abaakouk@enovance.com>
+Date: Wed, 24 Sep 2014 17:41:17 +0200
+Subject: [PATCH 03/33] Don't put the message payload into warning log
+
+When a caller msg doesn't exists anymore but a reply is ready for it.
+amqp driver drop the whole message into a logging.warn. That can be a
+bit huge in some case.
+
+This change just writes the message id to the WARN level and put the queues
+and the messages into the debug level.
+
+Change-Id: Ibcc6b066171cdea48f102ca1bd85f81c639fbbb5
+(cherry picked from commit f61f7c570f3b4de144b91587fd2c97aab091f05f)
+---
+ oslo/messaging/_drivers/amqpdriver.py | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/amqpdriver.py b/oslo/messaging/_drivers/amqpdriver.py
+index f002825..6aef153 100644
+--- a/oslo/messaging/_drivers/amqpdriver.py
++++ b/oslo/messaging/_drivers/amqpdriver.py
+@@ -156,10 +156,9 @@ class ReplyWaiters(object):
+     def put(self, msg_id, message_data):
+         queue = self._queues.get(msg_id)
+         if not queue:
+-            LOG.warn('No calling threads waiting for msg_id : %(msg_id)s'
+-                     ', message : %(data)s', {'msg_id': msg_id,
+-                                              'data': message_data})
+-            LOG.warn('_queues: %s', self._queues)
++            LOG.info('No calling threads waiting for msg_id : %s', msg_id)
++            LOG.debug(' queues: %(queues)s, message: %(message)',
++                      {'queues': self._queues, 'message': message_data})
+         else:
+             queue.put(message_data)
+ 
+-- 
+2.4.3
+
