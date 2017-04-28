@@ -1,0 +1,56 @@
+From 944840a04651fb7550a9a91ec52c2c6f122c12bf Mon Sep 17 00:00:00 2001
+From: Ask Solem <ask@celeryproject.org>
+Date: Tue, 13 Nov 2012 12:45:15 +0000
+Subject: [PATCH 5/7] Documents recoverable_connection_errors and
+ recoverable_channel_errors attributes
+
+(cherry picked from commit 82c906fb20bc7b7f8ff4b9d0d44b20238f9c26bf)
+---
+ docs/reference/kombu.rst                |  2 ++
+ docs/reference/kombu.transport.base.rst | 17 +++++++++++++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/docs/reference/kombu.rst b/docs/reference/kombu.rst
+index 70a1f28..3c63ba9 100644
+--- a/docs/reference/kombu.rst
++++ b/docs/reference/kombu.rst
+@@ -29,6 +29,8 @@
+ 
+             .. autoattribute:: default_channel
+             .. autoattribute:: connected
++            .. autoattribute:: recoverable_connection_errors
++            .. autoattribute:: recoverable_channel_errors
+             .. autoattribute:: connection_errors
+             .. autoattribute:: channel_errors
+             .. autoattribute:: transport
+diff --git a/docs/reference/kombu.transport.base.rst b/docs/reference/kombu.transport.base.rst
+index 5849013..c9d77df 100644
+--- a/docs/reference/kombu.transport.base.rst
++++ b/docs/reference/kombu.transport.base.rst
+@@ -33,6 +33,23 @@
+ 
+         .. autoattribute:: client
+         .. autoattribute:: default_port
++
++        .. attribute:: recoverable_connection_errors
++
++            Optional list of connection related exceptions that can be
++            recovered from, but where the connection must be closed
++            and re-established first.
++
++            If not defined then all :attr:`connection_errors` and
++            :class:`channel_errors` will be regarded as recoverable,
++            but needing to close the connection first.
++
++        .. attribute:: recoverable_channel_errors
++
++            Optional list of channel related exceptions that can be
++            automatically recovered from without re-establishing the
++            connection.
++
+         .. autoattribute:: connection_errors
+         .. autoattribute:: channel_errors
+ 
+-- 
+1.9.3
+

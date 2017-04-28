@@ -1,0 +1,27 @@
+From 93ea80cedfcf889d237354d1d2495b1914b57213 Mon Sep 17 00:00:00 2001
+From: Ask Solem <ask@celeryproject.org>
+Date: Thu, 24 Oct 2013 16:48:13 +0100
+Subject: [PATCH 8/8] Use amqp.Connection.connected (Issue celery/py-amqp#22)
+
+(cherry picked from commit fa4268047b45bc4a7e939b985e4c1cafdbbfdece)
+---
+ kombu/transport/pyamqp.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/kombu/transport/pyamqp.py b/kombu/transport/pyamqp.py
+index 63dea88..f807486 100644
+--- a/kombu/transport/pyamqp.py
++++ b/kombu/transport/pyamqp.py
+@@ -119,6 +119,9 @@ class Transport(base.Transport):
+         conn.client = self.client
+         return conn
+ 
++    def verify_connection(self, connection):
++        return connection.connected
++
+     def close_connection(self, connection):
+         """Close the AMQP broker connection."""
+         connection.client = None
+-- 
+2.1.0
+

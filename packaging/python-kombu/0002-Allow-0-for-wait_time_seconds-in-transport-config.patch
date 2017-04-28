@@ -1,0 +1,27 @@
+From 8ad871ad204f20dbadb8e061a1824b81fd4e30e1 Mon Sep 17 00:00:00 2001
+From: James Saryerwinnie <js@jamesls.com>
+Date: Tue, 19 Mar 2013 15:39:38 -0700
+Subject: [PATCH 2/7] Allow 0 for wait_time_seconds in transport config
+
+---
+ kombu/transport/SQS.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/kombu/transport/SQS.py b/kombu/transport/SQS.py
+index 7473e93..f06f596 100644
+--- a/kombu/transport/SQS.py
++++ b/kombu/transport/SQS.py
+@@ -371,8 +371,8 @@ class Channel(virtual.Channel):
+ 
+     @cached_property
+     def wait_time_seconds(self):
+-        return (self.transport_options.get('wait_time_seconds') or
+-                self.default_wait_time_seconds)
++        return self.transport_options.get('wait_time_seconds',
++                                          self.default_wait_time_seconds)
+ 
+ 
+ class Transport(virtual.Transport):
+-- 
+1.9.3
+
