@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          5%{?dist_eayunstack}
+Release:          6%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -52,6 +52,9 @@ Patch0027: 0027-Pass-region-name-to-Nova-client.patch
 Patch0028: 0028-Add-ability-to-override-OpenStack-privileged-user-au.patch
 Patch0029: 0029-Support-front-end-qos-updates-in-volume-retype.patch
 Patch0030: 0030-Correctly-open-rbd-image-in-ceph-backup-driver.patch
+Patch0031: 0031-Uncouple-scheduler-stats-from-volume-creation.patch
+Patch0032: 0032-Rbd-update-volume-stats-in-wrong-way.patch
+Patch0033: 0033-rbd-Change-capacity-calculation-from-integer-to-floa.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -204,6 +207,9 @@ This package contains documentation files for cinder.
 %patch0028 -p1
 %patch0029 -p1
 %patch0030 -p1
+%patch0031 -p1
+%patch0032 -p1
+%patch0033 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -344,6 +350,11 @@ exit 0
 %endif
 
 %changelog
+* Fri Apr 28 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-6.eayunstack.dev
+- add Patch0031: 0031-Uncouple-scheduler-stats-from-volume-creation.patch
+- add Patch0032: 0032-Rbd-update-volume-stats-in-wrong-way.patch
+- add Patch0033: 0033-rbd-Change-capacity-calculation-from-integer-to-floa.patch
+
 * Tue Mar 28 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-5.eayunstack.dev
 - add Patch0022: 0022-Get-the-consumer-in-a-correct-way-for-retyping-with-.patch
 - add Patch0023: 0023-Use-project-id-from-volume-when-retyping-volumes.patch
