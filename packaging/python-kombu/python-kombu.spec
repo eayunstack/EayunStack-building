@@ -5,11 +5,11 @@
 %endif
 
 %global srcname kombu
-%global dist_eayunstack .eayunstack.1.1
+%global dist_eayunstack .eayunstack
 
 Name:           python-%{srcname}
 Version:        2.5.16
-Release:        2%{?dist_eayunstack}
+Release:        3%{?dist_eayunstack}
 Summary:        AMQP Messaging Framework for Python
 
 Group:          Development/Languages
@@ -28,6 +28,7 @@ Patch0004: 0004-Use-py-amqp-s-new-recoverable-irrecoverable-exceptio.patch
 Patch0005: 0005-Documents-recoverable_connection_errors-and-recovera.patch
 Patch0006: 0006-maybe_declare-mus-raise-recoverable-conncetion-error.patch
 Patch0007: 0007-Fix-for-193-for-transports-that-supports-error-class.patch
+Patch0008: 0008-Use-amqp.Connection.connected-Issue-celery-py-amqp-2.patch
 
 BuildArch:      noarch
 
@@ -110,6 +111,7 @@ This subpackage is for python3
 %patch0005 -p1
 %patch0006 -p1
 %patch0007 -p1
+%patch0008 -p1
 
 %if 0%{?with_python3}
 cp -a . %{py3dir}
@@ -164,6 +166,9 @@ popd
 %endif # with_python3
 
 %changelog
+* Fri Apr 28 2017 blkart <blkart.org@gmail.com> - 2.5.16 -3.eayunstack
+- 0008-Use-amqp.Connection.connected-Issue-celery-py-amqp-2.patch
+
 * Fri Nov 13 2015 apporc <appleorchard2000@gmail.com> - 2.5.16 -2.eayunstack.1.1
 - 0001-Don-t-longpoll-fanout-queues.patch
 - 0002-Allow-0-for-wait_time_seconds-in-transport-config.patch
