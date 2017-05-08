@@ -1,0 +1,46 @@
+From 211de1c34cc858394a9bc0a6ac77b1891bf86f86 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 28 Apr 2017 11:24:21 +0800
+Subject: [PATCH] Configuration option for whether to use ES port metering
+
+Fixes: redmine #9970
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/iptables_firewall.py | 2 ++
+ neutron/agent/securitygroups_rpc.py      | 6 +++++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/agent/linux/iptables_firewall.py b/neutron/agent/linux/iptables_firewall.py
+index 8297fdf14..a6254d88d 100644
+--- a/neutron/agent/linux/iptables_firewall.py
++++ b/neutron/agent/linux/iptables_firewall.py
+@@ -179,6 +179,8 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+         return port['device']
+ 
+     def _setup_metering_chains(self, port, direction, chain_name):
++        if not cfg.CONF.SECURITYGROUP.enable_es_port_metering:
++            return chain_name
+         # Only support IPv4
+         chains = self._metering_chain_names(port, direction)
+         for m_chain_name in chains:
+diff --git a/neutron/agent/securitygroups_rpc.py b/neutron/agent/securitygroups_rpc.py
+index 892011ab2..53f35d54b 100644
+--- a/neutron/agent/securitygroups_rpc.py
++++ b/neutron/agent/securitygroups_rpc.py
+@@ -48,7 +48,11 @@ security_group_opts = [
+             '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',  # RFC 1918
+             '169.254.0.0/16'  # RFC 3927
+         ],
+-        help=_('IP addresses that should be recognized as private.'))
++        help=_('IP addresses that should be recognized as private.')),
++    cfg.BoolOpt(
++        'enable_es_port_metering',
++        default=False,
++        help=_('Whether to enable extra iptables rules for port metering.')),
+ ]
+ cfg.CONF.register_opts(security_group_opts, 'SECURITYGROUP')
+ 
+-- 
+2.12.2
+

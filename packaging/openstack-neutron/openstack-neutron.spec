@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	31%{?dist_eayunstack}
+Release:	32%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -140,6 +140,13 @@ Patch0094: 0094-Enable-egress-qos-to-be-set-on-floatingip-ports.patch
 Patch0095: 0095-Add-extra-action-for-lb-session-persistence.patch
 Patch0096: 0096-iptables_firewall-minor-fix-for-_setup_metering_chai.patch
 Patch0097: 0097-Validate-http_method-and-url_path-for-lbaas-health-m.patch
+Patch0098: 0098-Enable-ES-port-metering-on-all-sg-enabled-ports.patch
+Patch0099: 0099-Configuration-option-for-whether-to-use-ES-port-mete.patch
+Patch0100: 0100-Fix-enable-update-l7policy-value-attribute.patch
+Patch0101: 0101-l3_db-update-GatewayInUseByFloatingIp-check.patch
+Patch0102: 0102-Fix-fip-port-qos-namespace-selection-in-sync_qos.patch
+Patch0103: 0103-ES-fip-setup-ip-rule-for-floatingip-itself.patch
+Patch0104: 0104-Fix-error-when-update-l7policy-with-pool_id-None.patch
 
 
 BuildArch:	noarch
@@ -715,6 +722,13 @@ IPSec.
 %patch0095 -p1
 %patch0096 -p1
 %patch0097 -p1
+%patch0098 -p1
+%patch0099 -p1
+%patch0100 -p1
+%patch0101 -p1
+%patch0102 -p1
+%patch0103 -p1
+%patch0104 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1176,6 +1190,15 @@ exit 0
 
 
 %changelog
+* Mon May 08 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-32.eayunstack.dev
+- add patch 0098 from github pull request #86 (redmine#9968)
+- add patch 0099 from github pull request #87 (redmine#9970)
+- add patch 0100 from github pull request #90 (redmine#9989)
+- add patch 0101 from github pull request #89 (redmine#9990)
+- add patch 0102 from neutron-qos github pull request #25 (redmine#10008)
+- add patch 0103 from github pull request #88 (redmine#9982)
+- add patch 0104 from github pull request #91 (redmine#9998)
+
 * Wed Apr 26 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-31.eayunstack.dev
 - add patch 0095 from github pull request #82 (redmine#9667)
 - add patch 0096 from github pull request #83 (redmine#9154)

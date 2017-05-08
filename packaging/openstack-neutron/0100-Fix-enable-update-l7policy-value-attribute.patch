@@ -1,0 +1,29 @@
+From 8f351075ad1f143d6201fc5059a3cd10d2de73f9 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Wed, 3 May 2017 16:19:23 +0800
+Subject: [PATCH] Fix enable update l7policy value attribute
+
+Fixes: redmine #9989
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/loadbalancer_l7.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index f3d369a18..7f92c9d0b 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -95,7 +95,7 @@ RESOURCE_ATTRIBUTE_MAP = {
+         'key': {'allow_post': True, 'allow_put': False,
+                 'validate': {'type:string_or_none': None},
+                 'default': None, 'is_visible': True},
+-        'value': {'allow_post': True, 'allow_put': False,
++        'value': {'allow_post': True, 'allow_put': True,
+                   'validate': {'type:string_or_none': None},
+                   'default': None, 'is_visible': True},
+         'admin_state_up': {'allow_post': True, 'allow_put': True,
+-- 
+2.12.2
+

@@ -1,0 +1,34 @@
+From 16f54067865ce61bb42046597403514623d8e120 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 4 May 2017 18:18:07 +0800
+Subject: [PATCH] Fix error when update l7policy with pool_id None
+
+Fixes: redmine #9998
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/loadbalancer/plugin.py | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/neutron/services/loadbalancer/plugin.py b/neutron/services/loadbalancer/plugin.py
+index bc994e14a..a6bdbfd2b 100644
+--- a/neutron/services/loadbalancer/plugin.py
++++ b/neutron/services/loadbalancer/plugin.py
+@@ -377,9 +377,10 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
+         old_l7policy = self.get_l7policy(context, id)
+         update_l7policy = super(LoadBalancerPlugin, self).update_l7policy(
+             context, id, l7policy)
+-        if update_l7policy['pool_id'] or old_l7policy['pool_id']:
+-            driver = self._get_driver_for_pool(context,
+-                                               update_l7policy['pool_id'])
++
++        pool_id = update_l7policy['pool_id'] or old_l7policy['pool_id']
++        if pool_id:
++            driver = self._get_driver_for_pool(context, pool_id)
+             driver.update_l7policy(context, old_l7policy, update_l7policy)
+         return update_l7policy
+ 
+-- 
+2.12.2
+
