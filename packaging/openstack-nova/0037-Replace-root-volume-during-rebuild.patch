@@ -1,0 +1,92 @@
+From 325c9f1c65c18b8f1b3876a0b96380a162db1e49 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Tue, 2 May 2017 11:51:25 +0800
+Subject: [PATCH 6/7] Replace root volume during rebuild
+
+If the instance was booted from volume, then rebuild will only change the image, but the instance will still boot from the original volume.
+
+Create a new volume from the image then replace the old root volume with it. In case of evacuation leave the root volume untouched.
+
+Related upstream commit: a93efff2f025fa824f669836be0794a62103b2f0
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ nova/compute/manager.py | 55 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index ff11d96..1a1c2dc 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -2649,6 +2649,44 @@ class ComputeManager(manager.Manager):
+         instance.save(expected_task_state=task_states.RESTORING)
+         self._notify_about_instance_usage(context, instance, "restore.end")
+ 
++    def _recreate_volume_based_bdm_from_image(self, context, image_meta, bdm):
++        old_vol = self.volume_api.get(context, bdm.volume_id)
++
++        vol_size = old_vol.get('size')
++        vol_name = old_vol.get('name')
++        display_description = old_vol.get('display_description')
++        vol_type = old_vol.get('volume_type_id')
++        metadata = old_vol.get('metadata')
++        availability_zone = old_vol.get('availability_zone')
++
++        image_min_disk = int(image_meta['min_disk'] or 0) * 1024 ** 3
++        image_size = int(image_meta['size'] or 0)
++
++        dest_size = int(vol_size) * 1024 ** 3
++
++        if image_size > dest_size:
++            raise exception.FlavorDiskSmallerThanImage(
++                flavor_size=dest_size, image_size=image_size)
++
++        if image_min_disk > dest_size:
++            raise exception.FlavorDiskSmallerThanMinDisk(
++                flavor_size=dest_size, image_min_disk=image_min_disk)
++
++        new_vol = self.volume_api.create(context,
++                                         vol_size,
++                                         vol_name,
++                                         display_description,
++                                         volume_type=vol_type,
++                                         metadata=metadata,
++                                         availability_zone=availability_zone,
++                                         image_id=image_meta['id'])
++        self._await_block_device_map_created(context, new_vol['id'])
++        LOG.debug('Created new root volume %s. Updating bdm.',
++                  new_vol['id'])
++        bdm.volume_id = new_vol['id']
++        bdm.connection_info = None
++        bdm.image_id = image_meta['id']
++        return bdm
+     def _rebuild_default_impl(self, context, instance, image_meta,
+                               injected_files, admin_password, bdms,
+                               detach_block_devices, attach_block_devices,
+@@ -2665,6 +2703,23 @@ class ComputeManager(manager.Manager):
+         if not recreate:
+             self.driver.destroy(context, instance, network_info,
+                                 block_device_info=block_device_info)
++            root_bdm = block_device.get_root_bdm(bdms)
++            if root_bdm and root_bdm.is_volume:
++                old_vol_id = root_bdm.volume_id
++                new_root_bdm = self._recreate_volume_based_bdm_from_image(
++                    context, image_meta, root_bdm)
++                if root_bdm.delete_on_termination:
++                    try:
++                        self.volume_api.delete(context, old_vol_id)
++                    except Exception as exc:
++                        LOG.warning(_LW('Failed to delete volume: '
++                                        '%(volume_id)s due to %(exc)s'),
++                                    {'volume_id': root_bdm.volume_id,
++                                     'exc': exc})
++                bdms = list(block_device.get_bdms_to_connect(
++                    bdms, exclude_root_mapping=True))
++                bdms.insert(0, new_root_bdm)
++
+ 
+         instance.task_state = task_states.REBUILD_BLOCK_DEVICE_MAPPING
+         instance.save(expected_task_state=[task_states.REBUILDING])
+-- 
+2.1.0
+

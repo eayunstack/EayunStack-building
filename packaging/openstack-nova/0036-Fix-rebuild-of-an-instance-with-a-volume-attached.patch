@@ -1,0 +1,315 @@
+From 8f5e4914c103ee3ebd996329fb24e3122699f912 Mon Sep 17 00:00:00 2001
+From: Roman Podoliaka <rpodolyaka@mirantis.com>
+Date: Mon, 6 Apr 2015 17:53:51 +0300
+Subject: [PATCH 5/7] Fix rebuild of an instance with a volume attached
+
+When detaching block devices on rebuild we only notify Cinder it's
+safe to detach a volume, but don't actually tell the driver to do
+that first.
+
+Closes-Bug: #1440762
+
+Change-Id: I017bf749f426717dc76cf99a387102848fb1c541
+(cherry picked from commit 337471bc71cbdabe6b492379c81470abac8040d2)
+
+---------------------------------------------------------------------
+squashed with another change that fixes a bug introduced in the first
+---------------------------------------------------------------------
+
+rebuild: fix rebuild of server with volume attached
+
+This was meant to be fixed by I017bf749f426717dc76cf99a387102848fb1c541 ,
+but it didn't take into account that BDM entry was destroyed, which
+caused the rebuild to fail when spawning the instance.
+
+Add a new parameter to detach_volume() to bypass destroying of BDM,
+as we just want to detach a volume first and then re-attach it again.
+
+A Tempest test is added in I50557c69b54003d3409c8e977966f5332f4fe690
+to make sure this is actually tested in the gate.
+
+Closes-Bug: #1440762
+
+Co-Authored-By: melanie witt <melwitt@yahoo-inc.com>
+
+Conflicts:
+        nova/tests/unit/compute/test_compute.py
+        nova/tests/unit/compute/test_compute_mgr.py
+
+NOTE(mriedem): The tests were moved under nova/tests/unit in Kilo.
+
+Change-Id: I9134fbf5ce72c32cca91de90001c09e00b4e19e8
+(cherry picked from commit 25f15b0bc3bd1971fd29062a7a001f8007485636)
+(cherry picked from commit eb3b1c80c1a8c2bcaf3df21663eba54bae0cacb7)
+(cherry picked from commit 5cf20f377118963ad1e89d9fa889dcb454f030fd)
+---
+ nova/compute/manager.py                | 41 +++++++++++++------
+ nova/tests/compute/test_compute.py     | 72 +++++++++++++++++++++++++++++++---
+ nova/tests/compute/test_compute_mgr.py | 46 +++++++++++++++++++++-
+ 3 files changed, 142 insertions(+), 17 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index 718bf41..ff11d96 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -2808,7 +2808,8 @@ class ComputeManager(manager.Manager):
+             def detach_block_devices(context, bdms):
+                 for bdm in bdms:
+                     if bdm.is_volume:
+-                        self.volume_api.detach(context, bdm.volume_id)
++                        self._detach_volume(context, bdm.volume_id, instance,
++                                            destroy_bdm=False)
+ 
+             files = self._decode_files(injected_files)
+ 
+@@ -4580,7 +4581,7 @@ class ComputeManager(manager.Manager):
+         self._notify_about_instance_usage(
+             context, instance, "volume.attach", extra_usage_info=info)
+ 
+-    def _detach_volume(self, context, instance, bdm):
++    def _driver_detach_volume(self, context, instance, bdm):
+         """Do the actual driver detach using block device mapping."""
+         mp = bdm.device_name
+         volume_id = bdm.volume_id
+@@ -4614,12 +4615,18 @@ class ComputeManager(manager.Manager):
+                               context=context, instance=instance)
+                 self.volume_api.roll_detaching(context, volume_id)
+ 
+-    @object_compat
+-    @wrap_exception()
+-    @reverts_task_state
+-    @wrap_instance_fault
+-    def detach_volume(self, context, volume_id, instance):
+-        """Detach a volume from an instance."""
++    def _detach_volume(self, context, volume_id, instance, destroy_bdm=True):
++        """Detach a volume from an instance.
++
++        :param context: security context
++        :param volume_id: the volume id
++        :param instance: the Instance object to detach the volume from
++        :param destroy_bdm: if True, the corresponding BDM entry will be marked
++                            as deleted. Disabling this is useful for operations
++                            like rebuild, when we don't want to destroy BDM
++
++        """
++
+         bdm = objects.BlockDeviceMapping.get_by_volume_id(
+                 context, volume_id)
+         if CONF.volume_usage_poll_interval > 0:
+@@ -4643,15 +4650,27 @@ class ComputeManager(manager.Manager):
+                                                     instance,
+                                                     update_totals=True)
+ 
+-        self._detach_volume(context, instance, bdm)
++        self._driver_detach_volume(context, instance, bdm)
+         connector = self.driver.get_volume_connector(instance)
+         self.volume_api.terminate_connection(context, volume_id, connector)
+-        bdm.destroy()
++
++        if destroy_bdm:
++            bdm.destroy()
++
+         info = dict(volume_id=volume_id)
+         self._notify_about_instance_usage(
+             context, instance, "volume.detach", extra_usage_info=info)
+         self.volume_api.detach(context.elevated(), volume_id)
+ 
++    @object_compat
++    @wrap_exception()
++    @reverts_task_state
++    @wrap_instance_fault
++    def detach_volume(self, context, volume_id, instance):
++        """Detach a volume from an instance."""
++
++        self._detach_volume(context, volume_id, instance)
++
+     def _init_volume_connection(self, context, new_volume_id,
+                                 old_volume_id, connector, instance, bdm):
+ 
+@@ -4802,7 +4821,7 @@ class ComputeManager(manager.Manager):
+         try:
+             bdm = objects.BlockDeviceMapping.get_by_volume_id(
+                     context, volume_id)
+-            self._detach_volume(context, instance, bdm)
++            self._driver_detach_volume(context, instance, bdm)
+             connector = self.driver.get_volume_connector(instance)
+             self.volume_api.terminate_connection(context, volume_id, connector)
+         except exception.NotFound:
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index 4a6707c..48aba6b 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -459,7 +459,7 @@ class ComputeVolumeTestCase(BaseTestCase):
+         instance = self._create_fake_instance()
+ 
+         with contextlib.nested(
+-            mock.patch.object(self.compute, '_detach_volume'),
++            mock.patch.object(self.compute, '_driver_detach_volume'),
+             mock.patch.object(self.compute.volume_api, 'detach'),
+             mock.patch.object(objects.BlockDeviceMapping,
+                               'get_by_volume_id'),
+@@ -2465,6 +2465,59 @@ class ComputeTestCase(BaseTestCase):
+         self.compute.terminate_instance(self.context,
+                 self._objectify(instance), [], [])
+ 
++    @mock.patch('nova.compute.manager.ComputeManager._detach_volume')
++    def test_rebuild_driver_with_volumes(self, mock_detach):
++        bdms = block_device_obj.block_device_make_list(self.context,
++                [fake_block_device.FakeDbBlockDeviceDict({
++                'id': 3,
++                    'volume_id': u'4cbc9e62-6ba0-45dd-b647-934942ead7d6',
++                    'instance_uuid': 'fake-instance',
++                    'device_name': '/dev/vda',
++                    'connection_info': '{"driver_volume_type": "rbd"}',
++                    'source_type': 'image',
++                    'destination_type': 'volume',
++                    'image_id': 'fake-image-id-1',
++                    'boot_index': 0
++        })])
++
++        # Make sure virt drivers can override default rebuild
++        called = {'rebuild': False}
++
++        def fake(**kwargs):
++            instance = kwargs['instance']
++            instance.task_state = task_states.REBUILD_BLOCK_DEVICE_MAPPING
++            instance.save(expected_task_state=[task_states.REBUILDING])
++            instance.task_state = task_states.REBUILD_SPAWNING
++            instance.save(
++                expected_task_state=[task_states.REBUILD_BLOCK_DEVICE_MAPPING])
++            called['rebuild'] = True
++            func = kwargs['detach_block_devices']
++            # Have the fake driver call the function to detach block devices
++            func(self.context, bdms)
++            # Verify volumes to be detached without destroying
++            mock_detach.assert_called_once_with(self.context,
++                                                bdms[0].volume_id,
++                                                instance, destroy_bdm=False)
++
++        self.stubs.Set(self.compute.driver, 'rebuild', fake)
++        instance = self._create_fake_instance_obj()
++        image_ref = instance['image_ref']
++        sys_metadata = db.instance_system_metadata_get(self.context,
++                        instance['uuid'])
++        self.compute.build_and_run_instance(self.context, instance, {}, {}, {},
++                                            block_device_mapping=[])
++        db.instance_update(self.context, instance['uuid'],
++                           {"task_state": task_states.REBUILDING})
++        self.compute.rebuild_instance(self.context, instance,
++                                      image_ref, image_ref,
++                                      injected_files=[],
++                                      new_pass="new_password",
++                                      orig_sys_metadata=sys_metadata,
++                                      bdms=bdms, recreate=False,
++                                      on_shared_storage=False)
++        self.assertTrue(called['rebuild'])
++        self.compute.terminate_instance(self.context, instance, [], [])
++
+     def test_rebuild_no_image(self):
+         # Ensure instance can be rebuilt when started with no image.
+         params = {'image_ref': ''}
+@@ -11119,7 +11172,8 @@ class EvacuateHostTestCase(BaseTestCase):
+                   'source_type': 'volume',
+                   'device_name': '/dev/vdc',
+                   'delete_on_termination': False,
+-                  'volume_id': 'fake_volume_id'}
++                  'volume_id': 'fake_volume_id',
++                  'connection_info': '{}'}
+ 
+         db.block_device_mapping_create(self.context, values)
+ 
+@@ -11134,6 +11188,11 @@ class EvacuateHostTestCase(BaseTestCase):
+             result["detached"] = volume["id"] == 'fake_volume_id'
+         self.stubs.Set(cinder.API, "detach", fake_detach)
+ 
++        self.mox.StubOutWithMock(self.compute, '_driver_detach_volume')
++        self.compute._driver_detach_volume(mox.IsA(self.context),
++                                           mox.IsA(instance_obj.Instance),
++                                           mox.IsA(objects.BlockDeviceMapping))
++
+         def fake_terminate_connection(self, context, volume, connector):
+             return {}
+         self.stubs.Set(cinder.API, "terminate_connection",
+@@ -11154,9 +11213,12 @@ class EvacuateHostTestCase(BaseTestCase):
+         self._rebuild()
+ 
+         # cleanup
+-        for bdms in db.block_device_mapping_get_all_by_instance(
+-                self.context, self.inst_ref['uuid']):
+-            db.block_device_mapping_destroy(self.context, bdms['id'])
++        bdms = db.block_device_mapping_get_all_by_instance(self.context,
++                                                        self.inst_ref['uuid'])
++        if not bdms:
++            self.fail('BDM entry for the attached volume is missing')
++        for bdm in bdms:
++            db.block_device_mapping_destroy(self.context, bdm['id'])
+ 
+     def test_rebuild_on_host_with_shared_storage(self):
+         """Confirm evacuate scenario on shared storage."""
+diff --git a/nova/tests/compute/test_compute_mgr.py b/nova/tests/compute/test_compute_mgr.py
+index f1a2b3b..d47f74e 100644
+--- a/nova/tests/compute/test_compute_mgr.py
++++ b/nova/tests/compute/test_compute_mgr.py
+@@ -1470,7 +1470,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
+             self.assertEqual(reboot_type, 'HARD')
+ 
+     @mock.patch('nova.objects.BlockDeviceMapping.get_by_volume_id')
+-    @mock.patch('nova.compute.manager.ComputeManager._detach_volume')
++    @mock.patch('nova.compute.manager.ComputeManager._driver_detach_volume')
+     @mock.patch('nova.objects.Instance._from_db_object')
+     def test_remove_volume_connection(self, inst_from_db, detach, bdm_get):
+         bdm = mock.sentinel.bdm
+@@ -1482,6 +1482,50 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
+                                                   inst_obj)
+         detach.assert_called_once_with(self.context, inst_obj, bdm)
+ 
++    def test_detach_volume(self):
++        self._test_detach_volume()
++
++    def test_detach_volume_not_destroy_bdm(self):
++        self._test_detach_volume(destroy_bdm=False)
++
++    @mock.patch('nova.objects.BlockDeviceMapping.get_by_volume_id')
++    @mock.patch('nova.compute.manager.ComputeManager._driver_detach_volume')
++    @mock.patch('nova.compute.manager.ComputeManager.'
++                '_notify_about_instance_usage')
++    @mock.patch('nova.conductor.manager.ConductorManager.vol_usage_update')
++    def _test_detach_volume(self, vol_usage_update, notify_inst_usage, detach,
++                            bdm_get, destroy_bdm=True):
++        volume_id = '123'
++        inst_obj = mock.sentinel.inst_obj
++
++        bdm = mock.MagicMock(spec=objects.BlockDeviceMapping)
++        bdm.device_name = 'vdb'
++        bdm_get.return_value = bdm
++
++        with mock.patch.object(self.compute, 'volume_api') as volume_api:
++            with mock.patch.object(self.compute, 'driver') as driver:
++                connector_sentinel = mock.sentinel.connector
++                driver.get_volume_connector.return_value = connector_sentinel
++
++                self.compute._detach_volume(self.context, volume_id,
++                                            inst_obj,
++                                            destroy_bdm=destroy_bdm)
++
++                detach.assert_called_once_with(self.context, inst_obj, bdm)
++                driver.get_volume_connector.assert_called_once_with(inst_obj)
++                volume_api.terminate_connection.assert_called_once_with(
++                    self.context, volume_id, connector_sentinel)
++                volume_api.detach.assert_called_once_with(mock.ANY, volume_id)
++                notify_inst_usage.assert_called_once_with(
++                    self.context, inst_obj, "volume.detach",
++                    extra_usage_info={'volume_id': volume_id}
++                )
++
++                if destroy_bdm:
++                    bdm.destroy.assert_called_once_with()
++                else:
++                    self.assertFalse(bdm.destroy.called)
++
+     def _test_rescue(self, clean_shutdown=True):
+         instance = fake_instance.fake_instance_obj(
+             self.context, vm_state=vm_states.ACTIVE)
+-- 
+2.1.0
+
