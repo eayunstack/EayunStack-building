@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          6.6%{?dist_eayunstack}
+Release:          7.1%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -77,6 +77,12 @@ Patch0029: 0029-fix-soft-delete-for-1.0.1.patch
 Patch0030: 0030-deleted-filter-does-not-work-properly.patch
 Patch0031: 0031-As-reported-in-bug-1430042-when-using-evacuate-neutr.patch
 Patch0032: 0032-Fix-Bug-ES-8849-Nova-list-tenant.patch
+Patch0033: 0033-GET-details-REST-API-next-link-missing-details.patch
+Patch0034: 0034-Add-new-API-for-updating-Cinder-volume-QosSpecs.patch
+Patch0035: 0035-add-eayun-userdata-to-v2-API-extension.patch
+Patch0036: 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+Patch0037: 0037-Replace-root-volume-during-rebuild.patch
+Patch0038: 0038-rebuild-make-sure-server-is-shut-down-before-volumes.patch
 
 
 BuildArch:        noarch
@@ -512,6 +518,12 @@ This package contains documentation files for nova.
 %patch0030 -p1
 %patch0031 -p1
 %patch0032 -p1
+%patch0033 -p1
+%patch0034 -p1
+%patch0035 -p1
+%patch0036 -p1
+%patch0037 -p1
+%patch0038 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -869,6 +881,15 @@ exit 0
 %endif
 
 %changelog
+* Tue May 16 2017 blkart <blkart.org@gmail.com> - 2014.2-7.1.eayunstack
+add:
+- 0033-GET-details-REST-API-next-link-missing-details.patch
+- 0034-Add-new-API-for-updating-Cinder-volume-QosSpecs.patch
+- 0035-add-eayun-userdata-to-v2-API-extension.patch
+- 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+- 0037-Replace-root-volume-during-rebuild.patch
+- 0038-rebuild-make-sure-server-is-shut-down-before-volumes.patch
+
 * Mon Nov 14 2016 fabian <cybing4@gmail.com> - 2014.2-6.6.eayunstack.1.0.1
 - Fix nova list --tenant don't display tenant instance
 - 0032-Fix-Bug-ES-8849-Nova-list-tenant.patch
