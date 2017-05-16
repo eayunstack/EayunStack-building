@@ -1,0 +1,293 @@
+From 4ee2b216ac4aec34958a3bf1254bd61c7430e058 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 14 Mar 2017 19:48:18 +0800
+Subject: [PATCH 2/3] Add new API for updating Cinder volume QosSpecs
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ nova/api/openstack/compute/contrib/volumes.py | 67 ++++++++++++++++++++-------
+ nova/compute/api.py                           | 28 +++++++++++
+ nova/compute/manager.py                       | 28 +++++++++++
+ nova/compute/rpcapi.py                        |  8 ++++
+ nova/exception.py                             |  4 ++
+ nova/virt/driver.py                           |  8 ++++
+ nova/virt/libvirt/driver.py                   | 30 ++++++++++++
+ 7 files changed, 156 insertions(+), 17 deletions(-)
+
+diff --git a/nova/api/openstack/compute/contrib/volumes.py b/nova/api/openstack/compute/contrib/volumes.py
+index 6387b33..a3b9fb9 100644
+--- a/nova/api/openstack/compute/contrib/volumes.py
++++ b/nova/api/openstack/compute/contrib/volumes.py
+@@ -450,20 +450,40 @@ class VolumeAttachmentController(wsgi.Controller):
+         authorize(context)
+         authorize_attach(context, action='update')
+ 
+-        if not self.is_valid_body(body, 'volumeAttachment'):
+-            msg = _("volumeAttachment not specified")
++        if not (self.is_valid_body(body, 'volumeAttachment') or
++                self.is_valid_body(body, 'volumeQoSSpecs')):
++            msg = _("volumeAttachment or volumeQoSSpecs not specified")
+             raise exc.HTTPBadRequest(explanation=msg)
+ 
+-        old_volume_id = id
+-        old_volume = self.volume_api.get(context, old_volume_id)
+-
+-        try:
+-            new_volume_id = body['volumeAttachment']['volumeId']
+-        except KeyError:
+-            msg = _("volumeId must be specified.")
++        if (self.is_valid_body(body, 'volumeAttachment') and
++                self.is_valid_body(body, 'volumeQoSSpecs')):
++            msg = _("volumeAttachment and volumeQoSSpecs cannot be "
++                    "specified simultaneously")
+             raise exc.HTTPBadRequest(explanation=msg)
+-        self._validate_volume_id(new_volume_id)
+-        new_volume = self.volume_api.get(context, new_volume_id)
++
++        if self.is_valid_body(body, 'volumeAttachment'):
++            update_volume_qos = False
++        else:
++            # Volume QoS Specs should be updated by admin users.
++            if context.is_admin:
++                update_volume_qos = True
++            else:
++                msg = _("volumeQoSSpecs can only be called by admin users")
++                raise exc.HTTPMethodNotAllowed(explanation=msg)
++
++        if update_volume_qos:
++            qos_specs = body['volumeQoSSpecs']['qos_specs']
++        else:
++            old_volume_id = id
++            old_volume = self.volume_api.get(context, old_volume_id)
++
++            try:
++                new_volume_id = body['volumeAttachment']['volumeId']
++            except KeyError:
++                msg = _("volumeId must be specified.")
++                raise exc.HTTPBadRequest(explanation=msg)
++            self._validate_volume_id(new_volume_id)
++            new_volume = self.volume_api.get(context, new_volume_id)
+ 
+         try:
+             instance = self.compute_api.get(context, server_id,
+@@ -476,28 +496,41 @@ class VolumeAttachmentController(wsgi.Controller):
+         found = False
+         try:
+             for bdm in bdms:
+-                if bdm.volume_id != old_volume_id:
++                if bdm.volume_id != id:
+                     continue
+                 try:
+-                    self.compute_api.swap_volume(context, instance, old_volume,
+-                                                 new_volume)
++                    if update_volume_qos:
++                        self.compute_api.update_volume_qos(context, instance,
++                                                           id, qos_specs)
++                    else:
++                        self.compute_api.swap_volume(context, instance,
++                                                     old_volume, new_volume)
++
+                     found = True
+                     break
+                 except exception.VolumeUnattached:
+                     # The volume is not attached.  Treat it as NotFound
+                     # by falling through.
+                     pass
++                except exception.VolumeQoSSpecsUpdateFailed as e:
++                    raise exc.HTTPInternalServerError(
++                            explanation=e.format_message())
+         except exception.InstanceIsLocked as e:
+             raise exc.HTTPConflict(explanation=e.format_message())
+         except exception.InstanceInvalidState as state_error:
++            action = ('update_volume_qos' if update_volume_qos
++                      else 'swap_volume')
+             common.raise_http_conflict_for_instance_invalid_state(state_error,
+-                    'swap_volume')
++                                                                  action)
+ 
+         if not found:
+-            msg = _("volume_id not found: %s") % old_volume_id
++            msg = _("volume_id not found: %s") % id
+             raise exc.HTTPNotFound(explanation=msg)
+         else:
+-            return webob.Response(status_int=202)
++            # update_volume_qos is a synchronous call, so status code of 204
++            # should be returned on success.
++            status_int = 204 if update_volume_qos else 202
++            return webob.Response(status_int=status_int)
+ 
+     def delete(self, req, server_id, id):
+         """Detach a volume from an instance."""
+diff --git a/nova/compute/api.py b/nova/compute/api.py
+index 78b08b3..95bc766 100644
+--- a/nova/compute/api.py
++++ b/nova/compute/api.py
+@@ -2995,6 +2995,34 @@ class API(base.Base):
+     @wrap_check_policy
+     @check_instance_lock
+     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.PAUSED,
++                                    vm_states.SUSPENDED, vm_states.STOPPED,
++                                    vm_states.RESIZED, vm_states.SOFT_DELETED])
++    def update_volume_qos(self, context, instance, volume_id, qos_specs):
++        """Update one volume attached to an instance."""
++        volume = self.volume_api.get(context, volume_id)
++        if volume['attach_status'] == 'detached':
++            raise exception.VolumeUnattached(volume_id=volume_id)
++        # The caller likely got the instance from volume['instance_uuid']
++        # in the first place, but let's sanity check.
++        if volume['instance_uuid'] != instance['uuid']:
++            msg = _("Volume is attached to a different instance.")
++            raise exception.InvalidVolume(reason=msg)
++
++        try:
++            self.compute_rpcapi.update_volume_qos(
++                    context, instance=instance,
++                    volume_id=volume_id,
++                    qos_specs=qos_specs)
++        except Exception:  # pylint: disable=W0702
++            LOG.exception(_LE("Failed to update QoS Specs of the volume "
++                              "%(volume_id)s of instance %(instance_id)s"),
++                          {"volume_id": volume_id,
++                           "instance_id": instance['uuid']})
++            raise exception.VolumeQoSSpecsUpdateFailed()
++
++    @wrap_check_policy
++    @check_instance_lock
++    @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.PAUSED,
+                                     vm_states.STOPPED],
+                           task_state=[None])
+     def attach_interface(self, context, instance, network_id, port_id,
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index 6ebadc2..718bf41 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -4757,6 +4757,34 @@ class ComputeManager(manager.Manager):
+         self.volume_api.detach(context.elevated(), old_volume_id)
+ 
+     @wrap_exception()
++    @reverts_task_state
++    @wrap_instance_fault
++    def update_volume_qos(self, context, instance, volume_id, qos_specs):
++        """Update volume qos specs for an instance."""
++        context = context.elevated()
++
++        bdm = objects.BlockDeviceMapping.get_by_volume_id(
++                context, volume_id, instance_uuid=instance.uuid)
++        device_name = bdm['device_name']
++        orig_cinfo = jsonutils.loads(bdm['connection_info'])
++
++        try:
++            self.driver.update_volume_qos(instance, device_name,
++                                          qos_specs)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception(_LE('Update QoS Specs of volume %s failed'),
++                              volume_id, instance=instance)
++
++        # Update bdm
++        new_cinfo = orig_cinfo
++        new_cinfo['data']['qos_specs'] = qos_specs
++        values = {
++            'connection_info': jsonutils.dumps(new_cinfo)
++        }
++        bdm.update(values)
++        bdm.save()
++
+     def remove_volume_connection(self, context, volume_id, instance):
+         """Remove a volume connection using the volume api."""
+         # NOTE(vish): We don't want to actually mark the volume
+diff --git a/nova/compute/rpcapi.py b/nova/compute/rpcapi.py
+index 2e8bd28..be7dc60 100644
+--- a/nova/compute/rpcapi.py
++++ b/nova/compute/rpcapi.py
+@@ -732,6 +732,14 @@ class ComputeAPI(object):
+                    instance=instance, old_volume_id=old_volume_id,
+                    new_volume_id=new_volume_id)
+ 
++    def update_volume_qos(self, ctxt, instance, volume_id, qos_specs):
++        version = '3.0'
++        cctxt = self.client.prepare(server=_compute_host(None, instance),
++                version=version)
++        cctxt.call(ctxt, 'update_volume_qos',
++                   instance=instance, volume_id=volume_id,
++                   qos_specs=qos_specs)
++
+     def get_host_uptime(self, ctxt, host):
+         version = '3.0'
+         cctxt = self.client.prepare(server=host, version=version)
+diff --git a/nova/exception.py b/nova/exception.py
+index 524df41..68a7d2f 100644
+--- a/nova/exception.py
++++ b/nova/exception.py
+@@ -1755,3 +1755,7 @@ class InvalidHypervisorVirtType(Invalid):
+ 
+ class InvalidVirtualMachineMode(Invalid):
+     msg_fmt = _("Virtual machine mode '%(vmmode)s' is not recognised")
++
++
++class VolumeQoSSpecsUpdateFailed(NovaException):
++    msg_fmt = _("Failed to update volume QoS specs")
+diff --git a/nova/virt/driver.py b/nova/virt/driver.py
+index fd483e5..f81a8d9 100644
+--- a/nova/virt/driver.py
++++ b/nova/virt/driver.py
+@@ -464,6 +464,14 @@ class ComputeDriver(object):
+         """
+         raise NotImplementedError()
+ 
++    def update_volume_qos(self, instance, device_name, qos_specs):
++        """Update QoS Specs of the disk attached to the instance.
++
++        :param instance: nova.objects.instance.Instance
++        :param qos_specs: new QoS Specs of this volume
++        """
++        raise NotImplementedError()
++
+     def attach_interface(self, instance, image_meta, vif):
+         """Attach an interface to the instance.
+ 
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 6ac79b6..0fd4526 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -1479,6 +1479,36 @@ class LibvirtDriver(driver.ComputeDriver):
+         self._swap_volume(virt_dom, disk_dev, conf.source_path, resize_to)
+         self._disconnect_volume(old_connection_info, disk_dev)
+ 
++    def update_volume_qos(self, instance, device_name, qos_specs):
++        virt_dom = self._lookup_by_name(instance['name'])
++        disk_dev = device_name.rpartition("/")[2]
++
++        try:
++            new_qos_specs = {}
++            orig_qos_specs = virt_dom.blockIoTune(disk_dev)
++
++            for key in orig_qos_specs.keys():
++                if (not qos_specs or
++                        key not in qos_specs.keys()):
++                    if orig_qos_specs[key] != 0:
++                        new_qos_specs[key] = 0
++                else:
++                    new_qos_specs[key] = int(qos_specs[key])
++
++            # libvirt setBlockIoTune will call getBlockIoTune,
++            # which results in we cannot call setBlockIoTune with
++            # AFFECT_LIVE and AFFECT_CONFIG specified simultaneously.
++            state = LIBVIRT_POWER_STATE[virt_dom.info()[0]]
++            if state in (power_state.RUNNING, power_state.PAUSED):
++                virt_dom.setBlockIoTune(disk_dev, new_qos_specs,
++                                        libvirt.VIR_DOMAIN_AFFECT_LIVE)
++            virt_dom.setBlockIoTune(disk_dev, new_qos_specs,
++                                    libvirt.VIR_DOMAIN_AFFECT_CONFIG)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception(_LE("Failed to update qos specs of disk %s"),
++                              disk_dev, instance=instance)
++
+     @staticmethod
+     def _get_disk_xml(xml, device):
+         """Returns the xml for the disk mounted at device."""
+-- 
+2.7.4
+

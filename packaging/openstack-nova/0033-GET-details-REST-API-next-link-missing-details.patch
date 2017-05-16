@@ -1,0 +1,214 @@
+From f1828274ba642bc4757bf9940c2b662d186f8cc5 Mon Sep 17 00:00:00 2001
+From: Steven Kaufer <kaufer@us.ibm.com>
+Date: Tue, 13 Jan 2015 19:09:47 +0000
+Subject: [PATCH 1/3] GET details REST API next link missing 'details'
+
+When executing a pagination query a "next" link is included in the
+API reply when there are more items then the specified limit.
+
+See pagination documentation for more information:
+http://docs.openstack.org/api/openstack-compute/2/content/
+Paginated_Collections-d1e664.html
+
+The caller should be able to invoke the "next" link (without
+having to re-format it) in order to get the next page of data.
+The documentation states "Subsequent links will honor the
+initial page size. Thus, a client may follow links to traverse
+a paginated collection without having to input the marker parameter."
+
+The problem is that the "next" link is always scoped to the
+non-detailed query for flavors and images.
+
+For example, if you execute "/v2/<tenant>/flavors/detail?limit=1",
+the "next" link does not have the URL for a detailed query and is
+formatted as "/v2/<tenant>/flavors?limit=1&marker=<marker>". In this
+case the "next" link needs to be scoped to "/v2/<tenant>/flavors/detail".
+
+Change Ib06a6cc6e2dd5e2c8c16986ee256a58752626eb9 fixed this for servers
+only. This change applies the same fix for the other APIs, specifically
+flavors and images.
+
+The user could work around this issue my manually inserting '/details'
+into the "next" link URL.
+
+APIImpact
+Closes-bug: 1410431
+
+Change-Id: I8e57464374051de64a72919c3ddbabd45caecf6f
+(cherry picked from commit f233c65cd3c8e635b2f02f06a399323be67a1aae)
+
+Bug-ES #9566
+http://192.168.15.2/issues/9566
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ nova/api/openstack/compute/views/flavors.py      | 21 +++++++++++++++-----
+ nova/api/openstack/compute/views/images.py       | 23 +++++++++++++++-------
+ nova/tests/api/openstack/compute/test_flavors.py | 10 ++++++++--
+ nova/tests/api/openstack/compute/test_images.py  | 25 ++++++++++++++++++++++++
+ 4 files changed, 65 insertions(+), 14 deletions(-)
+
+diff --git a/nova/api/openstack/compute/views/flavors.py b/nova/api/openstack/compute/views/flavors.py
+index fb76005..a4c8ce0 100644
+--- a/nova/api/openstack/compute/views/flavors.py
++++ b/nova/api/openstack/compute/views/flavors.py
+@@ -49,18 +49,29 @@ class ViewBuilder(common.ViewBuilder):
+ 
+     def index(self, request, flavors):
+         """Return the 'index' view of flavors."""
+-        return self._list_view(self.basic, request, flavors)
++        coll_name = self._collection_name
++        return self._list_view(self.basic, request, flavors, coll_name)
+ 
+     def detail(self, request, flavors):
+         """Return the 'detail' view of flavors."""
+-        return self._list_view(self.show, request, flavors)
++        coll_name = self._collection_name + '/detail'
++        return self._list_view(self.show, request, flavors, coll_name)
+ 
+-    def _list_view(self, func, request, flavors):
+-        """Provide a view for a list of flavors."""
++    def _list_view(self, func, request, flavors, coll_name):
++        """Provide a view for a list of flavors.
++
++        :param func: Function used to format the flavor data
++        :param request: API request
++        :param flavors: List of flavors in dictionary format
++        :param coll_name: Name of collection, used to generate the next link
++                          for a pagination query
++
++        :returns: Flavor reply data in dictionary format
++        """
+         flavor_list = [func(request, flavor)["flavor"] for flavor in flavors]
+         flavors_links = self._get_collection_links(request,
+                                                    flavors,
+-                                                   self._collection_name,
++                                                   coll_name,
+                                                    "flavorid")
+         flavors_dict = dict(flavors=flavor_list)
+ 
+diff --git a/nova/api/openstack/compute/views/images.py b/nova/api/openstack/compute/views/images.py
+index 054fcfb..a1d0381 100644
+--- a/nova/api/openstack/compute/views/images.py
++++ b/nova/api/openstack/compute/views/images.py
+@@ -75,19 +75,28 @@ class ViewBuilder(common.ViewBuilder):
+     def detail(self, request, images):
+         """Show a list of images with details."""
+         list_func = self.show
+-        return self._list_view(list_func, request, images)
++        coll_name = self._collection_name + '/detail'
++        return self._list_view(list_func, request, images, coll_name)
+ 
+     def index(self, request, images):
+         """Show a list of images with basic attributes."""
+         list_func = self.basic
+-        return self._list_view(list_func, request, images)
++        coll_name = self._collection_name
++        return self._list_view(list_func, request, images, coll_name)
+ 
+-    def _list_view(self, list_func, request, images):
+-        """Provide a view for a list of images."""
++    def _list_view(self, list_func, request, images, coll_name):
++        """Provide a view for a list of images.
++
++        :param list_func: Function used to format the image data
++        :param request: API request
++        :param images: List of images in dictionary format
++        :param coll_name: Name of collection, used to generate the next link
++                          for a pagination query
++
++        :returns: Image reply data in dictionary format
++        """
+         image_list = [list_func(request, image)["image"] for image in images]
+-        images_links = self._get_collection_links(request,
+-                                                  images,
+-                                                  self._collection_name)
++        images_links = self._get_collection_links(request, images, coll_name)
+         images_dict = dict(images=image_list)
+ 
+         if images_links:
+diff --git a/nova/tests/api/openstack/compute/test_flavors.py b/nova/tests/api/openstack/compute/test_flavors.py
+index 8b5ebb1..ad54eaf 100644
+--- a/nova/tests/api/openstack/compute/test_flavors.py
++++ b/nova/tests/api/openstack/compute/test_flavors.py
+@@ -287,7 +287,7 @@ class FlavorsTestV21(test.TestCase):
+     def test_get_flavor_detail_with_limit(self):
+         url = self._prefix + '/flavors/detail?limit=1'
+         req = self.fake_request.blank(url)
+-        response = self.controller.index(req)
++        response = self.controller.detail(req)
+         response_list = response["flavors"]
+         response_links = response["flavors_links"]
+ 
+@@ -295,6 +295,9 @@ class FlavorsTestV21(test.TestCase):
+             {
+                 "id": "1",
+                 "name": "flavor 1",
++                "ram": "256",
++                "disk": "10",
++                "vcpus": "",
+                 "links": [
+                     {
+                         "rel": "self",
+@@ -309,11 +312,14 @@ class FlavorsTestV21(test.TestCase):
+                 ],
+             },
+         ]
++        self._set_expected_body(expected_flavors[0], ephemeral='20',
++                                swap='10', disabled=False)
++
+         self.assertEqual(response_list, expected_flavors)
+         self.assertEqual(response_links[0]['rel'], 'next')
+ 
+         href_parts = urlparse.urlparse(response_links[0]['href'])
+-        self.assertEqual('/' + self._rspv + '/flavors', href_parts.path)
++        self.assertEqual('/' + self._rspv + '/flavors/detail', href_parts.path)
+         params = urlparse.parse_qs(href_parts.query)
+         self.assertThat({'limit': ['1'], 'marker': ['1']},
+                         matchers.DictMatches(params))
+diff --git a/nova/tests/api/openstack/compute/test_images.py b/nova/tests/api/openstack/compute/test_images.py
+index c815e22..fdf4d74 100644
+--- a/nova/tests/api/openstack/compute/test_images.py
++++ b/nova/tests/api/openstack/compute/test_images.py
+@@ -22,6 +22,7 @@ import copy
+ 
+ from lxml import etree
+ import mock
++import six.moves.urllib.parse as urlparse
+ import webob
+ 
+ from nova.api.openstack.compute import images
+@@ -383,6 +384,30 @@ class ImagesControllerTestV21(test.NoDBTestCase):
+         self.assertRaises(webob.exc.HTTPNotFound,
+                           self.controller.delete, request, '300')
+ 
++    @mock.patch('nova.image.api.API.get_all', return_value=[IMAGE_FIXTURES[0]])
++    def test_get_image_next_link(self, get_all_mocked):
++        request = self.http_request.blank(
++            self.url_base + 'imagesl?limit=1')
++        response = self.controller.index(request)
++        response_links = response['images_links']
++        href_parts = urlparse.urlparse(response_links[0]['href'])
++        self.assertEqual(self.url_base + '/images', href_parts.path)
++        params = urlparse.parse_qs(href_parts.query)
++        self.assertThat({'limit': ['1'], 'marker': [IMAGE_FIXTURES[0]['id']]},
++                        matchers.DictMatches(params))
++
++    @mock.patch('nova.image.api.API.get_all', return_value=[IMAGE_FIXTURES[0]])
++    def test_get_image_details_next_link(self, get_all_mocked):
++        request = self.http_request.blank(
++            self.url_base + 'images/detail?limit=1')
++        response = self.controller.detail(request)
++        response_links = response['images_links']
++        href_parts = urlparse.urlparse(response_links[0]['href'])
++        self.assertEqual(self.url_base + '/images/detail', href_parts.path)
++        params = urlparse.parse_qs(href_parts.query)
++        self.assertThat({'limit': ['1'], 'marker': [IMAGE_FIXTURES[0]['id']]},
++                        matchers.DictMatches(params))
++
+ 
+ class ImagesControllerTestV2(ImagesControllerTestV21):
+     image_controller_class = images.Controller
+-- 
+2.7.4
+
