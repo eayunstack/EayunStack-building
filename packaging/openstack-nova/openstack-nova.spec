@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          7%{?dist_eayunstack}
+Release:          7.1%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -80,6 +80,9 @@ Patch0032: 0032-Fix-Bug-ES-8849-Nova-list-tenant.patch
 Patch0033: 0033-GET-details-REST-API-next-link-missing-details.patch
 Patch0034: 0034-Add-new-API-for-updating-Cinder-volume-QosSpecs.patch
 Patch0035: 0035-add-eayun-userdata-to-v2-API-extension.patch
+Patch0036: 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+Patch0037: 0037-Replace-root-volume-during-rebuild.patch
+Patch0038: 0038-rebuild-make-sure-server-is-shut-down-before-volumes.patch
 
 
 BuildArch:        noarch
@@ -518,6 +521,9 @@ This package contains documentation files for nova.
 %patch0033 -p1
 %patch0034 -p1
 %patch0035 -p1
+%patch0036 -p1
+%patch0037 -p1
+%patch0038 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -875,6 +881,11 @@ exit 0
 %endif
 
 %changelog
+* Wed May 17 2017 blkart <blkart.org@gmail.com> - 2014.2-7.1.eayunstack.dev
+- 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
+- 0037-Replace-root-volume-during-rebuild.patch
+- 0038-rebuild-make-sure-server-is-shut-down-before-volumes.patch
+
 * Tue Mar 28 2017 Chen Yuanbin <cybing4@gmail.com> - 2014.2-7.eayunstack.dev
 - Fix nova get details rest api next link missing 'details'
 - 0033-GET-details-REST-API-next-link-missing-details.patch
