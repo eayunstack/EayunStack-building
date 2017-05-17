@@ -1,0 +1,45 @@
+From 54565ddbb16c0913e7dc8ee5dc04ddde721865e3 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Tue, 16 May 2017 13:21:43 +0800
+Subject: [PATCH 3/3] rebuild: make sure server is shut down before volumes are
+ detached
+
+Currently, we detach block devices before an instance is shut down,
+which means all the data, which hasn't been fsynced yet, will possibly
+be lost.
+
+Closes-Bug: #1471216
+Related-Bug: #1440762
+
+Related upstream commit: 7fe20e96f2604d03ec6a7fa563485ffdcb5cc519
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+---
+ nova/compute/manager.py | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index e94ae3a..a5008dd 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -2699,10 +2699,13 @@ class ComputeManager(manager.Manager):
+             # partitions.
+             raise exception.PreserveEphemeralNotSupported()
+ 
+-        detach_block_devices(context, bdms)
+-
+-        if not recreate:
+-            self.driver.destroy(context, instance, network_info,
++        if recreate:
++            detach_block_devices(context, bdms)
++        else:
++            self._power_off_instance(context, instance, clean_shutdown=True)
++            detach_block_devices(context, bdms)
++            self.driver.destroy(context, instance,
++                                network_info=network_info,
+                                 block_device_info=block_device_info)
+             root_bdm = block_device.get_root_bdm(bdms)
+             if root_bdm and root_bdm.is_volume:
+-- 
+2.1.0
+
