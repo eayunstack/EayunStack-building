@@ -1,0 +1,38 @@
+From 3281feb860dde54befa07f0aacf99c2190a819fe Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 11 May 2017 11:46:20 +0800
+Subject: [PATCH] es-metering: fix port selection when tcp_port is specified
+
+Fixes: redmine #10055
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/es_iptables_driver.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+index 5854a13f7..9c2040053 100644
+--- a/neutron/services/metering/drivers/iptables/es_iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+@@ -109,15 +109,17 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+         if label['direction'] == 'ingress':
+             rule_parts += ['-m mark --mark %s' % ES_METERING_MARK]
+             rule_dir = '-d'
++            port_selector = '--dport'
+         else:
+             rule_parts += ['-o %s+' % iptables_driver.EXTERNAL_DEV_PREFIX]
+             rule_dir = '-s'
++            port_selector = '--sport'
+ 
+         if label['internal_ip'] is not None:
+             rule_parts += ['%s %s' % (rule_dir, label['internal_ip'])]
+ 
+         if label['tcp_port'] is not None:
+-            rule_parts += ['-p tcp --dport %s' % label['tcp_port']]
++            rule_parts += ['-p tcp %s %s' % (port_selector, label['tcp_port'])]
+ 
+         rule_parts += ['-j %s' % label_chain]
+ 
+-- 
+2.13.0
+
