@@ -1,0 +1,44 @@
+From 1179b812f4995b7ab3567008c82188ab80b5ef46 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 10 Mar 2017 10:02:18 +0800
+Subject: [PATCH 67/68] Sync #77 from devel to testing
+
+firewall_l3_agent: only get hosted routers' info
+
+Fixes: redmine #9588
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 003a20ecc07831fc2f3059e9cb8d76d2108851d8)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Change-Id: I42447c39a54bb3886ccb05e46f9ae290dc8023c6
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../services/firewall/agents/l3reference/firewall_l3_agent.py | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/neutron/services/firewall/agents/l3reference/firewall_l3_agent.py b/neutron/services/firewall/agents/l3reference/firewall_l3_agent.py
+index 0d994ef5a..bedabe2bc 100644
+--- a/neutron/services/firewall/agents/l3reference/firewall_l3_agent.py
++++ b/neutron/services/firewall/agents/l3reference/firewall_l3_agent.py
+@@ -119,10 +119,13 @@ class FWaaSL3AgentRpcCallback(api.FWaaSAgentRpcCallbackMixin):
+         LOG.debug(_("%(func_name)s from agent for fw: %(fwid)s"),
+                   {'func_name': func_name, 'fwid': fw['id']})
+         try:
+-            routers = self.plugin_rpc.get_routers(context)
+-            router_info_list = self._get_router_info_list_for_tenant(
+-                routers,
+-                fw['tenant_id'])
++            router_ids = self.router_info.keys()
++            router_info_list = []
++            if router_ids:
++                routers = self.plugin_rpc.get_routers(context, router_ids)
++                router_info_list = self._get_router_info_list_for_tenant(
++                    routers,
++                    fw['tenant_id'])
+             if not router_info_list:
+                 LOG.debug(_('No Routers on tenant: %s'), fw['tenant_id'])
+                 # fw was created before any routers were added, and if a
+-- 
+2.13.0
+
