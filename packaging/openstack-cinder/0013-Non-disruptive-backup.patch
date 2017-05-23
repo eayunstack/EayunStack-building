@@ -1,0 +1,1031 @@
+From c1b22abf746fa848ad788ca79300b3dfc8388a37 Mon Sep 17 00:00:00 2001
+From: Xing Yang <xing.yang@emc.com>
+Date: Mon, 22 Jun 2015 17:46:32 -0400
+Subject: [PATCH 13/17] Non-disruptive backup
+
+This patch adds support for non-disruptive backup for
+volumes in 'in-use' status as follows:
+
+Adds a force flag in create backup API when backing up
+an 'in-use' volume.
+
+For the default implementation in volume/driver.py:
+* Create a temporary volume from the original volume
+* Backup the temporary volume
+* Clean up the temporary volume
+
+For the LVM driver:
+* Create a temporary snapshot
+* Obtain local_path for the temporary snapshot
+* Backup the temporary snapshot
+* Cleanup the temporary snapshot
+
+Attach snapshot will be implemented in another patch.
+
+Partial-implements blueprint non-disruptive-backup
+Change-Id: I915c279b526e7268d68ab18ce01200ae22deabdd
+
+(cherry picked from commit e78018bd05a51e33d5e1cd7c001ee6e5116a6370)
+
+Conflicts:
+      cinder/api/contrib/backups.py
+      cinder/backup/api.py
+      cinder/backup/manager.py
+      cinder/backup/rpcapi.py
+      cinder/objects/backup.py
+      cinder/objects/volume.py
+      cinder/tests/api/contrib/test_backups.py
+      cinder/tests/test_backup.py
+      cinder/tests/test_db_api.py
+      cinder/tests/test_volume.py
+      cinder/tests/unit/fake_volume.py
+      cinder/tests/unit/objects/test_backup.py
+      cinder/tests/unit/objects/test_volume.py
+      cinder/tests/unit/test_migrations.py
+      cinder/tests/utils.py
+      cinder/volume/driver.py
+
+(cherry picked from commit 70892882bb2bdbde1c6247a695c15e6454cb421f)
+
+Conflicts:
+      cinder/backup/manager.py
+      cinder/tests/test_backup.py
+      cinder/tests/test_migrations.py
+---
+ cinder/api/contrib/backups.py                      |  5 +-
+ cinder/backup/api.py                               | 20 ++++-
+ cinder/backup/manager.py                           | 91 ++++++++++++++++----
+ cinder/backup/rpcapi.py                            |  2 +-
+ .../028_add_temp_volume_snapshot_ids_to_backups.py | 43 ++++++++++
+ .../versions/029_add_previous_status_to_volumes.py | 37 ++++++++
+ cinder/db/sqlalchemy/models.py                     |  4 +
+ cinder/tests/api/contrib/test_backups.py           | 95 ++++++++++++++++++++-
+ cinder/tests/fake_driver.py                        |  3 +
+ cinder/tests/test_backup.py                        | 98 ++++++++++++++++++----
+ cinder/tests/test_db_api.py                        | 10 ++-
+ cinder/tests/test_migrations.py                    | 21 +++++
+ cinder/tests/test_volume.py                        | 46 +++++++++-
+ cinder/tests/utils.py                              | 29 +++++++
+ cinder/volume/driver.py                            | 75 +++++++++++++++++
+ cinder/volume/drivers/lvm.py                       | 25 ++++--
+ 16 files changed, 548 insertions(+), 56 deletions(-)
+ create mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/028_add_temp_volume_snapshot_ids_to_backups.py
+ create mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/029_add_previous_status_to_volumes.py
+
+diff --git a/cinder/api/contrib/backups.py b/cinder/api/contrib/backups.py
+index ab11def..be12feb 100644
+--- a/cinder/api/contrib/backups.py
++++ b/cinder/api/contrib/backups.py
+@@ -246,7 +246,7 @@ class BackupsController(wsgi.Controller):
+         container = backup.get('container', None)
+         name = backup.get('name', None)
+         description = backup.get('description', None)
+-
++        force = backup.get('force', False)
+         LOG.info(_("Creating backup of volume %(volume_id)s in container"
+                    " %(container)s"),
+                  {'volume_id': volume_id, 'container': container},
+@@ -254,7 +254,8 @@ class BackupsController(wsgi.Controller):
+ 
+         try:
+             new_backup = self.backup_api.create(context, name, description,
+-                                                volume_id, container)
++                                                volume_id, container,
++                                                None, force)
+         except exception.InvalidVolume as error:
+             raise exc.HTTPBadRequest(explanation=error.msg)
+         except exception.VolumeNotFound as error:
+diff --git a/cinder/backup/api.py b/cinder/backup/api.py
+index 1d2c417..201a436 100644
+--- a/cinder/backup/api.py
++++ b/cinder/backup/api.py
+@@ -112,13 +112,23 @@ class API(base.Base):
+         return [srv['host'] for srv in services if not srv['disabled']]
+ 
+     def create(self, context, name, description, volume_id,
+-               container, availability_zone=None):
++               container, availability_zone=None,
++               force=False):
+         """Make the RPC call to create a volume backup."""
+         check_policy(context, 'create')
+         volume = self.volume_api.get(context, volume_id)
+-        if volume['status'] != "available":
+-            msg = _('Volume to be backed up must be available')
++
++        if volume['status'] not in ["available", "in-use"]:
++            msg = (_('Volume to be backed up must be available '
++                     'or in-use, but the current status is "%s".')
++                   % volume['status'])
+             raise exception.InvalidVolume(reason=msg)
++        elif volume['status'] in ["in-use"] and not force:
++            msg = _('Backing up an in-use volume must use '
++                    'the force flag.')
++            raise exception.InvalidVolume(reason=msg)
++
++        previous_status = volume['status']
+         volume_host = volume_utils.extract_host(volume['host'], 'host')
+         if not self._is_backup_service_enabled(volume, volume_host):
+             raise exception.ServiceNotFound(service_id='cinder-backup')
+@@ -160,7 +170,9 @@ class API(base.Base):
+                     raise exception.BackupLimitExceeded(
+                         allowed=quotas[over])
+ 
+-        self.db.volume_update(context, volume_id, {'status': 'backing-up'})
++        self.db.volume_update(context, volume_id,
++                              {'status': 'backing-up',
++                               'previous_status': previous_status})
+         options = {'user_id': context.user_id,
+                    'project_id': context.project_id,
+                    'display_name': name,
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index a2f5346..c5a6f31 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -72,7 +72,7 @@ QUOTAS = quota.QUOTAS
+ class BackupManager(manager.SchedulerDependentManager):
+     """Manages backup of block storage devices."""
+ 
+-    RPC_API_VERSION = '1.0'
++    RPC_API_VERSION = '1.2'
+ 
+     target = messaging.Target(version=RPC_API_VERSION)
+ 
+@@ -197,18 +197,34 @@ class BackupManager(manager.SchedulerDependentManager):
+         for volume in volumes:
+             volume_host = volume_utils.extract_host(volume['host'], 'backend')
+             backend = self._get_volume_backend(host=volume_host)
+-            if volume['status'] == 'backing-up':
+-                LOG.info(_('Resetting volume %s to available '
+-                           '(was backing-up).') % volume['id'])
+-                mgr = self._get_manager(backend)
+-                mgr.detach_volume(ctxt, volume['id'])
+-            if volume['status'] == 'restoring-backup':
+-                LOG.info(_('Resetting volume %s to error_restoring '
+-                           '(was restoring-backup).') % volume['id'])
+-                mgr = self._get_manager(backend)
+-                mgr.detach_volume(ctxt, volume['id'])
+-                self.db.volume_update(ctxt, volume['id'],
+-                                      {'status': 'error_restoring'})
++            if volume['attach_status'] == 'attached':
++                if (volume['status'] == 'backing-up' and
++                       volume['previous_status'] == 'available'):
++                    LOG.info(_('Resetting volume %(vol_id)s to previous '
++                                 'status %(status)s (was backing-up).'),
++                             {'vol_id': volume['id'],
++                              'status': volume['previous_status']})
++                    mgr = self._get_manager(backend)
++                    if (volume['attached_host'] == self.host and
++                            volume['instance_uuid'] == None):
++                        mgr.detach_volume(ctxt, volume['id'])
++                elif (volume['status'] == 'backing-up' and
++                        volume['previous_status'] == 'in-use'):
++                    LOG.info(_('Resetting volume %(vol_id)s to previous '
++                                 'status %(status)s (was backing-up).'),
++                             {'vol_id': volume['id'],
++                              'status': volume['previous_status']})
++                    self.db.volume_update(ctxt, volume['id'],
++                                          volume['previous_status'])
++                elif volume['status'] == 'restoring-backup':
++                    LOG.info(_('setting volume %s to error_restoring '
++                                 '(was restoring-backup).'), volume['id'])
++                    mgr = self._get_manager(backend)
++                    if (volume['attached_host'] == self.host and
++                            volume['instance_uuid'] == None):
++                        mgr.detach_volume(ctxt, volume['id'])
++                    self.db.volume_update(ctxt, volume['id'],
++                                          {'status': 'error_restoring'})
+ 
+         # TODO(smulcahy) implement full resume of backup and restore
+         # operations on restart (rather than simply resetting)
+@@ -218,25 +234,60 @@ class BackupManager(manager.SchedulerDependentManager):
+                 LOG.info(_('Resetting backup %s to error (was creating).')
+                          % backup['id'])
+                 err = 'incomplete backup reset on manager restart'
++                backup['status'] = 'error'
++                backup['fail_reason'] = err
+                 self.db.backup_update(ctxt, backup['id'], {'status': 'error',
+                                                            'fail_reason': err})
+             if backup['status'] == 'restoring':
+                 LOG.info(_('Resetting backup %s to available (was restoring).')
+                          % backup['id'])
++                backup['status'] = 'available'
+                 self.db.backup_update(ctxt, backup['id'],
+                                       {'status': 'available'})
+             if backup['status'] == 'deleting':
+                 LOG.info(_('Resuming delete on backup: %s.') % backup['id'])
+                 self.delete_backup(ctxt, backup['id'])
+ 
++        self._cleanup_temp_volumes_snapshots(backups)
++
++    def _cleanup_temp_volumes_snapshots(self, backups):
++        # NOTE(xyang): If the service crashes or gets restarted during the
++        # backup operation, there could be temporary volumes or snapshots
++        # that are not deleted. Make sure any temporary volumes or snapshots
++        # create by the backup job are deleted when service is started.
++        ctxt = context.get_admin_context()
++        for backup in backups:
++            volume = self.db.volume_get(ctxt, backup['volume_id'])
++            volume_host = volume_utils.extract_host(volume['host'], 'backend')
++            backend = self._get_volume_backend(host=volume_host)
++            mgr = self._get_manager(backend)
++            if backup['temp_volume_id'] and backup['status'] == 'error':
++                temp_volume = self.db.volume_get(ctxt,
++                                                 backup['temp_volume_id'])
++                # The temp volume should be deleted directly thru the
++                # the volume driver, not thru the volume manager.
++                mgr.driver.delete_volume(temp_volume)
++                self.db.volume_destroy(ctxt, temp_volume['id'])
++            if backup['temp_snapshot_id'] and backup['status'] == 'error':
++                temp_snapshot = self.db.snapshot_get(
++                        ctxt, backup['temp_snapshot_id'])
++                # The temp snapshot should be deleted directly thru the
++                # volume driver, not thru the volume manager.
++                mgr.driver.delete_snapshot(temp_snapshot)
++                self.db.volume_glance_metadata_delete_by_snapshot(
++                        ctxt, temp_snapshot['id'])
++                self.db.snapshot_destroy(ctxt, temp_snapshot['id'])
++
+     def create_backup(self, context, backup_id):
+         """Create volume backups using configured backup service."""
+         backup = self.db.backup_get(context, backup_id)
+         volume_id = backup['volume_id']
+         volume = self.db.volume_get(context, volume_id)
++        previous_status = volume.get('previous_status', None)
+         LOG.info(_('Create backup started, backup: %(backup_id)s '
+-                   'volume: %(volume_id)s.') %
+-                 {'backup_id': backup_id, 'volume_id': volume_id})
++                     'volume: %(volume_id)s.'),
++                 {'backup_id': backup['id'], 'volume_id': volume_id})
++
+         volume_host = volume_utils.extract_host(volume['host'], 'backend')
+         backend = self._get_volume_backend(host=volume_host)
+ 
+@@ -282,12 +333,16 @@ class BackupManager(manager.SchedulerDependentManager):
+         except Exception as err:
+             with excutils.save_and_reraise_exception():
+                 self.db.volume_update(context, volume_id,
+-                                      {'status': 'available'})
++                                      {'status': previous_status,
++                                       'previous_status': 'error_backing-up'})
+                 self.db.backup_update(context, backup_id,
+                                       {'status': 'error',
+                                        'fail_reason': unicode(err)})
+ 
+-        self.db.volume_update(context, volume_id, {'status': 'available'})
++        # Restore the original status.
++        self.db.volume_update(context, volume_id,
++                              {'status': previous_status,
++                               'previous_status': 'backing-up'})
+         self.db.backup_update(context, backup_id, {'status': 'available',
+                                                    'size': volume['size'],
+                                                    'availability_zone':
+@@ -695,4 +750,4 @@ class BackupManager(manager.SchedulerDependentManager):
+             notifier_info = {'id': backup_id, 'update': {'status': status}}
+             notifier = rpc.get_notifier('backupStatusUpdate')
+             notifier.info(context, "backups" + '.reset_status.end',
+-                          notifier_info)
+\ No newline at end of file
++                          notifier_info)
+diff --git a/cinder/backup/rpcapi.py b/cinder/backup/rpcapi.py
+index 7258eb4..1d59c2e 100644
+--- a/cinder/backup/rpcapi.py
++++ b/cinder/backup/rpcapi.py
+@@ -96,4 +96,4 @@ class BackupAPI(object):
+                    'host': host})
+         cctxt = self.client.prepare(server=host)
+         return cctxt.cast(ctxt, 'reset_status', backup_id=backup_id,
+-                          status=status)
+\ No newline at end of file
++                          status=status)
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/028_add_temp_volume_snapshot_ids_to_backups.py b/cinder/db/sqlalchemy/migrate_repo/versions/028_add_temp_volume_snapshot_ids_to_backups.py
+new file mode 100644
+index 0000000..11ed0c5
+--- /dev/null
++++ b/cinder/db/sqlalchemy/migrate_repo/versions/028_add_temp_volume_snapshot_ids_to_backups.py
+@@ -0,0 +1,43 @@
++# Copyright (c) 2015 EMC Corporation
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from sqlalchemy import Column, MetaData, String, Table
++
++
++def upgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    backups = Table('backups', meta, autoload=True)
++    temp_volume_id = Column('temp_volume_id', String(length=36))
++    temp_snapshot_id = Column('temp_snapshot_id', String(length=36))
++
++    backups.create_column(temp_volume_id)
++    backups.update().values(temp_volume_id=None).execute()
++
++    backups.create_column(temp_snapshot_id)
++    backups.update().values(temp_snapshot_id=None).execute()
++
++
++def downgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    backups = Table('backups', meta, autoload=True)
++    temp_volume_id = backups.columns.temp_volume_id
++    temp_snapshot_id = backups.columns.temp_snapshot_id
++
++    backups.drop_column(temp_volume_id)
++    backups.drop_column(temp_snapshot_id)
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/029_add_previous_status_to_volumes.py b/cinder/db/sqlalchemy/migrate_repo/versions/029_add_previous_status_to_volumes.py
+new file mode 100644
+index 0000000..ddf1d16
+--- /dev/null
++++ b/cinder/db/sqlalchemy/migrate_repo/versions/029_add_previous_status_to_volumes.py
+@@ -0,0 +1,37 @@
++# Copyright (c) 2015 EMC Corporation
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from sqlalchemy import Column, MetaData, String, Table
++
++
++def upgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    volumes = Table('volumes', meta, autoload=True)
++    previous_status = Column('previous_status', String(length=255))
++
++    volumes.create_column(previous_status)
++    volumes.update().values(previous_status=None).execute()
++
++
++def downgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    volumes = Table('volumes', meta, autoload=True)
++    previous_status = volumes.columns.previous_status
++
++    volumes.drop_column(previous_status)
+diff --git a/cinder/db/sqlalchemy/models.py b/cinder/db/sqlalchemy/models.py
+index 466ef94..ada4383 100644
+--- a/cinder/db/sqlalchemy/models.py
++++ b/cinder/db/sqlalchemy/models.py
+@@ -161,6 +161,8 @@ class Volume(BASE, CinderBase):
+     replication_extended_status = Column(String(255))
+     replication_driver_data = Column(String(255))
+ 
++    previous_status = Column(String(255))
++
+     consistencygroup = relationship(
+         ConsistencyGroup,
+         backref="volumes",
+@@ -499,6 +501,8 @@ class Backup(BASE, CinderBase):
+     service = Column(String(255))
+     size = Column(Integer)
+     object_count = Column(Integer)
++    temp_volume_id = Column(String(36))
++    temp_snapshot_id = Column(String(36))
+ 
+     @validates('fail_reason')
+     def validate_fail_reason(self, key, fail_reason):
+diff --git a/cinder/tests/api/contrib/test_backups.py b/cinder/tests/api/contrib/test_backups.py
+index f41a4f7..35dbb8b 100644
+--- a/cinder/tests/api/contrib/test_backups.py
++++ b/cinder/tests/api/contrib/test_backups.py
+@@ -407,6 +407,98 @@ class BackupsAPITestCase(test.TestCase):
+         db.volume_destroy(context.get_admin_context(), volume_id)
+ 
+     @mock.patch('cinder.db.service_get_all_by_topic')
++    def test_create_backup_inuse_no_force(self,
++                                          _mock_service_get_all_by_topic):
++        _mock_service_get_all_by_topic.return_value = [
++            {'availability_zone': "fake_az", 'host': 'test_host',
++             'disabled': 0, 'updated_at': timeutils.utcnow()}]
++
++        volume_id = utils.create_volume(self.context, size=5,
++                                        status='in-use')['id']
++
++        body = {"backup": {"display_name": "nightly001",
++                           "display_description":
++                           "Nightly Backup 03-Sep-2012",
++                           "volume_id": volume_id,
++                           "container": "nightlybackups",
++                           }
++                }
++        req = webob.Request.blank('/v2/fake/backups')
++        req.method = 'POST'
++        req.headers['Content-Type'] = 'application/json'
++        req.body = json.dumps(body)
++        res = req.get_response(fakes.wsgi_app())
++
++        res_dict = json.loads(res.body)
++
++        self.assertEqual(400, res.status_int)
++        self.assertEqual(400, res_dict['badRequest']['code'])
++        self.assertIsNotNone(res_dict['badRequest']['message'])
++
++        db.volume_destroy(context.get_admin_context(), volume_id)
++
++    @mock.patch('cinder.db.service_get_all_by_topic')
++    def test_create_backup_inuse_force(self, _mock_service_get_all_by_topic):
++        _mock_service_get_all_by_topic.return_value = [
++            {'availability_zone': "fake_az", 'host': 'test_host',
++             'disabled': 0, 'updated_at': timeutils.utcnow()}]
++
++        volume_id = utils.create_volume(self.context, size=5,
++                                        status='in-use')['id']
++        backup_id = self._create_backup(volume_id, status="available")
++        body = {"backup": {"display_name": "nightly001",
++                           "display_description":
++                           "Nightly Backup 03-Sep-2012",
++                           "volume_id": volume_id,
++                           "container": "nightlybackups",
++                           "force": True,
++                           }
++                }
++        req = webob.Request.blank('/v2/fake/backups')
++        req.method = 'POST'
++        req.headers['Content-Type'] = 'application/json'
++        req.body = json.dumps(body)
++        res = req.get_response(fakes.wsgi_app())
++
++        res_dict = json.loads(res.body)
++
++        self.assertEqual(202, res.status_int)
++        self.assertIn('id', res_dict['backup'])
++        self.assertTrue(_mock_service_get_all_by_topic.called)
++
++        db.backup_destroy(context.get_admin_context(), backup_id)
++        db.volume_destroy(context.get_admin_context(), volume_id)
++
++    @mock.patch('cinder.db.service_get_all_by_topic')
++    def test_create_backup_snapshot_json(self, _mock_service_get_all_by_topic):
++        _mock_service_get_all_by_topic.return_value = [
++            {'availability_zone': "fake_az", 'host': 'test_host',
++             'disabled': 0, 'updated_at': timeutils.utcnow()}]
++
++        volume_id = utils.create_volume(self.context, size=5,
++                                        status='available')['id']
++
++        body = {"backup": {"display_name": "nightly001",
++                           "display_description":
++                           "Nightly Backup 03-Sep-2012",
++                           "volume_id": volume_id,
++                           "container": "nightlybackups",
++                           }
++                }
++        req = webob.Request.blank('/v2/fake/backups')
++        req.method = 'POST'
++        req.headers['Content-Type'] = 'application/json'
++        req.body = json.dumps(body)
++        res = req.get_response(fakes.wsgi_app())
++
++        res_dict = json.loads(res.body)
++        self.assertEqual(res.status_int, 202)
++        self.assertIn('id', res_dict['backup'])
++        self.assertTrue(_mock_service_get_all_by_topic.called)
++
++        db.volume_destroy(context.get_admin_context(), volume_id)
++
++    @mock.patch('cinder.db.service_get_all_by_topic')
+     def test_create_backup_xml(self, _mock_service_get_all_by_topic):
+         _mock_service_get_all_by_topic.return_value = [
+             {'availability_zone': "fake_az", 'host': 'test_host',
+@@ -507,9 +599,6 @@ class BackupsAPITestCase(test.TestCase):
+ 
+         self.assertEqual(res.status_int, 400)
+         self.assertEqual(res_dict['badRequest']['code'], 400)
+-        self.assertEqual(res_dict['badRequest']['message'],
+-                         'Invalid volume: Volume to be backed up must'
+-                         ' be available')
+ 
+     @mock.patch('cinder.db.service_get_all_by_topic')
+     def test_create_backup_WithOUT_enabled_backup_service(
+diff --git a/cinder/tests/fake_driver.py b/cinder/tests/fake_driver.py
+index aaa9617..2403494 100644
+--- a/cinder/tests/fake_driver.py
++++ b/cinder/tests/fake_driver.py
+@@ -150,6 +150,9 @@ class LoggingVolumeDriver(driver.VolumeDriver):
+     def terminate_connection(self, volume, connector):
+         self.log_action('terminate_connection', volume)
+ 
++    def create_cloned_volume(self, volume, src_vol):
++        self.log_action('create_cloned_volume', volume)
++
+     _LOGS = []
+ 
+     @staticmethod
+diff --git a/cinder/tests/test_backup.py b/cinder/tests/test_backup.py
+index 2ebbb10..ef9c5ee 100644
+--- a/cinder/tests/test_backup.py
++++ b/cinder/tests/test_backup.py
+@@ -32,6 +32,7 @@ from cinder.openstack.common import timeutils
+ from cinder import test
+ from cinder.tests.backup.fake_service_with_verify import\
+     get_backup_driver
++from cinder.volume.drivers import lvm
+ 
+ 
+ CONF = cfg.CONF
+@@ -64,7 +65,9 @@ class BaseBackupTest(test.TestCase):
+                                 status='creating',
+                                 size=1,
+                                 object_count=0,
+-                                project_id='fake'):
++                                project_id='fake',
++                                temp_volume_id=None,
++                                temp_snapshot_id=None):
+         """Create a backup entry in the DB.
+ 
+         Return the entry ID
+@@ -83,11 +86,14 @@ class BaseBackupTest(test.TestCase):
+         backup['service'] = CONF.backup_driver
+         backup['size'] = size
+         backup['object_count'] = object_count
++        backup['temp_volume_id'] = temp_volume_id
++        backup['temp_snapshot_id'] = temp_snapshot_id
+         return db.backup_create(self.ctxt, backup)['id']
+ 
+     def _create_volume_db_entry(self, display_name='test_volume',
+                                 display_description='this is a test volume',
+                                 status='backing-up',
++                                previous_status='available',
+                                 size=1):
+         """Create a volume entry in the DB.
+ 
+@@ -102,8 +108,38 @@ class BaseBackupTest(test.TestCase):
+         vol['display_name'] = display_name
+         vol['display_description'] = display_description
+         vol['attach_status'] = 'detached'
++        vol['availability_zone'] = '1'
++        vol['previous_status'] = previous_status
+         return db.volume_create(self.ctxt, vol)['id']
+ 
++    def _create_snapshot_db_entry(self, display_name='test_snapshot',
++                                  display_description='test snapshot',
++                                  status='available',
++                                  size=1,
++                                  volume_id='1',
++                                  provider_location=None):
++        """Create a snapshot entry in the DB.
++
++        Return the entry ID.
++        """
++        snap = {}
++        snap['size'] = size
++        snap['host'] = 'testhost'
++        snap['user_id'] = 'fake'
++        snap['project_id'] = 'fake'
++        snap['status'] = status
++        snap['display_name'] = display_name
++        snap['display_description'] = display_description
++        snap['volume_id'] = volume_id
++        snap['cgsnapshot_id'] = None
++        snap['volume_size'] = size
++        snap['provider_location'] = provider_location
++        return db.snapshot_create(self.ctxt, snap)['id']
++
++    def _create_volume_attach(self, volume_id):
++        db.volume_attached(self.ctxt, volume_id, None, 'testhost',
++                           '/dev/vd0')
++
+     def _create_exported_record_entry(self, vol_size=1):
+         """Create backup metadata export entry."""
+         vol_id = self._create_volume_db_entry(status='available',
+@@ -133,15 +169,40 @@ class BaseBackupTest(test.TestCase):
+ class BackupTestCase(BaseBackupTest):
+     """Test Case for backups."""
+ 
+-    def test_init_host(self):
++    @mock.patch.object(lvm.LVMVolumeDriver, 'delete_snapshot')
++    @mock.patch.object(lvm.LVMVolumeDriver, 'delete_volume')
++    def test_init_host(self, mock_delete_volume, mock_delete_snapshot):
+         """Make sure stuck volumes and backups are reset to correct
+         states when backup_manager.init_host() is called
+         """
+-        vol1_id = self._create_volume_db_entry(status='backing-up')
+-        vol2_id = self._create_volume_db_entry(status='restoring-backup')
+-        backup1_id = self._create_backup_db_entry(status='creating')
+-        backup2_id = self._create_backup_db_entry(status='restoring')
+-        backup3_id = self._create_backup_db_entry(status='deleting')
++        vol1_id = self._create_volume_db_entry()
++        self._create_volume_attach(vol1_id)
++        db.volume_update(self.ctxt, vol1_id, {'status': 'backing-up'})
++        vol2_id = self._create_volume_db_entry()
++        self._create_volume_attach(vol2_id)
++        db.volume_update(self.ctxt, vol2_id, {'status': 'restoring-backup'})
++        vol3_id = self._create_volume_db_entry()
++        db.volume_update(self.ctxt, vol3_id, {'status': 'available'})
++        vol4_id = self._create_volume_db_entry()
++        db.volume_update(self.ctxt, vol4_id, {'status': 'backing-up'})
++        temp_vol_id = self._create_volume_db_entry()
++        db.volume_update(self.ctxt, temp_vol_id, {'status': 'available'})
++        vol5_id = self._create_volume_db_entry()
++        db.volume_update(self.ctxt, vol4_id, {'status': 'backing-up'})
++        temp_snap_id = self._create_snapshot_db_entry()
++        db.snapshot_update(self.ctxt, temp_snap_id, {'status': 'available'})
++        backup1_id = self._create_backup_db_entry(status='creating',
++                                                  volume_id=vol1_id)
++        backup2_id = self._create_backup_db_entry(status='restoring',
++                                                  volume_id=vol2_id)
++        backup3_id = self._create_backup_db_entry(status='deleting',
++                                                  volume_id=vol3_id)
++        self._create_backup_db_entry(status='creating',
++                                     volume_id=vol4_id,
++                                     temp_volume_id=temp_vol_id)
++        self._create_backup_db_entry(status='creating',
++                                     volume_id=vol5_id,
++                                     temp_snapshot_id=temp_snap_id)
+ 
+         self.backup_mgr.init_host()
+         vol1 = db.volume_get(self.ctxt, vol1_id)
+@@ -158,11 +219,12 @@ class BackupTestCase(BaseBackupTest):
+                           self.ctxt,
+                           backup3_id)
+ 
++        self.assertTrue(mock_delete_volume.called)
++        self.assertTrue(mock_delete_snapshot.called)
++
+     def test_create_backup_with_bad_volume_status(self):
+-        """Test error handling when creating a backup from a volume
+-        with a bad status
+-        """
+-        vol_id = self._create_volume_db_entry(status='available', size=1)
++        """Test creating a backup from a volume with a bad status."""
++        vol_id = self._create_volume_db_entry(status='restoring', size=1)
+         backup_id = self._create_backup_db_entry(volume_id=vol_id)
+         self.assertRaises(exception.InvalidVolume,
+                           self.backup_mgr.create_backup,
+@@ -170,9 +232,7 @@ class BackupTestCase(BaseBackupTest):
+                           backup_id)
+ 
+     def test_create_backup_with_bad_backup_status(self):
+-        """Test error handling when creating a backup with a backup
+-        with a bad status
+-        """
++        """Test creating a backup with a backup with a bad status."""
+         vol_id = self._create_volume_db_entry(size=1)
+         backup_id = self._create_backup_db_entry(status='available',
+                                                  volume_id=vol_id)
+@@ -193,9 +253,10 @@ class BackupTestCase(BaseBackupTest):
+                           self.ctxt,
+                           backup_id)
+         vol = db.volume_get(self.ctxt, vol_id)
+-        self.assertEqual(vol['status'], 'available')
++        self.assertEqual('available', vol['status'])
++        self.assertEqual('error_backing-up', vol['previous_status'])
+         backup = db.backup_get(self.ctxt, backup_id)
+-        self.assertEqual(backup['status'], 'error')
++        self.assertEqual('error', backup['status'])
+         self.assertTrue(_mock_volume_backup.called)
+ 
+     @mock.patch('%s.%s' % (CONF.volume_driver, 'backup_volume'))
+@@ -207,9 +268,10 @@ class BackupTestCase(BaseBackupTest):
+ 
+         self.backup_mgr.create_backup(self.ctxt, backup_id)
+         vol = db.volume_get(self.ctxt, vol_id)
+-        self.assertEqual(vol['status'], 'available')
++        self.assertEqual('available', vol['status'])
++        self.assertEqual('backing-up', vol['previous_status'])
+         backup = db.backup_get(self.ctxt, backup_id)
+-        self.assertEqual(backup['status'], 'available')
++        self.assertEqual('available', backup['status'])
+         self.assertEqual(backup['size'], vol_size)
+         self.assertTrue(_mock_volume_backup.called)
+ 
+diff --git a/cinder/tests/test_db_api.py b/cinder/tests/test_db_api.py
+index e61b342..aef8c5e 100644
+--- a/cinder/tests/test_db_api.py
++++ b/cinder/tests/test_db_api.py
+@@ -17,6 +17,7 @@
+ import datetime
+ 
+ from oslo.config import cfg
++import six
+ 
+ from cinder import context
+ from cinder import db
+@@ -71,8 +72,9 @@ class ModelsObjectComparatorMixin(object):
+ 
+         self.assertEqual(
+             len(obj1), len(obj2),
+-            "Keys mismatch: %s" % str(set(obj1.keys()) ^ set(obj2.keys())))
+-        for key, value in obj1.iteritems():
++            "Keys mismatch: %s" % six.text_type(
++                set(obj1.keys()) ^ set(obj2.keys())))
++        for key, value in obj1.items():
+             self.assertEqual(value, obj2[key])
+ 
+     def _assertEqualListsOfObjects(self, objs1, objs2, ignored_keys=None):
+@@ -1185,7 +1187,9 @@ class DBAPIBackupTestCase(BaseTest):
+             'service_metadata': 'metadata',
+             'service': 'service',
+             'size': 1000,
+-            'object_count': 100}
++            'object_count': 100,
++            'temp_volume_id': 'temp_volume_id',
++            'temp_snapshot_id': 'temp_snapshot_id', }
+         if one:
+             return base_values
+ 
+diff --git a/cinder/tests/test_migrations.py b/cinder/tests/test_migrations.py
+index 0752c83..7762a65 100644
+--- a/cinder/tests/test_migrations.py
++++ b/cinder/tests/test_migrations.py
+@@ -1348,3 +1348,24 @@ class TestMigrations(test.TestCase):
+                                             metadata,
+                                             autoload=True)
+             self.assertNotIn('is_public', volume_types.c)
++
++    def _check_028(self, engine, data):
++        backups = db_utils.get_table(engine, 'backups')
++        self.assertIsInstance(backups.c.temp_volume_id.type,
++                              sqlalchemy.types.VARCHAR)
++        self.assertIsInstance(backups.c.temp_snapshot_id.type,
++                              sqlalchemy.types.VARCHAR)
++
++    def _post_downgrade_028(self, engine):
++        backups = db_utils.get_table(engine, 'backups')
++        self.assertNotIn('temp_volume_id', backups.c)
++        self.assertNotIn('temp_snapshot_id', backups.c)
++
++    def _check_029(self, engine, data):
++        volumes = db_utils.get_table(engine, 'volumes')
++        self.assertIsInstance(volumes.c.previous_status.type,
++                              sqlalchemy.types.VARCHAR)
++
++    def _post_downgrade_029(self, engine):
++        volumes = db_utils.get_table(engine, 'volumes')
++        self.assertNotIn('previous_status', volumes.c)
+diff --git a/cinder/tests/test_volume.py b/cinder/tests/test_volume.py
+index b8acbf3..ece1fa6 100644
+--- a/cinder/tests/test_volume.py
++++ b/cinder/tests/test_volume.py
+@@ -3583,7 +3583,10 @@ class GenericVolumeDriverTestCase(DriverTestCase):
+ 
+     def test_backup_volume(self):
+         vol = tests_utils.create_volume(self.context)
+-        backup = {'volume_id': vol['id']}
++        self.context.user_id = 'fake'
++        self.context.project_id = 'fake'
++        backup = tests_utils.create_backup(self.context,
++                                           vol['id'])
+         properties = {}
+         attach_info = {'device': {'path': '/dev/null'}}
+         backup_service = self.mox.CreateMock(backup_driver.BackupDriver)
+@@ -3613,9 +3616,48 @@ class GenericVolumeDriverTestCase(DriverTestCase):
+         self.volume.driver._detach_volume(self.context, attach_info, vol,
+                                           properties)
+         self.mox.ReplayAll()
+-        self.volume.driver.backup_volume(self.context, backup, backup_service)
++        self.volume.driver.backup_volume(self.context, backup,
++                                         backup_service)
+         self.mox.UnsetStubs()
+ 
++    @mock.patch.object(utils, 'temporary_chown')
++    @mock.patch.object(fileutils, 'file_open')
++    @mock.patch.object(cinder.brick.initiator.connector,
++                       'get_connector_properties')
++    @mock.patch.object(db, 'volume_get')
++    def test_backup_volume_inuse(self, mock_volume_get,
++                                 mock_get_connector_properties,
++                                 mock_file_open,
++                                 mock_temporary_chown):
++        vol = tests_utils.create_volume(self.context)
++        vol['status'] = 'in-use'
++        self.context.user_id = 'fake'
++        self.context.project_id = 'fake'
++        backup = tests_utils.create_backup(self.context,
++                                           vol['id'])
++        properties = {}
++        attach_info = {'device': {'path': '/dev/null'}}
++        backup_service = mock.Mock()
++
++        self.volume.driver._attach_volume = mock.MagicMock()
++        self.volume.driver._detach_volume = mock.MagicMock()
++        self.volume.driver.terminate_connection = mock.MagicMock()
++        self.volume.driver.create_snapshot = mock.MagicMock()
++        self.volume.driver.delete_snapshot = mock.MagicMock()
++        self.volume.driver.create_volume_from_snapshot = mock.MagicMock()
++
++        mock_volume_get.return_value = vol
++        mock_get_connector_properties.return_value = properties
++        f = mock_file_open.return_value = file('/dev/null')
++
++        backup_service.backup(backup, f, None)
++        self.volume.driver._attach_volume.return_value = attach_info
++
++        self.volume.driver.backup_volume(self.context, backup,
++                                         backup_service)
++
++        mock_volume_get.assert_called_with(self.context, vol['id'])
++
+     def test_restore_backup(self):
+         vol = tests_utils.create_volume(self.context)
+         backup = {'volume_id': vol['id'],
+diff --git a/cinder/tests/utils.py b/cinder/tests/utils.py
+index 4b23b0f..fe438f3 100644
+--- a/cinder/tests/utils.py
++++ b/cinder/tests/utils.py
+@@ -13,6 +13,7 @@
+ #    under the License.
+ #
+ 
++import socket
+ 
+ from cinder import context
+ from cinder import db
+@@ -119,3 +120,31 @@ def create_cgsnapshot(ctxt,
+     for key in kwargs:
+         cgsnap[key] = kwargs[key]
+     return db.cgsnapshot_create(ctxt, cgsnap)
++
++
++def create_backup(ctxt,
++                  volume_id,
++                  display_name='test_backup',
++                  display_description='This is a test backup',
++                  status='creating',
++                  parent_id=None,
++                  temp_volume_id=None,
++                  temp_snapshot_id=None):
++    backup = {}
++    backup['volume_id'] = volume_id
++    backup['user_id'] = ctxt.user_id
++    backup['project_id'] = ctxt.project_id
++    backup['host'] = socket.gethostname()
++    backup['availability_zone'] = '1'
++    backup['display_name'] = display_name
++    backup['display_description'] = display_description
++    backup['container'] = 'fake'
++    backup['status'] = status
++    backup['fail_reason'] = ''
++    backup['service'] = 'fake'
++    backup['parent_id'] = parent_id
++    backup['size'] = 5 * 1024 * 1024
++    backup['object_count'] = 22
++    backup['temp_volume_id'] = temp_volume_id
++    backup['temp_snapshot_id'] = temp_snapshot_id
++    return db.backup_create(ctxt, backup)
+diff --git a/cinder/volume/driver.py b/cinder/volume/driver.py
+index 6089223..8c5ad5c 100644
+--- a/cinder/volume/driver.py
++++ b/cinder/volume/driver.py
+@@ -543,6 +543,19 @@ class VolumeDriver(object):
+         LOG.debug(('Creating a new backup for volume %s.') %
+                   volume['name'])
+ 
++        # NOTE(xyang): Check volume status; if not 'available', create a
++        # a temp volume from the volume, and backup the temp volume, and
++        # then clean up the temp volume; if 'available', just backup the
++        # volume.
++        previous_status = volume.get('previous_status', None)
++        temp_vol_ref = None
++        if previous_status == "in_use":
++            temp_vol_ref = self._create_temp_cloned_volume(
++                context, volume)
++            backup['temp_volume_id'] = temp_vol_ref['id']
++            self.db.backup_update(context, backup['id'], backup)
++            volume = temp_vol_ref
++
+         properties = utils.brick_get_connector_properties()
+         attach_info = self._attach_volume(context, volume, properties)
+ 
+@@ -554,6 +567,10 @@ class VolumeDriver(object):
+ 
+         finally:
+             self._detach_volume(context, attach_info, volume, properties)
++            if temp_vol_ref:
++                self._delete_volume(context, temp_vol_ref)
++                backup['temp_volume_id'] = None
++                self.db.backup_update(context, backup['id'], backup)
+ 
+     def restore_backup(self, context, backup, volume, backup_service):
+         """Restore an existing backup to a new or existing volume."""
+@@ -574,6 +591,64 @@ class VolumeDriver(object):
+         finally:
+             self._detach_volume(context, attach_info, volume, properties)
+ 
++    def _create_temp_snapshot(self, context, volume):
++        options = {
++            'volume_id': volume['id'],
++            'cgsnapshot_id': None,
++            'user_id': context.user_id,
++            'project_id': context.project_id,
++            'status': 'creating',
++            'progress': '0%',
++            'volume_size': volume['size'],
++            'display_name': 'backup-snap-%s' % volume['id'],
++            'display_description': None,
++            'volume_type_id': volume['volume_type_id'],
++            'encryption_key_id': volume['encryption_key_id'],
++            'metadata': {},
++        }
++        temp_snap_ref = self.db.snapshot_create(context, options)
++        try:
++            self.create_snapshot(temp_snap_ref)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                self.db.volume_glance_metadata_delete_by_snapshot(
++                        context, temp_snap_ref['id'])
++                self.db.snapshot_destroy(temp_snap_ref['id'])
++
++        temp_snap_ref['status'] = 'available'
++        self.db.snapshot_update(context, temp_snap_ref['id'], temp_snap_ref)
++        return temp_snap_ref
++
++    def _create_temp_cloned_volume(self, context, volume):
++        temp_volume = {
++            'size': volume['size'],
++            'display_name': 'backup-vol-%s' % volume['id'],
++            'host': volume['host'],
++            'user_id': context.user_id,
++            'project_id': context.project_id,
++            'status': 'creating',
++        }
++        temp_vol_ref = self.db.volume_create(context, temp_volume)
++        try:
++            self.create_cloned_volume(temp_vol_ref, volume)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                self.db.volume_destroy(context, temp_vol_ref['id'])
++
++        self.db.volume_update(context, temp_vol_ref['id'],
++                              {'status': 'available'})
++        return temp_vol_ref
++
++    def _delete_snapshot(self, context, snapshot):
++        self.delete_snapshot(snapshot)
++        self.db.volume_glance_metadata_delete_by_snapshot(
++                context, snapshot['id'])
++        self.db.snapshot_destroy(context, snapshot['id'])
++
++    def _delete_volume(self, context, volume):
++        self.delete_volume(volume)
++        self.db.volume_destroy(context, volume['id'])
++
+     def clear_download(self, context, volume):
+         """Clean up after an interrupted image copy."""
+         pass
+diff --git a/cinder/volume/drivers/lvm.py b/cinder/volume/drivers/lvm.py
+index 8f6c6ae..5d8f81f 100644
+--- a/cinder/volume/drivers/lvm.py
++++ b/cinder/volume/drivers/lvm.py
+@@ -317,11 +317,26 @@ class LVMVolumeDriver(driver.VolumeDriver):
+ 
+     def backup_volume(self, context, backup, backup_service):
+         """Create a new backup from an existing volume."""
+-        volume = self.db.volume_get(context, backup['volume_id'])
+-        volume_path = self.local_path(volume)
+-        with utils.temporary_chown(volume_path):
+-            with fileutils.file_open(volume_path) as volume_file:
+-                backup_service.backup(backup, volume_file)
++        volume = self.db.volume_get(context, backup.volume_id)
++        temp_snapshot = None
++        previous_status = volume['previous_status']
++        if previous_status == 'in-use':
++            temp_snapshot = self._create_temp_snapshot(context, volume)
++            backup['temp_snapshot_id'] = temp_snapshot['id']
++            self.db.backup_update(context, backup['id'], backup)
++            volume_path = self.local_path(temp_snapshot)
++        else:
++            volume_path = self.local_path(volume)
++
++        try:
++            with utils.temporary_chown(volume_path):
++                with fileutils.file_open(volume_path) as volume_file:
++                    backup_service.backup(backup, volume_file)
++        finally:
++            if temp_snapshot:
++                self._delete_snapshot(context, temp_snapshot)
++                backup['temp_snapshot_id'] = None
++                self.db.backup_update(context, backup['id'], backup)
+ 
+     def restore_backup(self, context, backup, volume, backup_service):
+         """Restore an existing backup to a new or existing volume."""
+-- 
+2.8.1
+
