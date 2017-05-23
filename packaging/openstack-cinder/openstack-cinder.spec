@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          4.4%{?dist_eayunstack}
+Release:          4.5%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -43,6 +43,15 @@ Patch0018: 0018-cinder-list-fails-with-name-sort-key.patch
 Patch0019: 0019-restore-volume-status-in-create_backup-when-backup-s.patch
 Patch0020: 0020-take-care-of-non-disruptive-backup-when-detaching-a-.patch
 Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
+Patch0022: 0022-Get-the-consumer-in-a-correct-way-for-retyping-with-.patch
+Patch0023: 0023-Use-project-id-from-volume-when-retyping-volumes.patch
+Patch0024: 0024-Convert-mox-to-mock-tests-compute-test_nova.py.patch
+Patch0025: 0025-Cleanly-override-config-in-tests.patch
+Patch0026: 0026-Add-a-privileged-user-for-OpenStack-services.patch
+Patch0027: 0027-Pass-region-name-to-Nova-client.patch
+Patch0028: 0028-Add-ability-to-override-OpenStack-privileged-user-au.patch
+Patch0029: 0029-Support-front-end-qos-updates-in-volume-retype.patch
+Patch0030: 0030-Correctly-open-rbd-image-in-ceph-backup-driver.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -186,6 +195,15 @@ This package contains documentation files for cinder.
 %patch0019 -p1
 %patch0020 -p1
 %patch0021 -p1
+%patch0022 -p1
+%patch0023 -p1
+%patch0024 -p1
+%patch0025 -p1
+%patch0026 -p1
+%patch0027 -p1
+%patch0028 -p1
+%patch0029 -p1
+%patch0030 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -326,6 +344,17 @@ exit 0
 %endif
 
 %changelog
+* Tue May 23 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.5.eayunstack
+- add Patch0022: 0022-Get-the-consumer-in-a-correct-way-for-retyping-with-.patch
+- add Patch0023: 0023-Use-project-id-from-volume-when-retyping-volumes.patch
+- add Patch0024: 0024-Convert-mox-to-mock-tests-compute-test_nova.py.patch
+- add Patch0025: 0025-Cleanly-override-config-in-tests.patch
+- add Patch0026: 0026-Add-a-privileged-user-for-OpenStack-services.patch
+- add Patch0027: 0027-Pass-region-name-to-Nova-client.patch
+- add Patch0028: 0028-Add-ability-to-override-OpenStack-privileged-user-au.patch
+- add Patch0029: 0029-Support-front-end-qos-updates-in-volume-retype.patch
+- add Patch0030: 0030-Correctly-open-rbd-image-in-ceph-backup-driver.patch
+
 * Wed Nov 30 2016 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-4.4.eayunstack.1.0.1
 - add Patch0021: 0021-only-allow-force-create-snapshot-when-volume-is-usab.patch
 

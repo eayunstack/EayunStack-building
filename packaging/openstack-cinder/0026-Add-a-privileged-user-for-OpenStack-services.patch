@@ -1,0 +1,281 @@
+From b3eabb3488c34200794399f4e483f3f716037bc6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Adrien=20Verg=C3=A9?= <adrien.verge@numergy.com>
+Date: Tue, 28 Oct 2014 20:35:54 +0100
+Subject: [PATCH 26/30] Add a privileged user for OpenStack services
+
+Currently Cinder makes all requests to other services (Nova, Swift,
+etc.) with current user context. Sometimes Cinder needs privileged
+rights for external queries (e.g. asking Nova where an instance is
+hosted); there is no way to do it yet.
+
+This patch adds to ability to configure an account with special rights
+in the configuration ('os_privileged_user_name',
+'os_privileged_user_password' and 'os_privileged_user_tenant' options).
+Then, requests that need special permissions can be achieved by creating
+a client(privileged_user=True).
+
+Note: This user does not necessarily need to have an admin role
+associated with it. For instance, policies can be changed to allow a
+specific user (without any roles) to perform special actions.
+
+DocImpact: New configuration options to set a privileged user account
+Change-Id: I61d8a6de1c5db5ee2ecce124997f9b6447b04e47
+(cherry picked from commit 04003d7c513ed4dd5129cbd5ad1af14a5b200677)
+---
+ cinder/common/config.py           | 16 ++++++++-
+ cinder/compute/nova.py            | 76 +++++++++++++++++++++++++--------------
+ cinder/context.py                 |  4 +--
+ cinder/tests/compute/test_nova.py | 48 +++++++++++++++++++++++++
+ cinder/tests/test_context.py      |  2 +-
+ 5 files changed, 116 insertions(+), 30 deletions(-)
+
+diff --git a/cinder/common/config.py b/cinder/common/config.py
+index 0327712b4..7e405d79c 100644
+--- a/cinder/common/config.py
++++ b/cinder/common/config.py
+@@ -203,6 +203,20 @@ global_opts = [
+                help='The full class name of the volume replication API class'),
+     cfg.StrOpt('consistencygroup_api_class',
+                default='cinder.consistencygroup.api.API',
+-               help='The full class name of the consistencygroup API class'), ]
++               help='The full class name of the consistencygroup API class'),
++    cfg.StrOpt('os_privileged_user_name',
++               default=None,
++               help='OpenStack privileged account username. Used for requests '
++                    'to other services (such as Nova) that require an account '
++                    'with special rights.'),
++    cfg.StrOpt('os_privileged_user_password',
++               default=None,
++               help='Password associated with the OpenStack privileged '
++                    'account.'),
++    cfg.StrOpt('os_privileged_user_tenant',
++               default=None,
++               help='Tenant name associated with the OpenStack privileged '
++                    'account.'),
++]
+ 
+ CONF.register_opts(global_opts)
+diff --git a/cinder/compute/nova.py b/cinder/compute/nova.py
+index c58f1055e..e55643161 100644
+--- a/cinder/compute/nova.py
++++ b/cinder/compute/nova.py
+@@ -22,6 +22,7 @@ from novaclient.v1_1 import client as nova_client
+ from novaclient.v1_1.contrib import assisted_volume_snapshots
+ from oslo.config import cfg
+ 
++from cinder import context as ctx
+ from cinder.db import base
+ from cinder.openstack.common import log as logging
+ 
+@@ -60,7 +61,15 @@ CONF.register_opts(nova_opts)
+ LOG = logging.getLogger(__name__)
+ 
+ 
+-def novaclient(context, admin=False):
++def novaclient(context, admin_endpoint=False, privileged_user=False):
++    """Returns a Nova client
++
++    @param admin_endpoint: If True, use the admin endpoint template from
++        configuration ('nova_endpoint_admin_template' and 'nova_catalog_info')
++    @param privileged_user: If True, use the account from configuration
++        (requires 'os_privileged_user_name', 'os_privileged_user_password' and
++        'os_privileged_user_tenant' to be set)
++    """
+     # FIXME: the novaclient ServiceCatalog object is mis-named.
+     #        It actually contains the entire access blob.
+     # Only needed parts of the service catalog are passed in, see
+@@ -73,43 +82,58 @@ def novaclient(context, admin=False):
+     nova_endpoint_template = CONF.nova_endpoint_template
+     nova_catalog_info = CONF.nova_catalog_info
+ 
+-    if admin:
++    if admin_endpoint:
+         nova_endpoint_template = CONF.nova_endpoint_admin_template
+         nova_catalog_info = CONF.nova_catalog_admin_info
+ 
+-    if nova_endpoint_template:
+-        url = nova_endpoint_template % context.to_dict()
++    if privileged_user and CONF.os_privileged_user_name:
++        context = ctx.RequestContext(
++            CONF.os_privileged_user_name, None,
++            auth_token=CONF.os_privileged_user_password,
++            project_name=CONF.os_privileged_user_tenant,
++            service_catalog=context.service_catalog)
++
++        # The admin user needs to authenticate before querying Nova
++        url = sc.url_for(service_type='identity')
++
++        LOG.debug('Creating a Nova client using "%s" user' %
++                  CONF.os_privileged_user_name)
+     else:
+-        info = nova_catalog_info
+-        service_type, service_name, endpoint_type = info.split(':')
+-        # extract the region if set in configuration
+-        if CONF.os_region_name:
+-            attr = 'region'
+-            filter_value = CONF.os_region_name
++        if nova_endpoint_template:
++            url = nova_endpoint_template % context.to_dict()
+         else:
+-            attr = None
+-            filter_value = None
+-        url = sc.url_for(attr=attr,
+-                         filter_value=filter_value,
+-                         service_type=service_type,
+-                         service_name=service_name,
+-                         endpoint_type=endpoint_type)
+-
+-    LOG.debug('Novaclient connection created using URL: %s' % url)
++            info = nova_catalog_info
++            service_type, service_name, endpoint_type = info.split(':')
++            # extract the region if set in configuration
++            if CONF.os_region_name:
++                attr = 'region'
++                filter_value = CONF.os_region_name
++            else:
++                attr = None
++                filter_value = None
++            url = sc.url_for(attr=attr,
++                             filter_value=filter_value,
++                             service_type=service_type,
++                             service_name=service_name,
++                             endpoint_type=endpoint_type)
++
++        LOG.debug('Nova client connection created using URL: %s' % url)
+ 
+     extensions = [assisted_volume_snapshots]
+ 
+     c = nova_client.Client(context.user_id,
+                            context.auth_token,
+-                           context.project_id,
++                           context.project_name,
+                            auth_url=url,
+                            insecure=CONF.nova_api_insecure,
+                            cacert=CONF.nova_ca_certificates_file,
+                            extensions=extensions)
+-    # noauth extracts user_id:project_id from auth_token
+-    c.client.auth_token = context.auth_token or '%s:%s' % (context.user_id,
+-                                                           context.project_id)
+-    c.client.management_url = url
++
++    if not privileged_user:
++        # noauth extracts user_id:project_id from auth_token
++        c.client.auth_token = (context.auth_token or '%s:%s'
++                               % (context.user_id, context.project_id))
++        c.client.management_url = url
+     return c
+ 
+ 
+@@ -123,14 +147,14 @@ class API(base.Base):
+                                                          new_volume_id)
+ 
+     def create_volume_snapshot(self, context, volume_id, create_info):
+-        nova = novaclient(context, admin=True)
++        nova = novaclient(context, admin_endpoint=True)
+ 
+         nova.assisted_volume_snapshots.create(
+             volume_id,
+             create_info=create_info)
+ 
+     def delete_volume_snapshot(self, context, snapshot_id, delete_info):
+-        nova = novaclient(context, admin=True)
++        nova = novaclient(context, admin_endpoint=True)
+ 
+         nova.assisted_volume_snapshots.delete(
+             snapshot_id,
+diff --git a/cinder/context.py b/cinder/context.py
+index 5a826891f..dfcd13613 100644
+--- a/cinder/context.py
++++ b/cinder/context.py
+@@ -91,8 +91,8 @@ class RequestContext(object):
+         if service_catalog:
+             # Only include required parts of service_catalog
+             self.service_catalog = [s for s in service_catalog
+-                                    if s.get('type') in ('compute',
+-                                                         'object-store')]
++                                    if s.get('type') in
++                                    ('identity', 'compute', 'object-store')]
+         else:
+             # if list is empty or none
+             self.service_catalog = []
+diff --git a/cinder/tests/compute/test_nova.py b/cinder/tests/compute/test_nova.py
+index 9196917f2..1a0b34c7e 100644
+--- a/cinder/tests/compute/test_nova.py
++++ b/cinder/tests/compute/test_nova.py
+@@ -15,12 +15,60 @@
+ import contextlib
+ 
+ import mock
++from novaclient.v1_1.contrib import assisted_volume_snapshots
+ 
+ from cinder.compute import nova
+ from cinder import context
+ from cinder import test
+ 
+ 
++class NovaClientTestCase(test.TestCase):
++    def setUp(self):
++        super(NovaClientTestCase, self).setUp()
++
++        self.ctx = context.RequestContext('regularuser', 'e3f0833dc08b4cea',
++                                          auth_token='token', is_admin=False)
++        self.ctx.service_catalog = \
++            [{'type': 'compute', 'name': 'nova', 'endpoints':
++              [{'publicURL': 'http://novahost:8774/v2/e3f0833dc08b4cea'}]},
++             {'type': 'identity', 'name': 'keystone', 'endpoints':
++              [{'publicURL': 'http://keystonehost:5000/v2.0'}]}]
++
++        self.override_config('nova_endpoint_template',
++                             'http://novahost:8774/v2/%(project_id)s')
++        self.override_config('nova_endpoint_admin_template',
++                             'http://novaadmhost:4778/v2/%(project_id)s')
++        self.override_config('os_privileged_user_name', 'adminuser')
++        self.override_config('os_privileged_user_password', 'strongpassword')
++
++    @mock.patch('novaclient.v1_1.client.Client')
++    def test_nova_client_regular(self, p_client):
++        nova.novaclient(self.ctx)
++        p_client.assert_called_once_with(
++            'regularuser', 'token', None,
++            auth_url='http://novahost:8774/v2/e3f0833dc08b4cea',
++            insecure=False, cacert=None,
++            extensions=[assisted_volume_snapshots])
++
++    @mock.patch('novaclient.v1_1.client.Client')
++    def test_nova_client_admin_endpoint(self, p_client):
++        nova.novaclient(self.ctx, admin_endpoint=True)
++        p_client.assert_called_once_with(
++            'regularuser', 'token', None,
++            auth_url='http://novaadmhost:4778/v2/e3f0833dc08b4cea',
++            insecure=False, cacert=None,
++            extensions=[assisted_volume_snapshots])
++
++    @mock.patch('novaclient.v1_1.client.Client')
++    def test_nova_client_privileged_user(self, p_client):
++        nova.novaclient(self.ctx, privileged_user=True)
++        p_client.assert_called_once_with(
++            'adminuser', 'strongpassword', None,
++            auth_url='http://keystonehost:5000/v2.0',
++            insecure=False, cacert=None,
++            extensions=[assisted_volume_snapshots])
++
++
+ class FakeNovaClient(object):
+     class Volumes(object):
+         def __getattr__(self, item):
+diff --git a/cinder/tests/test_context.py b/cinder/tests/test_context.py
+index bcb25859b..66459ed1a 100644
+--- a/cinder/tests/test_context.py
++++ b/cinder/tests/test_context.py
+@@ -70,7 +70,7 @@ class ContextTestCase(test.TestCase):
+         object_catalog = [{u'name': u'swift', u'type': u'object-store'}]
+         ctxt = context.RequestContext('111', '222',
+                                       service_catalog=service_catalog)
+-        self.assertEqual(len(ctxt.service_catalog), 2)
++        self.assertEqual(len(ctxt.service_catalog), 3)
+         return_compute = [v for v in ctxt.service_catalog if
+                           v['type'] == u'compute']
+         return_object = [v for v in ctxt.service_catalog if
+-- 
+2.11.0
+

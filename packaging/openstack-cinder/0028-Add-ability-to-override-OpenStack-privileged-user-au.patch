@@ -1,0 +1,86 @@
+From f3808d152a499351bf1babb5a3e7d14e01bf81ce Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Mathieu=20Gagne=CC=81?= <mgagne@iweb.com>
+Date: Thu, 9 Jul 2015 12:13:19 -0400
+Subject: [PATCH 28/30] Add ability to override OpenStack privileged user auth
+ url
+
+Introduce os_privileged_user_auth_url config to give the ability
+to override the auth_url used when authenticating
+the OpenStack privileged user and bypass use of catalog found in token.
+
+DocImpact: New os_privileged_user_auth_url config
+Closes-bug: #1473206
+Change-Id: I4ffca8df0eb38fe41264439ae5bb93e025c808ff
+(cherry picked from commit c228066002a503ebe11381fd8c6e6ad525cbf351)
+---
+ cinder/common/config.py           |  4 ++++
+ cinder/compute/nova.py            | 15 ++++++++++-----
+ cinder/tests/compute/test_nova.py | 11 +++++++++++
+ 3 files changed, 25 insertions(+), 5 deletions(-)
+
+diff --git a/cinder/common/config.py b/cinder/common/config.py
+index 7e405d79c..350fff667 100644
+--- a/cinder/common/config.py
++++ b/cinder/common/config.py
+@@ -217,6 +217,10 @@ global_opts = [
+                default=None,
+                help='Tenant name associated with the OpenStack privileged '
+                     'account.'),
++    cfg.StrOpt('os_privileged_user_auth_url',
++               default=None,
++               help='Auth URL associated with the OpenStack privileged '
++                    'account.'),
+ ]
+ 
+ CONF.register_opts(global_opts)
+diff --git a/cinder/compute/nova.py b/cinder/compute/nova.py
+index 929c7cc0a..488c9799f 100644
+--- a/cinder/compute/nova.py
++++ b/cinder/compute/nova.py
+@@ -102,11 +102,16 @@ def novaclient(context, admin_endpoint=False, privileged_user=False):
+ 
+         # When privileged_user is used, it needs to authenticate to Keystone
+         # before querying Nova, so we set auth_url to the identity service
+-        # endpoint. We then pass region_name, endpoint_type, etc. to the
+-        # Client() constructor so that the final endpoint is chosen correctly.
+-        url = sc.url_for(service_type='identity',
+-                         endpoint_type=endpoint_type,
+-                         **region_filter)
++        # endpoint.
++        if CONF.os_privileged_user_auth_url:
++            url = CONF.os_privileged_user_auth_url
++        else:
++            # We then pass region_name, endpoint_type, etc. to the
++            # Client() constructor so that the final endpoint is
++            # chosen correctly.
++            url = sc.url_for(service_type='identity',
++                             endpoint_type=endpoint_type,
++                             **region_filter)
+ 
+         LOG.debug('Creating a Nova client using "%s" user' %
+                   CONF.os_privileged_user_name)
+diff --git a/cinder/tests/compute/test_nova.py b/cinder/tests/compute/test_nova.py
+index 079bddfca..5bbca7ea0 100644
+--- a/cinder/tests/compute/test_nova.py
++++ b/cinder/tests/compute/test_nova.py
+@@ -69,6 +69,17 @@ class NovaClientTestCase(test.TestCase):
+             extensions=[assisted_volume_snapshots])
+ 
+     @mock.patch('novaclient.v1_1.client.Client')
++    def test_nova_client_privileged_user_custom_auth_url(self, p_client):
++        self.override_config('os_privileged_user_auth_url',
++                             'http://privatekeystonehost:5000/v2.0')
++        nova.novaclient(self.ctx, privileged_user=True)
++        p_client.assert_called_once_with(
++            'adminuser', 'strongpassword', None, region_name=None,
++            auth_url='http://privatekeystonehost:5000/v2.0',
++            insecure=False, endpoint_type='publicURL', cacert=None,
++            extensions=[assisted_volume_snapshots])
++
++    @mock.patch('novaclient.v1_1.client.Client')
+     def test_nova_client_custom_region(self, p_client):
+         self.override_config('os_region_name', 'farfaraway')
+         nova.novaclient(self.ctx)
+-- 
+2.11.0
+

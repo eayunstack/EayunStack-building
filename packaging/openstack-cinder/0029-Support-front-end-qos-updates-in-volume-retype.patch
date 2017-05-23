@@ -1,0 +1,156 @@
+From 5bee347fa024f14bd7a7c9969cc1bb360f4215a1 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 14 Mar 2017 19:56:03 +0800
+Subject: [PATCH 29/30] Support front-end qos updates in volume retype.
+
+Change-Id: Ic528fb28771132bca4202e4057af452ce3a4e4fb
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/compute/nova.py   |  6 +++++
+ cinder/volume/api.py     | 16 +++++++-----
+ cinder/volume/manager.py | 66 ++++++++++++++++++++++++++++++++++++++++--------
+ 3 files changed, 71 insertions(+), 17 deletions(-)
+
+diff --git a/cinder/compute/nova.py b/cinder/compute/nova.py
+index 488c9799f..a0bfdb584 100644
+--- a/cinder/compute/nova.py
++++ b/cinder/compute/nova.py
+@@ -155,6 +155,12 @@ class API(base.Base):
+                                                          attachment_id,
+                                                          new_volume_id)
+ 
++    def update_volume_qos(self, context, server_id, volume_id, qos_specs):
++        nova = novaclient(context, privileged_user=True)
++        nova.volumes.update_volume_qos(server_id,
++                                       volume_id,
++                                       qos_specs)
++
+     def create_volume_snapshot(self, context, volume_id, create_info):
+         nova = novaclient(context, admin_endpoint=True)
+ 
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 3c897a062..9e3009635 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -1197,18 +1197,20 @@ class API(base.Base):
+             msg = _('Retype cannot change encryption requirements')
+             raise exception.InvalidInput(reason=msg)
+ 
+-        # We don't support changing QoS at the front-end yet for in-use volumes
+-        # TODO(avishay): Call Nova to change QoS setting (libvirt has support
+-        # - virDomainSetBlockIoTune() - Nova does not have support yet).
++        # for in-use volumes, still don't support changes between backend and
++        # front-end
++        qos_consumers = set()
+         if (volume['status'] != 'available' and
+                 old_vol_type_qos_id != vol_type_qos_id):
+             for qos_id in [old_vol_type_qos_id, vol_type_qos_id]:
+                 if qos_id:
+                     specs = qos_specs.get_qos_specs(context.elevated(), qos_id)
+-                    if specs['consumer'] != 'back-end':
+-                        msg = _('Retype cannot change front-end qos specs for '
+-                                'in-use volumes')
+-                        raise exception.InvalidInput(reason=msg)
++                    qos_consumers.add(specs['consumer'])
++
++            if qos_consumers != set(['front-end']):
++                msg = _('Retype cannot change QoS Specs between front-end and'
++                        'back-end')
++                raise exception.InvalidInput(reason=msg)
+ 
+         # We're checking here in so that we can report any quota issues as
+         # early as possible, but won't commit until we change the type. We
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 8859807bd..1189bab60 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -150,6 +150,19 @@ def locked_snapshot_operation(f):
+     return lso_inner1
+ 
+ 
++def get_qos_specs_for_connection_info(vol_type_id):
++    specs = None
++    if vol_type_id:
++        res = volume_types.get_volume_type_qos_specs(vol_type_id)
++        qos = res['qos_specs']
++        # only pass qos_specs that is designated to be consumed by
++        # front-end, or both front-end and back-end.
++        if qos and qos.get('consumer') in ['front-end', 'both']:
++            specs = qos.get('specs')
++
++    return dict(qos_specs=specs)
++
++
+ class VolumeManager(manager.SchedulerDependentManager):
+     """Manages attachable block storage devices."""
+ 
+@@ -903,16 +916,7 @@ class VolumeManager(manager.SchedulerDependentManager):
+ 
+         # Add qos_specs to connection info
+         typeid = volume['volume_type_id']
+-        specs = None
+-        if typeid:
+-            res = volume_types.get_volume_type_qos_specs(typeid)
+-            qos = res['qos_specs']
+-            # only pass qos_specs that is designated to be consumed by
+-            # front-end, or both front-end and back-end.
+-            if qos and qos.get('consumer') in ['front-end', 'both']:
+-                specs = qos.get('specs')
+-
+-        qos_spec = dict(qos_specs=specs)
++        qos_spec = get_qos_specs_for_connection_info(typeid)
+         conn_info['data'].update(qos_spec)
+ 
+         # Add access_mode to connection info
+@@ -1399,6 +1403,48 @@ class VolumeManager(manager.SchedulerDependentManager):
+         if all_equal:
+             retyped = True
+ 
++        if not retyped:
++            # If QoSSpecs of volume types only changed in the front-end, call
++            # Nova API to handle QoSSpecs update. As changs between front-end
++            # and back-end is filterd in VolumeAPI, we here only need to check
++            # whether QoS Specs changed or not.
++            def check_changed(diff_sets):
++                if diff_sets:
++                    for v in diff_sets.values():
++                        if len(set(v)) == 2:
++                            return True
++
++                return False
++
++            only_qos_changed = True
++            for specs, diff_sets in diff.iteritems():
++                if specs != 'qos_specs':
++                    only_qos_changed &= not check_changed(diff_sets)
++                else:
++                    only_qos_changed &= check_changed(diff_sets)
++
++            if only_qos_changed:
++                instance_qos_updated = True
++                if (volume_ref['instance_uuid'] or
++                        volume_ref['attached_host']):
++                    try:
++                        qos_specs = get_qos_specs_for_connection_info(
++                            new_type_id)
++                        nova_api = compute.API()
++                        nova_api.update_volume_qos(context,
++                                                   volume_ref['instance_uuid'],
++                                                   volume_id, qos_specs)
++                    except Exception as ex:
++                        instance_qos_updated = False
++                        if only_qos_changed:
++                            with excutils.save_and_reraise_exception():
++                                _retype_error(context, volume_id,
++                                              old_reservations,
++                                              new_reservations, status_update)
++
++                if instance_qos_updated:
++                    retyped = True
++
+         # Call driver to try and change the type
+         retype_model_update = None
+         if not retyped:
+-- 
+2.11.0
+
