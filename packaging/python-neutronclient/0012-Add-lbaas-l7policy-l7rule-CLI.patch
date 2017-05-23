@@ -1,0 +1,415 @@
+From c97052ad7e54cfa3b7d615ca7b173a071c3afe99 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Tue, 7 Mar 2017 13:31:18 +0800
+Subject: [PATCH 12/12] Add lbaas l7policy l7rule CLI
+
+Fixes: redmine #9564
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/lb/l7policy.py |  99 ++++++++++++++++++++
+ neutronclient/neutron/v2_0/lb/l7rule.py   | 148 ++++++++++++++++++++++++++++++
+ neutronclient/shell.py                    |  16 ++++
+ neutronclient/v2_0/client.py              |  76 +++++++++++++++
+ 4 files changed, 339 insertions(+)
+ create mode 100644 neutronclient/neutron/v2_0/lb/l7policy.py
+ create mode 100644 neutronclient/neutron/v2_0/lb/l7rule.py
+
+diff --git a/neutronclient/neutron/v2_0/lb/l7policy.py b/neutronclient/neutron/v2_0/lb/l7policy.py
+new file mode 100644
+index 0000000..25f2250
+--- /dev/null
++++ b/neutronclient/neutron/v2_0/lb/l7policy.py
+@@ -0,0 +1,99 @@
++# Copyright 2017 Eayun Inc.
++# All Rights Reserved
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++#
++
++
++from neutronclient.neutron import v2_0 as neutronV20
++from neutronclient.openstack.common.gettextutils import _
++
++
++class ListL7policy(neutronV20.ListCommand):
++    """List L7policies that belong to a given tenant."""
++
++    resource = 'l7policy'
++    list_columns = ['id', 'name', 'pool_id', 'priority',
++                    'action', 'key', 'value',
++                    'admin_state_up', 'status']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowL7policy(neutronV20.ShowCommand):
++    """Show information of a given l7policy."""
++
++    resource = 'l7policy'
++
++
++class CreateL7policy(neutronV20.CreateCommand):
++    """Create a l7policy."""
++
++    resource = 'l7policy'
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--admin-state-down',
++            dest='admin_state', action='store_false',
++            help=_('Set admin state up to false.'))
++        parser.add_argument(
++            '--description',
++            help=_('Description of the l7policy.'))
++        parser.add_argument(
++            '--priority',
++            required=True,
++            help=_('The prority(valid in [0,255]) for l7policy'))
++        parser.add_argument(
++            '--name',
++            help=_('The name of the l7policy.'))
++        parser.add_argument(
++            '--pool-id', metavar='POOL',
++            help=_('The l7policy of pool that belong.'))
++        parser.add_argument(
++            '--action',
++            required=True,
++            choices=['block', 'redirect', 'addHeader'],
++            help=_('Exec action on the l7policy if l7rule match.'))
++        parser.add_argument(
++            '--key',
++            help=_('The key of the l7policy action keyword.'))
++        parser.add_argument(
++            '--value',
++            help=_('The value of the l7policy action values.'))
++
++    def args2body(self, parsed_args):
++        _pool_id = neutronV20.find_resourceid_by_name_or_id(
++            self.get_client(), 'pool', parsed_args.pool_id)
++        body = {
++            self.resource: {
++                'admin_state_up': parsed_args.admin_state,
++                'pool_id': _pool_id,
++            },
++        }
++        neutronV20.update_dict(parsed_args, body[self.resource],
++                               ['description', 'prority', 'name',
++                                'action', 'tenant_id', 'key', 'value'])
++        return body
++
++
++class UpdateL7policy(neutronV20.UpdateCommand):
++    """Update a given l7policy."""
++
++    resource = 'l7policy'
++
++
++class DeleteL7policy(neutronV20.DeleteCommand):
++    """Delete a given l7policy."""
++
++    resource = 'l7policy'
+diff --git a/neutronclient/neutron/v2_0/lb/l7rule.py b/neutronclient/neutron/v2_0/lb/l7rule.py
+new file mode 100644
+index 0000000..516dbe0
+--- /dev/null
++++ b/neutronclient/neutron/v2_0/lb/l7rule.py
+@@ -0,0 +1,148 @@
++# Copyright 2017 Eayun Inc.
++# All Rights Reserved
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++#
++
++
++from __future__ import print_function
++
++from neutronclient.neutron import v2_0 as neutronV20
++from neutronclient.openstack.common.gettextutils import _
++
++
++class ListL7rule(neutronV20.ListCommand):
++    """List L7rules that belong to a given tenant."""
++
++    resource = 'l7rule'
++    list_columns = ['id', 'type', 'key', 'value',
++                    'compare_type', 'compare_value',
++                    'admin_state_up']
++    pagination_support = True
++    sorting_support = True
++
++
++class ShowL7rule(neutronV20.ShowCommand):
++    """Show information of a given l7rule."""
++
++    resource = 'l7rule'
++
++
++class CreateL7rule(neutronV20.CreateCommand):
++    """Create a l7rule."""
++
++    resource = 'l7rule'
++
++    def add_known_arguments(self, parser):
++        parser.add_argument(
++            '--admin-state-down',
++            dest='admin_state', action='store_false',
++            help=_('Set admin state up to false.'))
++        parser.add_argument(
++            '--type',
++            required=True,
++            choices=['backendServerId'],
++            help=_('The type of l7rule.'))
++        parser.add_argument(
++            '--key',
++            help=_('The keyword for l7rule type.'))
++        parser.add_argument(
++            '--value',
++            help=_('The value of the l7rule type.'))
++        parser.add_argument(
++            '--compare-type', dest='compare_type',
++            required=True,
++            choices=['integerEq'],
++            help=_('The compare type of l7rule type.'))
++        parser.add_argument(
++            '--compare-value', dest="compare_value",
++            required=True,
++            help=_('The compare value of l7rule compare-type value.'))
++
++    def args2body(self, parsed_args):
++        body = {
++            self.resource: {
++                'admin_state_up': parsed_args.admin_state,
++            },
++        }
++        neutronV20.update_dict(parsed_args, body[self.resource],
++                               ['type', 'key', 'value',
++                                'compare_type', 'compare_value'])
++        return body
++
++
++class UpdateL7rule(neutronV20.UpdateCommand):
++    """Update a given l7rule."""
++
++    resource = 'l7rule'
++
++
++class DeleteL7rule(neutronV20.DeleteCommand):
++    """Delete a given l7rule."""
++
++    resource = 'l7rule'
++
++
++class AssociateL7rule(neutronV20.NeutronCommand):
++    """Create a mapping between a l7rule and a l7policy."""
++
++    resource = 'l7rule'
++
++    def get_parser(self, prog_name):
++        parser = super(AssociateL7rule, self).get_parser(prog_name)
++        parser.add_argument(
++            'l7rule_id', metavar='L7RULE_ID',
++            help=_('l7rule to associate.'))
++        parser.add_argument(
++            'l7policy_id', metavar='L7POLICY',
++            help=_('ID of the l7policy to be associated with the l7rule.'))
++        return parser
++
++    def run(self, parsed_args):
++        neutron_client = self.get_client()
++        neutron_client.format = parsed_args.request_format
++        body = {'l7rule': {'id': parsed_args.l7rule_id}}
++        l7policy_id = neutronV20.find_resourceid_by_name_or_id(
++            neutron_client, 'l7policy', parsed_args.l7policy_id)
++        neutron_client.associate_l7rule(l7policy_id, body)
++        print((_('Associated l7rule '
++                 '%s') % parsed_args.l7rule_id),
++              file=self.app.stdout)
++
++
++class DisassociateL7rule(neutronV20.NeutronCommand):
++    """Remove a mapping from a l7rule to l7policy."""
++
++    resource = 'l7rule'
++
++    def get_parser(self, prog_name):
++        parser = super(DisassociateL7rule, self).get_parser(prog_name)
++        parser.add_argument(
++            'l7rule_id', metavar='L7RULE_ID',
++            help=_('L7rule to disassociate.'))
++        parser.add_argument(
++            'l7policy_id', metavar='L7POLICY',
++            help=_('ID of the l7policy to be disassociated with the l7rule.'))
++        return parser
++
++    def run(self, parsed_args):
++        neutron_client = self.get_client()
++        neutron_client.format = parsed_args.request_format
++        l7policy_id = neutronV20.find_resourceid_by_name_or_id(
++            neutron_client, 'l7policy', parsed_args.l7policy_id)
++        neutron_client.disassociate_l7rule(l7policy_id,
++                                           parsed_args.l7rule_id)
++        print((_('Disassociated l7rule '
++                 '%s') % parsed_args.l7rule_id),
++              file=self.app.stdout)
+diff --git a/neutronclient/shell.py b/neutronclient/shell.py
+index af53752..0d310a8 100644
+--- a/neutronclient/shell.py
++++ b/neutronclient/shell.py
+@@ -50,6 +50,8 @@ from neutronclient.neutron.v2_0.lb import healthmonitor as lb_healthmonitor
+ from neutronclient.neutron.v2_0.lb import member as lb_member
+ from neutronclient.neutron.v2_0.lb import pool as lb_pool
+ from neutronclient.neutron.v2_0.lb import vip as lb_vip
++from neutronclient.neutron.v2_0.lb import l7policy as lb_l7policy
++from neutronclient.neutron.v2_0.lb import l7rule as lb_l7rule
+ from neutronclient.neutron.v2_0 import metering
+ from neutronclient.neutron.v2_0.nec import packetfilter
+ from neutronclient.neutron.v2_0 import netpartition
+@@ -191,6 +193,20 @@ COMMAND_V2 = {
+     'lb-healthmonitor-disassociate': (
+         lb_healthmonitor.DisassociateHealthMonitor
+     ),
++    'lb-l7policy-list': lb_l7policy.ListL7policy,
++    'lb-l7policy-show': lb_l7policy.ShowL7policy,
++    'lb-l7policy-create': lb_l7policy.CreateL7policy,
++    'lb-l7policy-update': lb_l7policy.UpdateL7policy,
++    'lb-l7policy-delete': lb_l7policy.DeleteL7policy,
++    'lb-l7rule-list': lb_l7rule.ListL7rule,
++    'lb-l7rule-show': lb_l7rule.ShowL7rule,
++    'lb-l7rule-create': lb_l7rule.CreateL7rule,
++    'lb-l7rule-update': lb_l7rule.UpdateL7rule,
++    'lb-l7rule-delete': lb_l7rule.DeleteL7rule,
++    'lb-l7rule-associate': lb_l7rule.AssociateL7rule,
++    'lb-l7rule-disassociate': (
++        lb_l7rule.DisassociateL7rule
++    ),
+     'queue-create': qos_queue.CreateQoSQueue,
+     'queue-delete': qos_queue.DeleteQoSQueue,
+     'queue-show': qos_queue.ShowQoSQueue,
+diff --git a/neutronclient/v2_0/client.py b/neutronclient/v2_0/client.py
+index 96afe7c..e76ee0c 100644
+--- a/neutronclient/v2_0/client.py
++++ b/neutronclient/v2_0/client.py
+@@ -188,6 +188,13 @@ class Client(object):
+     associate_pool_health_monitors_path = "/lb/pools/%s/health_monitors"
+     disassociate_pool_health_monitors_path = (
+         "/lb/pools/%(pool)s/health_monitors/%(health_monitor)s")
++    l7policy_path = "/lb/l7policies/%s"
++    l7policies_path = "/lb/l7policies"
++    l7rule_path = "/lb/l7rules/%s"
++    l7rules_path = "/lb/l7rules"
++    associate_l7policy_l7rules_path = "/lb/l7policies/%s/l7rules"
++    disassociate_l7policy_l7rules_path = (
++        "/lb/l7policies/%(l7policy)s/l7rules/%(l7rule)s")
+     qos_queues_path = "/qos-queues"
+     qos_queue_path = "/qos-queues/%s"
+     agents_path = "/agents"
+@@ -255,6 +262,8 @@ class Client(object):
+                      'pools': 'pool',
+                      'members': 'member',
+                      'health_monitors': 'health_monitor',
++                     'l7policies': 'l7policy',
++                     'l7rules': 'l7rule',
+                      'quotas': 'quota',
+                      'service_providers': 'service_provider',
+                      'firewall_rules': 'firewall_rule',
+@@ -802,6 +811,73 @@ class Client(object):
+         return self.delete(path)
+ 
+     @APIParamsCall
++    def list_l7policies(self, retrieve_all=True, **_params):
++        """Fetches a list of all load balancer l7policies for a tenant."""
++        # Pass filters in "params" argument to do_request
++        return self.list('l7policies', self.l7policies_path, retrieve_all,
++                         **_params)
++
++    @APIParamsCall
++    def show_l7policy(self, l7policy, **_params):
++        """Fetches information of a certain load balancer l7policy."""
++        return self.get(self.l7policy_path % (l7policy), params=_params)
++
++    @APIParamsCall
++    def create_l7policy(self, body=None):
++        """Creates a new load balancer l7policy."""
++        return self.post(self.l7policies_path, body=body)
++
++    @APIParamsCall
++    def update_l7policy(self, l7policy, body=None):
++        """Updates a load balancer l7policy."""
++        return self.put(self.l7policy_path % (l7policy), body=body)
++
++    @APIParamsCall
++    def delete_l7policy(self, l7policy):
++        """Deletes the specified load balancer l7policy."""
++        return self.delete(self.l7policy_path % (l7policy))
++
++    @APIParamsCall
++    def list_l7rules(self, retrieve_all=True, **_params):
++        """Fetches a list of all load balancer l7rules for a tenant."""
++        # Pass filters in "params" argument to do_request
++        return self.list('l7rules', self.l7policies_path, retrieve_all,
++                         **_params)
++
++    @APIParamsCall
++    def show_l7rule(self, l7rule, **_params):
++        """Fetches information of a certain load balancer l7rule."""
++        return self.get(self.l7rule_path % (l7rule), params=_params)
++
++    @APIParamsCall
++    def create_l7rule(self, body=None):
++        """Creates a new load balancer l7rule."""
++        return self.post(self.l7rules_path, body=body)
++
++    @APIParamsCall
++    def update_l7rule(self, l7rule, body=None):
++        """Updates a load balancer l7rule."""
++        return self.put(self.l7rule_path % (l7rule), body=body)
++
++    @APIParamsCall
++    def delete_l7rule(self, l7rule):
++        """Deletes the specified load balancer l7rule."""
++        return self.delete(self.l7rule_path % (l7rule))
++
++    @APIParamsCall
++    def associate_l7rule(self, l7policy, body):
++        """Associate  specified load balancer l7rule and l7policy."""
++        return self.post(self.associate_l7policy_l7rules_path % (l7policy),
++                         body=body)
++
++    @APIParamsCall
++    def disassociate_l7rule(self, l7policy, l7rule):
++        """Disassociate specified load balancer l7rule and l7policy."""
++        path = (self.disassociate_l7policy_l7rules_path %
++                {'l7policy': l7policy, 'l7rule': l7rule})
++        return self.delete(path)
++
++    @APIParamsCall
+     def add_pool_to_lb_agent(self, lb_agent, body):
+         """Add a pool to Lbaas agent."""
+         return self.post((self.agent_path + self.LOADBALANCER_POOLS) %
+-- 
+2.12.0
+

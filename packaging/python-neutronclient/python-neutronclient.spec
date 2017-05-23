@@ -2,7 +2,7 @@
 
 Name:       python-neutronclient
 Version:    2.3.9
-Release:    6%{?dist_eayunstack}
+Release:    8%{?dist_eayunstack}
 Summary:    Python API and CLI for OpenStack Neutron
 
 Group:      Development/Languages
@@ -19,6 +19,10 @@ Patch0006: 0006-Add-Portmapping-support.patch
 Patch0007: 0007-Add-pptp-vpn-credential-support.patch
 Patch0008: 0008-neutron-CLI-Add-support-lbaas-add-remove-command.patch
 Patch0009: 0009-VPNaaS-deprecate-two-dpd-actions.patch
+Patch0010: 0010-Add-lbaas-active-backup-option-for-neutronclient.patch
+Patch0011: 0011-Add-es_metering_label-support.patch
+Patch0012: 0012-Add-lbaas-l7policy-l7rule-CLI.patch
+Patch0013: 0013-Fix-neutron-lbaas-l7-CLI-error.patch
 
 
 BuildArch:  noarch
@@ -52,6 +56,10 @@ Neutron's API.
 %patch0007 -p1
 %patch0008 -p1
 %patch0009 -p1
+%patch0010 -p1
+%patch0011 -p1
+%patch0012 -p1
+%patch0013 -p1
 
 # We provide version like this in order to remove runtime dep on pbr.
 sed -i s/REDHATNEUTRONCLIENTVERSION/%{version}/ neutronclient/version.py
@@ -81,6 +89,14 @@ rm -rf %{buildroot}%{python_sitelib}/neutronclient/tests
 %{_sysconfdir}/bash_completion.d
 
 %changelog
+* Thu Mar 23 2017 Xu Meihong <meihong.xu@eayun.com> 2.3.9-8.eayunstack
+- add 0013-Fix-neutron-lbaas-l7-CLI-error.patch (redmine#9564)
+
+* Tue Mar 07 2017 Xu Meihong <meihong.xu@eayun.com> 2.3.9-7.eayunstack
+- add 0012-Add-lbaas-l7policy-l7rule-CLI.patch (redmine#9564)
+- add 0010-Add-lbaas-active-backup-option-for-neutronclient.patch (redmine#9260)
+- add 0011-Add-es_metering_label-support.patch (redmine#9559)
+
 * Wed Nov 02 2016 Xu Meihong <meihong.xu@eayun.com> 2.3.9-6.eayunstack.1.1
 - add 0009-VPNaaS-deprecate-two-dpd-actions.patch (redmine#8874)
 

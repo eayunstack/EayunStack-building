@@ -1,0 +1,51 @@
+From 6815d1682d0936287aa5b43cc758b35173304610 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Fri, 6 Jan 2017 17:50:22 +0800
+Subject: [PATCH 10/11] Add lbaas active-backup option for neutronclient
+
+Fixes: redmine #9260
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutronclient/neutron/v2_0/lb/member.py | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/neutronclient/neutron/v2_0/lb/member.py b/neutronclient/neutron/v2_0/lb/member.py
+index 1d589f2..7c4901d 100644
+--- a/neutronclient/neutron/v2_0/lb/member.py
++++ b/neutronclient/neutron/v2_0/lb/member.py
+@@ -25,7 +25,8 @@ class ListMember(neutronV20.ListCommand):
+ 
+     resource = 'member'
+     list_columns = [
+-        'id', 'address', 'protocol_port', 'weight', 'admin_state_up', 'status'
++        'id', 'address', 'protocol_port', 'weight', 'priority',
++        'admin_state_up', 'status'
+     ]
+     pagination_support = True
+     sorting_support = True
+@@ -54,6 +55,10 @@ class CreateMember(neutronV20.CreateCommand):
+             '--weight',
+             help=_('Weight of pool member in the pool (default:1, [0..256]).'))
+         parser.add_argument(
++            '--priority',
++            help=_('Priority of pool member in the active/backup pool'
++                   '([0..255]).'))
++        parser.add_argument(
+             '--address',
+             required=True,
+             help=_('IP address of the pool member on the pool network.'))
+@@ -75,7 +80,8 @@ class CreateMember(neutronV20.CreateCommand):
+         neutronV20.update_dict(
+             parsed_args,
+             body[self.resource],
+-            ['address', 'protocol_port', 'weight', 'tenant_id']
++            ['address', 'protocol_port', 'weight',
++             'tenant_id', 'priority']
+         )
+         return body
+ 
+-- 
+2.12.0
+
