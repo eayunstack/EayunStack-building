@@ -1,0 +1,64 @@
+From aa4c4dfd14fbdeaf060099e3146f6a65ccad3fc5 Mon Sep 17 00:00:00 2001
+From: Vincent Hou <sbhou@cn.ibm.com>
+Date: Mon, 24 Nov 2014 23:36:07 -0800
+Subject: [PATCH 22/30] Get the 'consumer' in a correct way for retyping with
+ qos-specs
+
+The qos specs returned from the database does not contain the
+property "qos-specs". Intead, the property "consumer" can be accessed
+directly.
+
+Change-Id: I3fe57e5cc20a97d32c8b8c6089ab1e812257da45
+closes-bug: #1389519
+(cherry picked from commit ef59e5f8c42365f7d55ea84d4afb364241a388c3)
+(cherry picked from commit 7a6cb599666acf0573657da4c46b93f913666662)
+---
+ cinder/tests/api/contrib/test_volume_actions.py | 11 +++++++----
+ cinder/volume/api.py                            |  2 +-
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/cinder/tests/api/contrib/test_volume_actions.py b/cinder/tests/api/contrib/test_volume_actions.py
+index c8c1feb3e..4aa23c752 100644
+--- a/cinder/tests/api/contrib/test_volume_actions.py
++++ b/cinder/tests/api/contrib/test_volume_actions.py
+@@ -357,7 +357,8 @@ class VolumeRetypeActionsTest(VolumeActionsTest):
+         # Test that the retype API works for both available and in-use
+         self._retype_volume_exec(202)
+         self.mock_volume_get.return_value['status'] = 'in-use'
+-        specs = {'qos_specs': {'id': 'fakeqid1', 'consumer': 'back-end'}}
++        specs = {'id': 'fakeqid1', 'name': 'fake_name1',
++                 'consumer': 'back-end', 'specs': {'key1': 'value1'}}
+         _mock_get_qspecs.return_value = specs
+         self._retype_volume_exec(202)
+ 
+@@ -408,9 +409,11 @@ class VolumeRetypeActionsTest(VolumeActionsTest):
+     def _retype_volume_diff_qos(self, vol_status, consumer, expected_status,
+                                 _mock_get_qspecs):
+         def fake_get_qos(ctxt, qos_id):
+-            d1 = {'qos_specs': {'id': 'fakeqid1', 'consumer': consumer}}
+-            d2 = {'qos_specs': {'id': 'fakeqid2', 'consumer': consumer}}
+-            return d1 if d1['qos_specs']['id'] == qos_id else d2
++            d1 = {'id': 'fakeqid1', 'name': 'fake_name1',
++                  'consumer': consumer, 'specs': {'key1': 'value1'}}
++            d2 = {'id': 'fakeqid2', 'name': 'fake_name2',
++                  'consumer': consumer, 'specs': {'key1': 'value1'}}
++            return d1 if d1['id'] == qos_id else d2
+ 
+         self.mock_volume_get.return_value['status'] = vol_status
+         _mock_get_qspecs.side_effect = fake_get_qos
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index a305eebad..3c897a062 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -1205,7 +1205,7 @@ class API(base.Base):
+             for qos_id in [old_vol_type_qos_id, vol_type_qos_id]:
+                 if qos_id:
+                     specs = qos_specs.get_qos_specs(context.elevated(), qos_id)
+-                    if specs['qos_specs']['consumer'] != 'back-end':
++                    if specs['consumer'] != 'back-end':
+                         msg = _('Retype cannot change front-end qos specs for '
+                                 'in-use volumes')
+                         raise exception.InvalidInput(reason=msg)
+-- 
+2.11.0
+
