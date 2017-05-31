@@ -1,0 +1,46 @@
+From 5facf04d7e3a3825147b72f4957ea6a697c748e3 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 16 Mar 2017 14:07:57 +0800
+Subject: [PATCH 86/99] Sync #79 from devel to testing
+
+metering: update external device of metering iptables rules
+
+This is required by the new mechanism introduced in commit ec41bdd6f (
+"l3_agent: implement EayunStack floating ip mechanism"). There will be
+multiple neutron ports connected to the external network in a router
+with the new mechanism. So neutron-metering iptables rules should handle
+those ports of floatingips as well.
+
+Fixes: redmine #9641
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 1e238adafcad8e91c2080a95a0d5d3b97a39befd)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/iptables_driver.py | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 9137530bf..1610bbe71 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -133,15 +133,12 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+         if router_id in self.routers:
+             del self.routers[router_id]
+ 
+-    def get_external_device_name(self, port_id):
+-        return (EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
+-
+     def _process_metering_label_rules(self, rm, rules, label_chain,
+                                       rules_chain):
+         im = rm.iptables_manager
+         if not rm.router['gw_port_id']:
+             return
+-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
++        ext_dev = "%s+" % EXTERNAL_DEV_PREFIX
+ 
+         for rule in rules:
+             remote_ip = rule['remote_ip_prefix']
+-- 
+2.13.0
+

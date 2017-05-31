@@ -1,0 +1,102 @@
+From 0c35d3cc4715aee31512cd774bb1f82e9f6f1765 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Wed, 31 May 2017 17:30:42 +0800
+Subject: [PATCH] Sync #99 from devel to testing
+
+Add check if extra actions params is correct
+
+Fixes: redmine #10217
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 9e5332c0dec70a02535c1b00e14777f877731a11)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/loadbalancer/loadbalancer_db.py | 32 ++++++++++++++++++++++++++++++
+ neutron/extensions/loadbalancer.py         | 14 +++++++++++++
+ 2 files changed, 46 insertions(+)
+
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index 061735b24..1b2a368a6 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -29,6 +29,7 @@ from neutron.extensions import loadbalancer
+ from neutron.extensions import loadbalancer_l7
+ from neutron import manager
+ from neutron.openstack.common import excutils
++from neutron.openstack.common import jsonutils
+ from neutron.openstack.common import log as logging
+ from neutron.openstack.common import uuidutils
+ from neutron.plugins.common import constants
+@@ -329,6 +330,35 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+ 
+         return self._fields(res, fields)
+ 
++    def _check_extra_action_info(self, action_info):
++        action_info = jsonutils.loads(action_info)
++        if not isinstance(action_info, dict):
++            raise loadbalancer.ExtraActionsInvalid()
++
++        # no operation
++        def _noop_and_warning(key, value):
++            LOG.warning(_("Not supported action key %(key)s "
++                          "and value %(value)s."),
++                        {'key': key, 'value': value})
++
++        def _check_max_age(key, value):
++            if not isinstance(value, dict):
++                raise loadbalancer.ExtraActionsSetCookieForMemberInvalid()
++            if 'max_age' in value:
++                try:
++                    int(value.get('max_age'))
++                except ValueError:
++                    raise loadbalancer.ExtraActionsMaxAgeInvalid(
++                        max_age=value.get('max_age'))
++            else:
++                raise loadbalancer.ExtraActionsSetCookieForMemberInvalid()
++
++        support_actions = {
++            'set_cookie_for_member': _check_max_age
++        }
++        for k, v in action_info.iteritems():
++            support_actions.get(k, _noop_and_warning)(k, v)
++
+     def _check_session_persistence_info(self, info):
+         """Performs sanity check on session persistence info.
+ 
+@@ -338,6 +368,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             if not info.get('cookie_name'):
+                 raise ValueError(_("'cookie_name' should be specified for this"
+                                    " type of session persistence."))
++            if info.get('extra_actions'):
++                self._check_extra_action_info(info.get('extra_actions'))
+         else:
+             if 'cookie_name' in info or 'extra_actions' in info:
+                 raise ValueError(_("'cookie_name' or 'extra_actions' is not"
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index 3c6ecb8ff..5f3589681 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -46,6 +46,20 @@ class VipExists(qexception.NeutronException):
+     message = _("Another Vip already exists for pool %(pool_id)s")
+ 
+ 
++class ExtraActionsInvalid(qexception.BadRequest):
++    message = _("Extra action shoud be a JSON object")
++
++
++class ExtraActionsSetCookieForMemberInvalid(qexception.BadRequest):
++    message = _("Extra action set_cookie_for_member "
++                "shoud be a JSON object")
++
++
++class ExtraActionsMaxAgeInvalid(qexception.BadRequest):
++    message = _("Extra action set_cookie_for_member "
++                "with invalid max_age %(max_age)s")
++
++
+ class PoolNotFound(qexception.NotFound):
+     message = _("Pool %(pool_id)s could not be found")
+ 
+-- 
+2.13.0
+

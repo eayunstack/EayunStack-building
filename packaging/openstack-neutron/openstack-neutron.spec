@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.8%{?dist_eayunstack}
+Release:	18.9%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -112,6 +112,38 @@ Patch0066: 0066-Sync-69-from-devel-to-testing.patch
 Patch0067: 0067-Sync-77-from-devel-to-testing.patch
 Patch0068: 0068-Sync-85-from-devel-to-testing.patch
 Patch0069: 0069-Sync-103-from-devel-to-testing.patch
+Patch0070: 0070-Sync-15-from-devel-to-testing.patch
+Patch0071: 0071-Sync-20-from-devel-to-testing.patch
+Patch0072: 0072-Sync-33-from-devel-to-testing.patch
+Patch0073: 0073-Sync-40-from-devel-to-testing.patch
+Patch0074: 0074-Sync-41-from-devel-to-testing.patch
+Patch0075: 0075-Sync-44-from-devel-to-testing.patch
+Patch0076: 0076-Sync-54-from-devel-to-testing.patch
+Patch0077: 0077-Sync-65-from-devel-to-testing.patch
+Patch0078: 0078-Sync-66-from-devel-to-testing.patch
+Patch0079: 0079-Sync-70-from-devel-to-testing.patch
+Patch0080: 0080-Sync-71-from-devel-to-testing.patch
+Patch0081: 0081-Sync-72-from-devel-to-testing.patch
+Patch0082: 0082-Sync-73-from-devel-to-testing.patch
+Patch0083: 0083-Sync-74-from-devel-to-testing.patch
+Patch0084: 0084-Sync-75-from-devel-to-testing.patch
+Patch0085: 0085-Sync-76-from-devel-to-testing.patch
+Patch0086: 0086-Sync-78-from-devel-to-testing.patch
+Patch0087: 0087-Sync-79-from-devel-to-testing.patch
+Patch0088: 0088-Sync-81-from-devel-to-testing.patch
+Patch0089: 0089-Sync-82-from-devel-to-testing.patch
+Patch0090: 0090-Sync-83-from-devel-to-testing.patch
+Patch0091: 0091-Sync-86-from-devel-to-testing.patch
+Patch0092: 0092-Sync-87-from-devel-to-testing.patch
+Patch0093: 0093-Sync-88-from-devel-to-testing.patch
+Patch0094: 0094-Sync-89-from-devel-to-testing.patch
+Patch0095: 0095-Sync-90-from-devel-to-testing.patch
+Patch0096: 0096-Sync-91-from-devel-to-testing.patch
+Patch0097: 0097-Sync-92-from-devel-to-testing.patch
+Patch0098: 0098-Sync-93-from-devel-to-testing.patch
+Patch0099: 0099-Sync-94-from-devel-to-testing.patch
+Patch0100: 0100-Sync-96-from-devel-to-testing.patch
+Patch0101: 0101-Sync-99-from-devel-to-testing.patch
 
 BuildArch:	noarch
 
@@ -658,6 +690,38 @@ IPSec.
 %patch0067 -p1
 %patch0068 -p1
 %patch0069 -p1
+%patch0070 -p1
+%patch0071 -p1
+%patch0072 -p1
+%patch0073 -p1
+%patch0074 -p1
+%patch0075 -p1
+%patch0076 -p1
+%patch0077 -p1
+%patch0078 -p1
+%patch0079 -p1
+%patch0080 -p1
+%patch0081 -p1
+%patch0082 -p1
+%patch0083 -p1
+%patch0084 -p1
+%patch0085 -p1
+%patch0086 -p1
+%patch0087 -p1
+%patch0088 -p1
+%patch0089 -p1
+%patch0090 -p1
+%patch0091 -p1
+%patch0092 -p1
+%patch0093 -p1
+%patch0094 -p1
+%patch0095 -p1
+%patch0096 -p1
+%patch0097 -p1
+%patch0098 -p1
+%patch0099 -p1
+%patch0100 -p1
+%patch0101 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1119,6 +1183,40 @@ exit 0
 
 
 %changelog
+* Mon Jun 19 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.9.eayunstack
+- add patch 0070 from github pull request #15 (redmine#8832)
+- add patch 0071 from github pull request #20
+- add patch 0072 from github pull request #33 (redmine#7450)
+- add patch 0073 from github pull request #40 (redmine#7693)
+- add patch 0074 from github pull request #41 (redmine#7694)
+- add patch 0075 from github pull request #44 (redmine#7991)
+- add patch 0076 from github pull request #54 (redmine#7730)
+- add patch 0077 from github pull request #65 (redmine#9118)
+- add patch 0078 from github pull request #66 (redmine#9154)
+- add patch 0079 from github pull request #70 (redmine#9400)
+- add patch 0080 from github pull request #71 (redmine#9433)
+- add patch 0081 from github pull request #72 (redmine#9467)
+- add patch 0082 from github pull request #73 (redmine#9404, #9518)
+- add patch 0083 from github pull request #74 (redmine#9517)
+- add patch 0084 from github pull request #75
+- add patch 0085 from github pull request #76 (redmine#9154)
+- add patch 0086 from github pull request #78 (redmine#9518)
+- add patch 0087 from github pull request #79 (redmine#9641)
+- add patch 0088 from neutron-qos github pull request #24 (redmine#9642)
+- add patch 0089 from github pull request #82 (redmine#9667)
+- add patch 0090 from github pull request #83 (redmine#9154)
+- add patch 0091 from github pull request #86 (redmine#9968)
+- add patch 0092 from github pull request #87 (redmine#9970)
+- add patch 0093 from github pull request #88 (redmine#9982)
+- add patch 0094 from github pull request #89 (redmine#9990)
+- add patch 0095 from github pull request #90 (redmine#9989)
+- add patch 0096 from github pull request #91 (redmine#9998)
+- add patch 0097 from neutron-qos github pull request #25 (redmine#10008)
+- add patch 0098 from github pull request #93 (redmine#10055)
+- add patch 0099 from github pull request #94 (redmine#10056)
+- add patch 0100 from github pull request #96 (redmine#9118)
+- add patch 0101 from github pull request #99 (redmine#10217)
+
 * Wed Jun 07 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.8.eayunstack
 - add patch 0069 from github pull request #103 (redmine#10246)
 

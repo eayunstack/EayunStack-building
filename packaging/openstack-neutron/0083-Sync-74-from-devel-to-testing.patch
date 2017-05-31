@@ -1,0 +1,419 @@
+From b7e5d7026f5c94148e22dcc4f64e015640a00ef0 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 24 Feb 2017 17:18:16 +0800
+Subject: [PATCH 82/99] Sync #74 from devel to testing
+
+l3_agent: implement EayunStack floating ip mechanism
+
+This mechanism eliminate the shortage that floating ip depends on the
+router to be connected to external networks, by using individual ports
+for floating IPs. Floating IPs can now be used no matter whether the
+related router is connected to the external network.
+
+The side benifit of this commit is that floating IPs in multiple
+external networks on the same router can now be configured and used.
+
+Fixes: redmine #9517
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit ec41bdd6f61c5c01eaff2f7ab9d0af32eaaae57f)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ etc/l3_agent.ini                   |   3 +
+ neutron/agent/l3_agent.py          | 156 +++++++++++++++++++++++++++++++++----
+ neutron/agent/linux/ip_lib.py      |  43 ++++++++--
+ neutron/api/rpc/handlers/l3_rpc.py |   3 +
+ neutron/db/l3_db.py                |  14 +++-
+ 5 files changed, 194 insertions(+), 25 deletions(-)
+
+diff --git a/etc/l3_agent.ini b/etc/l3_agent.ini
+index 94c971475..87977d0cb 100644
+--- a/etc/l3_agent.ini
++++ b/etc/l3_agent.ini
+@@ -100,3 +100,6 @@
+ 
+ # The advertisement interval in seconds
+ # ha_vrrp_advert_int = 2
++
++# Whether to use EayunStack floatingip mechanism
++# use_es_floatingip_mechanism = False
+diff --git a/neutron/agent/l3_agent.py b/neutron/agent/l3_agent.py
+index d88b61630..413dbbd51 100644
+--- a/neutron/agent/l3_agent.py
++++ b/neutron/agent/l3_agent.py
+@@ -75,6 +75,8 @@ FLOATING_IP_CIDR_SUFFIX = '/32'
+ PRIORITY_RPC = 0
+ PRIORITY_SYNC_ROUTERS_TASK = 1
+ DELETE_ROUTER = 1
++# For EayunStack floatingip mechanism
++IPSET_CHAIN_LEN = 20
+ 
+ 
+ class L3PluginApi(n_rpc.RpcProxy):
+@@ -275,6 +277,8 @@ class RouterInfo(l3_ha_agent.RouterMixin):
+         # Linklocal subnet for router and floating IP namespace link
+         self.rtr_fip_subnet = None
+         self.dist_fip_count = 0
++        # For EayunStack floatingip mechanism
++        self.es_fips_dict = {}
+ 
+         super(RouterInfo, self).__init__()
+ 
+@@ -505,6 +509,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+                    default='$state_path/metadata_proxy',
+                    help=_('Location of Metadata Proxy UNIX domain '
+                           'socket')),
++        cfg.BoolOpt('use_es_floatingip_mechanism', default=False,
++                    help=_('Whether to use EayunStack floatingip mechanism')),
+     ]
+ 
+     def __init__(self, host, conf=None):
+@@ -720,6 +726,14 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+         if self.use_ipv6:
+             ip_wrapper.netns.execute(['sysctl', '-w',
+                                       'net.ipv6.conf.all.forwarding=1'])
++        if self.conf.use_es_floatingip_mechanism:
++            # Don't reply ARP for other interfaces, since we may have multiple
++            # interfaces on the same subnet
++            ip_wrapper.netns.execute(['sysctl', '-w',
++                                      'net.ipv4.conf.default.arp_ignore=1'])
++            # RFC3704 Loose Reverse Path
++            ip_wrapper.netns.execute(['sysctl', '-w',
++                                      'net.ipv4.conf.default.rp_filter=2'])
+ 
+     def _create_router_namespace(self, ri):
+         self._create_namespace(ri.ns_name)
+@@ -871,6 +885,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+         # TODO(mrsmith) - we shouldn't need to check here
+         if 'distributed' not in ri.router:
+             ri.router['distributed'] = False
++        use_es_fip = self.conf.use_es_floatingip_mechanism
+         ri.iptables_manager.defer_apply_on()
+         ex_gw_port = self._get_ex_gw_port(ri)
+         internal_ports = ri.router.get(l3_constants.INTERFACE_KEY, [])
+@@ -949,9 +964,14 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+         elif not ex_gw_port and ri.ex_gw_port:
+             self.external_gateway_removed(ri, ri.ex_gw_port, interface_name)
+ 
++        existing_fip_ports = set(
++            [self.get_external_device_name(fip['port']['id'])
++             for fip in ri.es_fips_dict.values()])
++
+         stale_devs = [dev for dev in existing_devices
+                       if dev.startswith(EXTERNAL_DEV_PREFIX)
+-                      and dev != interface_name]
++                      and dev != interface_name
++                      and dev not in existing_fip_ports]
+         for stale_dev in stale_devs:
+             LOG.debug(_('Deleting stale external router device: %s'),
+                       stale_dev)
+@@ -971,33 +991,43 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             ri.perform_snat_action(self._handle_router_snat_rules,
+                                    internal_cidrs, interface_name)
+ 
+-        pm_statuses = {}
+         if ex_gw_port:
++            pm_statuses = {}
+             existing_portmappings = ri.portmappings
+             portmappings = self.get_portmappings(ri)
+             self.process_router_portmapping_nat_rules(
+                 ri, portmappings, ex_gw_port, interface_name)
+             for pm in portmappings:
+                 pm_statuses[pm['id']] = l3_constants.PORTMAPPING_STATUS_ACTIVE
++            # Identify portmappings which were disabled
++            ri.portmappings = set(pm_statuses.keys())
++            for pm_id in existing_portmappings - ri.portmappings:
++                pm_statuses[pm_id] = l3_constants.PORTMAPPING_STATUS_DOWN
++            # Update portmapping status on the neutron server
++            self.plugin_rpc.update_portmapping_statuses(
++                self.context, pm_statuses)
+ 
+         # Process SNAT/DNAT rules for floating IPs
+         fip_statuses = {}
+         try:
+-            if ex_gw_port:
++            if ex_gw_port or use_es_fip:
+                 existing_floating_ips = ri.floating_ips
+                 self.process_router_floating_ip_nat_rules(ri)
+                 ri.iptables_manager.defer_apply_off()
+                 # Once NAT rules for floating IPs are safely in place
+                 # configure their addresses on the external gateway port
+-                fip_statuses = self.process_router_floating_ip_addresses(
+-                    ri, ex_gw_port)
++                if use_es_fip:
++                    fip_statuses = self.es_process_fips(ri)
++                else:
++                    fip_statuses = self.process_router_floating_ip_addresses(
++                        ri, ex_gw_port)
+         except Exception:
+             # TODO(salv-orlando): Less broad catching
+             # All floating IPs must be put in error state
+             for fip in ri.router.get(l3_constants.FLOATINGIP_KEY, []):
+                 fip_statuses[fip['id']] = l3_constants.FLOATINGIP_STATUS_ERROR
+ 
+-        if ex_gw_port:
++        if ex_gw_port or use_es_fip:
+             # Identify floating IPs which were disabled
+             ri.floating_ips = set(fip_statuses.keys())
+             for fip_id in existing_floating_ips - ri.floating_ips:
+@@ -1005,13 +1035,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             # Update floating IP status on the neutron server
+             self.plugin_rpc.update_floatingip_statuses(
+                 self.context, ri.router_id, fip_statuses)
+-            # Identify portmappings which were disabled
+-            ri.portmappings = set(pm_statuses.keys())
+-            for pm_id in existing_portmappings - ri.portmappings:
+-                pm_statuses[pm_id] = l3_constants.PORTMAPPING_STATUS_DOWN
+-            # Update portmapping status on the neutron server
+-            self.plugin_rpc.update_portmapping_statuses(
+-                self.context, pm_statuses)
+ 
+         # Update ex_gw_port and enable_snat on the router info cache
+         ri.ex_gw_port = ex_gw_port
+@@ -1213,6 +1236,105 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+ 
+         return fip_statuses
+ 
++    def _es_process_ip_rules(self, ri, fixed_addrs):
++        ns_ipr = ip_lib.IpRule(self.root_helper, namespace=ri.ns_name)
++        existing_ips = ns_ipr.list_from_rules()
++
++        for ip in existing_ips - fixed_addrs:
++            table = netaddr.IPNetwork(ip).value
++            ns_ipr.delete_rule_from(ip, table)
++
++        for ip in fixed_addrs - existing_ips:
++            table = netaddr.IPNetwork(ip).value
++            ns_ipr.add_rule_from(ip, table)
++
++    def _es_add_floating_ip(self, ri, fip):
++        addr_added = False
++        ex_port_id = fip['port']['id']
++        interface_name = self.get_external_device_name(ex_port_id)
++        if not ip_lib.device_exists(interface_name,
++                                    root_helper=self.root_helper,
++                                    namespace=ri.ns_name):
++            self.driver.plug(fip['floating_network_id'],
++                             ex_port_id, interface_name,
++                             fip['port']['mac_address'],
++                             bridge=self.conf.external_network_bridge,
++                             namespace=ri.ns_name,
++                             prefix=EXTERNAL_DEV_PREFIX)
++        device = ip_lib.IPDevice(interface_name, self.root_helper,
++                                 namespace=ri.ns_name)
++        fip_subnet = fip['port']['subnet']['cidr']
++        prefixlen = netaddr.IPNetwork(fip_subnet).prefixlen
++        fip_cidr = "%s/%s" % (fip['floating_ip_address'], prefixlen)
++        if fip_cidr not in [addr['cidr'] for addr in device.addr.list()]:
++            net = netaddr.IPNetwork(fip_cidr)
++            try:
++                device.addr.add(net.version, fip_cidr, str(net.broadcast))
++                addr_added = True
++            except (processutils.UnknownArgumentError,
++                    processutils.ProcessExecutionError):
++                LOG.warn(_("Unable to configure IP address for "
++                           "floating IP: %s"), fip['id'])
++                return l3_constants.FLOATINGIP_STATUS_ERROR
++
++        # Add routes in the specific routing table.
++        table = netaddr.IPNetwork(fip['fixed_ip_address']).value
++        # This is safe (and needed) to be executed multiple times,
++        # as internal_ports may change all the time.
++        for port in ri.internal_ports:
++            device_name = self.get_internal_device_name(port['id'])
++            subnet = port['subnet']['cidr']
++            src = port['ip_cidr'].split("/")[0]
++            device.route.add_onlink_route(
++                subnet, name=device_name, src=src, table=table)
++
++        if addr_added:
++            device.route.add_onlink_route(
++                fip_subnet, src=fip['floating_ip_address'], table=table)
++            ex_gateway = fip['port']['subnet']['gateway_ip']
++            device.route.add_gateway(ex_gateway, table=table)
++            # Don't touch the main table
++            device.route.delete_onlink_route(fip_subnet)
++            self._send_gratuitous_arp_packet(
++                ri.ns_name, interface_name, fip['floating_ip_address'])
++
++        ri.es_fips_dict[fip['id']] = fip
++
++        return l3_constants.FLOATINGIP_STATUS_ACTIVE
++
++    def _es_remove_floating_ip(self, ri, fip_id):
++        fip = ri.es_fips_dict.pop(fip_id)
++        interface_name = self.get_external_device_name(fip['port']['id'])
++        if ip_lib.device_exists(interface_name,
++                                root_helper=self.root_helper,
++                                namespace=ri.ns_name):
++            device = ip_lib.IPDevice(interface_name, self.root_helper,
++                                     namespace=ri.ns_name)
++            table = netaddr.IPNetwork(fip['fixed_ip_address']).value
++            device.route.flush_routes(table=table)
++            self.driver.unplug(interface_name,
++                               bridge=self.conf.external_network_bridge,
++                               namespace=ri.ns_name,
++                               prefix=EXTERNAL_DEV_PREFIX)
++        self.driver.delete_conntrack_state(root_helper=self.root_helper,
++                                           namespace=ri.ns_name,
++                                           ip=fip['floating_ip_address'])
++
++    def es_process_fips(self, ri):
++        fip_statuses = {}
++        floating_ips = ri.router.get(l3_constants.FLOATINGIP_KEY, [])
++
++        self._es_process_ip_rules(
++            ri, set([fip['fixed_ip_address'] for fip in floating_ips]))
++
++        for fip in floating_ips:
++            fip_statuses[fip['id']] = self._es_add_floating_ip(ri, fip)
++
++        for fip_id in (set(ri.es_fips_dict.keys()) - set(fip_statuses.keys())):
++            self._es_remove_floating_ip(ri, fip_id)
++
++        return fip_statuses
++
+     def _get_ex_gw_port(self, ri):
+         return ri.router.get('gw_port')
+ 
+@@ -1481,11 +1603,11 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+         return rules
+ 
+     def external_gateway_nat_rules(self, ex_gw_ip, internal_cidrs,
+-                                   interface_name):
+-        rules = [('POSTROUTING', '! -i %(interface_name)s '
+-                  '! -o %(interface_name)s -m conntrack ! '
++                                   _interface_name):
++        rules = [('POSTROUTING', '! -i %(prefix)s+ '
++                  '! -o %(prefix)s+ -m conntrack ! '
+                   '--ctstate DNAT -j ACCEPT' %
+-                  {'interface_name': interface_name})]
++                  {'prefix': EXTERNAL_DEV_PREFIX})]
+         for cidr in internal_cidrs:
+             rules.extend(self.internal_network_nat_rules(ex_gw_ip, cidr))
+         return rules
+diff --git a/neutron/agent/linux/ip_lib.py b/neutron/agent/linux/ip_lib.py
+index 1d32a5497..193b0b4cf 100644
+--- a/neutron/agent/linux/ip_lib.py
++++ b/neutron/agent/linux/ip_lib.py
+@@ -197,8 +197,10 @@ class IPWrapper(SubProcessBase):
+ 
+ 
+ class IpRule(IPWrapper):
+-    def add_rule_from(self, ip, table, rule_pr):
+-        args = ['add', 'from', ip, 'lookup', table, 'priority', rule_pr]
++    def add_rule_from(self, ip, table, rule_pr=None):
++        args = ['add', 'from', ip, 'lookup', table]
++        if rule_pr:
++            args += ['priority', rule_pr]
+         ip = self._as_root('', 'rule', tuple(args))
+         return ip
+ 
+@@ -207,6 +209,21 @@ class IpRule(IPWrapper):
+         ip = self._as_root('', 'rule', tuple(args))
+         return ip
+ 
++    def delete_rule_from(self, ip, table):
++        args = ['del', 'from', ip]
++        ip = self._as_root('', 'rule', tuple(args))
++        return ip
++
++    def list_from_rules(self):
++        ret = set()
++        args = ['list']
++        for line in self._as_root('', 'rule', tuple(args)).split('\n'):
++            parts = line.strip().split()
++            if not parts or parts[1] != 'from' or parts[2] == 'all':
++                continue
++            ret.add(parts[2])
++        return ret
++
+ 
+ class IPDevice(SubProcessBase):
+     def __init__(self, name, root_helper=None, namespace=None):
+@@ -413,11 +430,19 @@ class IpRouteCommand(IpDeviceCommandBase):
+ 
+         return [x for x in iterate_routes()]
+ 
+-    def add_onlink_route(self, cidr):
+-        self._as_root('replace', cidr, 'dev', self.name, 'scope', 'link')
++    def add_onlink_route(self, cidr, name=None, src=None, table=None):
++        args = ['replace', cidr, 'dev', name or self.name, 'scope', 'link']
++        if src:
++            args += ['src', src]
++        if table:
++            args += ['table', table]
++        self._as_root(*args)
+ 
+-    def delete_onlink_route(self, cidr):
+-        self._as_root('del', cidr, 'dev', self.name, 'scope', 'link')
++    def delete_onlink_route(self, cidr, name=None, table=None):
++        args = ['del', cidr, 'dev', name or self.name, 'scope', 'link']
++        if table:
++            args += ['table', table]
++        self._as_root(*args)
+ 
+     def get_gateway(self, scope=None, filters=None):
+         if filters is None:
+@@ -494,6 +519,12 @@ class IpRouteCommand(IpDeviceCommandBase):
+             args += ['table', table]
+         self._as_root(*args)
+ 
++    def flush_routes(self, table=None):
++        args = ['flush']
++        if table:
++            args += ['table', table]
++        self._as_root(*args)
++
+ 
+ class IpNeighCommand(IpDeviceCommandBase):
+     COMMAND = 'neigh'
+diff --git a/neutron/api/rpc/handlers/l3_rpc.py b/neutron/api/rpc/handlers/l3_rpc.py
+index 93f620fb5..d67c16cff 100644
+--- a/neutron/api/rpc/handlers/l3_rpc.py
++++ b/neutron/api/rpc/handlers/l3_rpc.py
+@@ -105,6 +105,9 @@ class L3RpcCallback(n_rpc.RpcCallback):
+             for interface in router.get(constants.INTERFACE_KEY, []):
+                 self._ensure_host_set_on_port(context, host,
+                                               interface, router['id'])
++            for fip in router.get(constants.FLOATINGIP_KEY, []):
++                self._ensure_host_set_on_port(context, host, fip['port'],
++                                              router['id'])
+             interface = router.get(constants.HA_INTERFACE_KEY)
+             if interface:
+                 self._ensure_host_set_on_port(context, host, interface,
+diff --git a/neutron/db/l3_db.py b/neutron/db/l3_db.py
+index 5c3e1fc6c..a70f1eadd 100644
+--- a/neutron/db/l3_db.py
++++ b/neutron/db/l3_db.py
+@@ -701,7 +701,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+ 
+         router_port = routerport_qry.first()
+ 
+-        if router_port and router_port.router.gw_port:
++        if router_port:
+             return router_port.router.id
+ 
+         raise l3.ExternalGatewayForFloatingIPNotFound(
+@@ -1137,7 +1137,17 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+         """Query floating_ips that relate to list of router_ids."""
+         if not router_ids:
+             return []
+-        return self.get_floatingips(context, {'router_id': router_ids})
++        fip_dict = {}
++        for fip in self.get_floatingips(context, {'router_id': router_ids}):
++            fip_dict[fip['id']] = fip
++        if not fip_dict:
++            return []
++        port_filters = {'device_id': fip_dict.keys()}
++        ports = self._core_plugin.get_ports(context, port_filters)
++        self._populate_subnet_for_ports(context, ports)
++        for port in ports:
++            fip_dict[port['device_id']]['port'] = port
++        return fip_dict.values()
+ 
+     def _get_sync_portmappings(self, context, router_ids):
+         """Query portmappings that relate to list of router_ids."""
+-- 
+2.13.0
+

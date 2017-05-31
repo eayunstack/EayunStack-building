@@ -1,0 +1,51 @@
+From 91e1681ef2b81d582b4a0a46fb9b276480cea474 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 5 May 2017 18:07:51 +0800
+Subject: [PATCH 96/99] Sync #92 from devel to testing
+
+Fix fip port qos namespace selection in sync_qos
+
+Fixes: redmine #10008
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit c62b21be60a80a57475323433aa4060ba1aad5d8)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Change-Id: I3b207bb37f6e67d33468c4c78d717262eb08c6ff
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index d3c463f5d..b3a465ccb 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -25,6 +25,7 @@ from neutron.db import common_db_mixin as base_db
+ from neutron.db import l3_agentschedulers_db as l3_agent_db
+ from neutron.db import l3_db
+ from neutron.extensions import agent as ext_agent
++from neutron.extensions import l3 as ext_l3
+ from neutron.extensions import qos as ext_qos
+ from neutron.openstack.common import uuidutils
+ from neutron.openstack.common import log as logging
+@@ -821,10 +822,12 @@ class QosPluginRpcDbMixin(object):
+                 namespace = 'qrouter-' + qos.router_id
+             elif qos.port_id:
+                 if self._is_owner_floatingip(qos.port.device_owner):
+-                    fips = self._l3_plugin.get_floatingips(
+-                        context, filters={'port_id': qos.port_id})
+-                    if fips:
+-                        namespace = 'qrouter-' + fips[0]['router_id']
++                    try:
++                        fip = self._l3_plugin.get_floatingip(
++                            context, qos.port.device_id)
++                    except ext_l3.FloatingIPNotFound:
++                        continue
++                    namespace = 'qrouter-' + fip['router_id']
+                 else:
+                     namespace = '_root'
+ 
+-- 
+2.13.0
+

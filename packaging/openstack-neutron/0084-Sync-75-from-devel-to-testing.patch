@@ -1,0 +1,49 @@
+From 2b51c98b61b965c63f07eedae895c2d87359ddd6 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 7 Mar 2017 10:10:02 +0800
+Subject: [PATCH 83/99] Sync #75 from devel to testing
+
+Fix errors in lbaas L7 policy implemetation
+
+Fixes: 67091dd5a ("Implement lbaas L7 policy rule model")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 5eba9bb33fe64268951cd749296c176676c0ab0e)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Change-Id: I846ad2b07718ac97c599c28f8a38765c5c33a588
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../alembic_migrations/versions/222931b3859d_add_lbaas_l7_tables.py     | 2 +-
+ neutron/extensions/loadbalancer_l7.py                                   | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/db/migration/alembic_migrations/versions/222931b3859d_add_lbaas_l7_tables.py b/neutron/db/migration/alembic_migrations/versions/222931b3859d_add_lbaas_l7_tables.py
+index b517e3c0e..5c4a547d6 100644
+--- a/neutron/db/migration/alembic_migrations/versions/222931b3859d_add_lbaas_l7_tables.py
++++ b/neutron/db/migration/alembic_migrations/versions/222931b3859d_add_lbaas_l7_tables.py
+@@ -38,7 +38,7 @@ def upgrade():
+         'l7policies',
+         sa.Column('tenant_id', sa.String(length=255), nullable=False),
+         sa.Column('id', sa.String(length=36), nullable=False),
+-        sa.Column('pool_id', sa.String(length=36), nullable=False),
++        sa.Column('pool_id', sa.String(length=36), nullable=True),
+         sa.Column('priority', sa.Integer, nullable=False),
+         sa.Column('action', sa.Enum(*actions), nullable=False),
+         sa.Column('key', sa.String(length=255), nullable=True),
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index 909f1b25b..57aa51202 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -230,7 +230,7 @@ class Loadbalancer_l7(extensions.ExtensionDescriptor):
+         return resources
+ 
+     def update_attributes_map(self, attributes):
+-        super(Loadbalancer, self).update_attributes_map(
++        super(Loadbalancer_l7, self).update_attributes_map(
+             attributes, extension_attrs_map=RESOURCE_ATTRIBUTE_MAP)
+ 
+     def get_extended_resources(self, version):
+-- 
+2.13.0
+

@@ -1,0 +1,32 @@
+From 8b64c566a2313932c6a945777ca2305c0b1842d6 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 27 Oct 2016 19:26:48 +0800
+Subject: [PATCH 75/99] Sync #54 from devel to testing
+
+Fix ipsec error with unsupport provider name
+
+Fixes: redmine #7730
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 17256545091070dfdfc925e3af50babdaf21b80b)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/plugin.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/plugin.py b/neutron/services/vpn/plugin.py
+index eb50fe6e4..3a4cb5642 100644
+--- a/neutron/services/vpn/plugin.py
++++ b/neutron/services/vpn/plugin.py
+@@ -172,7 +172,7 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
+             context, ipsec_site_connection['ipsec_site_connection'])
+         if not driver.service_type == IPSEC:
+             raise vpn_ext.BadProviderForIPsec(
+-                vpnservice_id=ipsec_site_connection['vpnservice_id'])
++                vpnservice_id=ipsec_site_connection['ipsec_site_connection']['vpnservice_id'])
+         validator = driver.validator
+         ipsec_site_connection = super(
+             VPNDriverPlugin, self).create_ipsec_site_connection(
+-- 
+2.13.0
+
