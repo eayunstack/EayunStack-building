@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	33%{?dist_eayunstack}
+Release:	34%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -150,6 +150,7 @@ Patch0104: 0104-Fix-error-when-update-l7policy-with-pool_id-None.patch
 Patch0105: 0105-es-metering-fix-port-selection-when-tcp_port-is-spec.patch
 Patch0106: 0106-Optimize-haproxy-driver-port_to_pool_id-dict.patch
 Patch0107: 0107-OpenFlow-EW-DVR-be-more-torelant-when-syncing-dvr-po.patch
+Patch0108: 0108-Add-check-if-extra-actions-params-is-correct.patch
 
 
 BuildArch:	noarch
@@ -735,6 +736,7 @@ IPSec.
 %patch0105 -p1
 %patch0106 -p1
 %patch0107 -p1
+%patch0108 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1196,6 +1198,9 @@ exit 0
 
 
 %changelog
+* Thu Jun 01 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-34.eayunstack.dev
+- add patch 0108 from github pull request #99 (redmine#10217)
+
 * Thu May 18 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-33.eayunstack.dev
 - add patch 0105 from github pull request #93 (redmine#10055)
 - add patch 0106 from github pull request #94 (redmine#10056)
