@@ -4,7 +4,7 @@
 
 Name:       python-oslo-messaging
 Version:    1.4.1
-Release:    6%{?dist_eayunstack}
+Release:    7%{?dist_eayunstack}
 Summary:    OpenStack common messaging library
 
 Group:      Development/Languages
@@ -46,6 +46,7 @@ Patch0031: 0031-rabbit-redeclare-consumers-when-ack-requeue-fail.patch
 Patch0032: 0032-Fix-list_opts-test-to-not-check-all-deps.patch
 Patch0033: 0033-log-reconnection-event-after-reconnected.patch
 Patch0034: 0034-check-the-connection-status-before-heartbeating.patch
+Patch0035: 0035-use-kombu-s-ensure_connection.patch
 
 BuildArch:  noarch
 Requires:   python-setuptools
@@ -130,6 +131,7 @@ Documentation for the oslo.messaging library.
 %patch0032 -p1
 %patch0033 -p1
 %patch0034 -p1
+%patch0035 -p1
 
 # Remove bundled egg-info
 rm -rf %{sname}.egg-info
@@ -172,6 +174,9 @@ rm -fr doc/build/html/.buildinfo
 %doc doc/build/html LICENSE
 
 %changelog
+* Tue Apr 25 2017 blkart <blkart.org@gmail.com> - 1.4.1-7.eayunstack.1.1
+- 0035-use-kombu-s-ensure_connection.patch
+
 * Tue Mar 08 2016 apporc <appleorchard2000@gmail.com> - 1.4.1-6.eayunstack.1.1
 - 0034-check-the-connection-status-before-heartbeating.patch
 

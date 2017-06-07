@@ -1,0 +1,124 @@
+From 4d18197b0f84eff46837a24a5d54c1a67fc19c8b Mon Sep 17 00:00:00 2001
+From: apporc <appleorchard2000@gmail.com>
+Date: Fri, 8 Apr 2016 15:15:52 +0800
+Subject: [PATCH 35/35] use kombu's ensure_connection
+
+Signed-off-by: apporc <appleorchard2000@gmail.com>
+---
+ oslo/messaging/_drivers/impl_rabbit.py | 86 +++++++++++++++++++++-------------
+ 1 file changed, 53 insertions(+), 33 deletions(-)
+
+diff --git a/oslo/messaging/_drivers/impl_rabbit.py b/oslo/messaging/_drivers/impl_rabbit.py
+index 73290a7..6ed1508 100644
+--- a/oslo/messaging/_drivers/impl_rabbit.py
++++ b/oslo/messaging/_drivers/impl_rabbit.py
+@@ -646,7 +646,8 @@ class Connection(object):
+         self._heartbeat_support_log_emitted = False
+ 
+         # NOTE(sileht): just ensure the connection is setuped at startup
+-        self.ensure_connection()
++        with self._connection_lock:
++            self.ensure_connection()
+ 
+         # NOTE(sileht): if purpose is PURPOSE_LISTEN
+         # the consume code does the heartbeat stuff
+@@ -713,9 +714,56 @@ class Connection(object):
+             return ssl_params or True
+         return False
+ 
+-    def ensure_connection(self):
+-        self.ensure(error_callback=None,
+-                    method=lambda: True)
++    def ensure_connection(self, retry=None, callback=None):
++        # This method should be invoked in a lock.
++        if retry is None:
++            retry = self.max_retries
++        if retry is None or retry < 0:
++            retry = None
++
++        def on_error(exc, interval):
++            self.reconnect_errback(exc, interval)
++
++        if not self.connection.connected:
++            self.connection.ensure_connection(
++                errback=on_error,
++                max_retries=retry,
++                interval_start=self.interval_start or 1,
++                interval_step=self.interval_stepping,
++                interval_max=self.interval_max,
++                callback=callback
++            )
++
++    def reconnect_errback(self, exc, interval):
++
++        interval = (self.conf.kombu_reconnect_delay + interval
++                    if self.conf.kombu_reconnect_delay > 0 else interval)
++
++        info = {'hostname': self.connection.hostname,
++                'port': self.connection.port,
++                'err_str': exc, 'sleep_time': interval}
++
++        if 'Socket closed' in six.text_type(exc):
++            LOG.error(_('AMQP server %(hostname)s:%(port)s closed'
++                        ' the connection. Check login credentials:'
++                        ' %(err_str)s'), info)
++        else:
++            LOG.error(_('AMQP server on %(hostname)s:%(port)s is '
++                        'unreachable: %(err_str)s. Trying again in '
++                        '%(sleep_time)d seconds.'), info)
++
++        # XXX(nic): when reconnecting to a RabbitMQ cluster
++        # with mirrored queues in use, the attempt to release the
++        # connection can hang "indefinitely" somewhere deep down
++        # in Kombu.  Blocking the thread for a bit prior to
++        # release seems to kludge around the problem where it is
++        # otherwise reproduceable.
++        # TODO(sileht): Check if this is useful since we
++        # use kombu for HA connection, the interval_step
++        # should sufficient, because the underlying kombu transport
++        # connection object freed.
++        if self.conf.kombu_reconnect_delay > 0:
++            time.sleep(self.conf.kombu_reconnect_delay)
+ 
+     def ensure(self, error_callback, method, retry=None,
+                timeout_is_error=True):
+@@ -735,35 +783,7 @@ class Connection(object):
+ 
+         def on_error(exc, interval):
+             error_callback and error_callback(exc)
+-
+-            interval = (self.conf.kombu_reconnect_delay + interval
+-                        if self.conf.kombu_reconnect_delay > 0 else interval)
+-
+-            info = {'hostname': self.connection.hostname,
+-                    'port': self.connection.port,
+-                    'err_str': exc, 'sleep_time': interval}
+-
+-            if 'Socket closed' in six.text_type(exc):
+-                LOG.error(_('AMQP server %(hostname)s:%(port)s closed'
+-                            ' the connection. Check login credentials:'
+-                            ' %(err_str)s'), info)
+-            else:
+-                LOG.error(_('AMQP server on %(hostname)s:%(port)s is '
+-                            'unreachable: %(err_str)s. Trying again in '
+-                            '%(sleep_time)d seconds.'), info)
+-
+-            # XXX(nic): when reconnecting to a RabbitMQ cluster
+-            # with mirrored queues in use, the attempt to release the
+-            # connection can hang "indefinitely" somewhere deep down
+-            # in Kombu.  Blocking the thread for a bit prior to
+-            # release seems to kludge around the problem where it is
+-            # otherwise reproduceable.
+-            # TODO(sileht): Check if this is useful since we
+-            # use kombu for HA connection, the interval_step
+-            # should sufficient, because the underlying kombu transport
+-            # connection object freed.
+-            if self.conf.kombu_reconnect_delay > 0:
+-                time.sleep(self.conf.kombu_reconnect_delay)
++            self.reconnect_errback(exc, interval)
+ 
+         def on_reconnection(new_channel):
+             """Callback invoked when the kombu reconnects and creates
+-- 
+2.1.0
+
