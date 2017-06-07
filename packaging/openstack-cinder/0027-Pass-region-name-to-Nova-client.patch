@@ -1,0 +1,138 @@
+From e587170c00a4a98ae5e69b88fc4124d8a21a61ed Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Adrien=20Verg=C3=A9?= <adrien.verge@numergy.com>
+Date: Thu, 12 Feb 2015 17:09:47 +0100
+Subject: [PATCH 27/30] Pass region name to Nova client
+
+When using a Novaclient method on a multi-region infrastructure,
+requests sometimes fail with an AmbiguousEndpoints Exception,
+because more than one Nova endpoint is returned in the catalog.
+
+This patch passes `region_name` and `endpoint_type` from conf to
+Novaclient, so this error case is avoided.
+
+Change-Id: Ic4810a1c5223575c6d6300156491437ea67c4a7a
+Closes-Bug: #1421314
+(cherry picked from commit 43374438bdb9891590205c9a5ea9c7d4af7d4b84)
+---
+ cinder/compute/nova.py            | 34 +++++++++++++++++++---------------
+ cinder/tests/compute/test_nova.py | 22 ++++++++++++++++------
+ 2 files changed, 35 insertions(+), 21 deletions(-)
+
+diff --git a/cinder/compute/nova.py b/cinder/compute/nova.py
+index e55643161..929c7cc0a 100644
+--- a/cinder/compute/nova.py
++++ b/cinder/compute/nova.py
+@@ -85,6 +85,13 @@ def novaclient(context, admin_endpoint=False, privileged_user=False):
+     if admin_endpoint:
+         nova_endpoint_template = CONF.nova_endpoint_admin_template
+         nova_catalog_info = CONF.nova_catalog_admin_info
++    service_type, service_name, endpoint_type = nova_catalog_info.split(':')
++
++    # Extract the region if set in configuration
++    if CONF.os_region_name:
++        region_filter = {'attr': 'region', 'filter_value': CONF.os_region_name}
++    else:
++        region_filter = {}
+ 
+     if privileged_user and CONF.os_privileged_user_name:
+         context = ctx.RequestContext(
+@@ -93,8 +100,13 @@ def novaclient(context, admin_endpoint=False, privileged_user=False):
+             project_name=CONF.os_privileged_user_tenant,
+             service_catalog=context.service_catalog)
+ 
+-        # The admin user needs to authenticate before querying Nova
+-        url = sc.url_for(service_type='identity')
++        # When privileged_user is used, it needs to authenticate to Keystone
++        # before querying Nova, so we set auth_url to the identity service
++        # endpoint. We then pass region_name, endpoint_type, etc. to the
++        # Client() constructor so that the final endpoint is chosen correctly.
++        url = sc.url_for(service_type='identity',
++                         endpoint_type=endpoint_type,
++                         **region_filter)
+ 
+         LOG.debug('Creating a Nova client using "%s" user' %
+                   CONF.os_privileged_user_name)
+@@ -102,20 +114,10 @@ def novaclient(context, admin_endpoint=False, privileged_user=False):
+         if nova_endpoint_template:
+             url = nova_endpoint_template % context.to_dict()
+         else:
+-            info = nova_catalog_info
+-            service_type, service_name, endpoint_type = info.split(':')
+-            # extract the region if set in configuration
+-            if CONF.os_region_name:
+-                attr = 'region'
+-                filter_value = CONF.os_region_name
+-            else:
+-                attr = None
+-                filter_value = None
+-            url = sc.url_for(attr=attr,
+-                             filter_value=filter_value,
+-                             service_type=service_type,
++            url = sc.url_for(service_type=service_type,
+                              service_name=service_name,
+-                             endpoint_type=endpoint_type)
++                             endpoint_type=endpoint_type,
++                             **region_filter)
+ 
+         LOG.debug('Nova client connection created using URL: %s' % url)
+ 
+@@ -126,6 +128,8 @@ def novaclient(context, admin_endpoint=False, privileged_user=False):
+                            context.project_name,
+                            auth_url=url,
+                            insecure=CONF.nova_api_insecure,
++                           region_name=CONF.os_region_name,
++                           endpoint_type=endpoint_type,
+                            cacert=CONF.nova_ca_certificates_file,
+                            extensions=extensions)
+ 
+diff --git a/cinder/tests/compute/test_nova.py b/cinder/tests/compute/test_nova.py
+index 1a0b34c7e..079bddfca 100644
+--- a/cinder/tests/compute/test_nova.py
++++ b/cinder/tests/compute/test_nova.py
+@@ -45,27 +45,37 @@ class NovaClientTestCase(test.TestCase):
+     def test_nova_client_regular(self, p_client):
+         nova.novaclient(self.ctx)
+         p_client.assert_called_once_with(
+-            'regularuser', 'token', None,
++            'regularuser', 'token', None, region_name=None,
+             auth_url='http://novahost:8774/v2/e3f0833dc08b4cea',
+-            insecure=False, cacert=None,
++            insecure=False, endpoint_type='publicURL', cacert=None,
+             extensions=[assisted_volume_snapshots])
+ 
+     @mock.patch('novaclient.v1_1.client.Client')
+     def test_nova_client_admin_endpoint(self, p_client):
+         nova.novaclient(self.ctx, admin_endpoint=True)
+         p_client.assert_called_once_with(
+-            'regularuser', 'token', None,
++            'regularuser', 'token', None, region_name=None,
+             auth_url='http://novaadmhost:4778/v2/e3f0833dc08b4cea',
+-            insecure=False, cacert=None,
++            insecure=False, endpoint_type='adminURL', cacert=None,
+             extensions=[assisted_volume_snapshots])
+ 
+     @mock.patch('novaclient.v1_1.client.Client')
+     def test_nova_client_privileged_user(self, p_client):
+         nova.novaclient(self.ctx, privileged_user=True)
+         p_client.assert_called_once_with(
+-            'adminuser', 'strongpassword', None,
++            'adminuser', 'strongpassword', None, region_name=None,
+             auth_url='http://keystonehost:5000/v2.0',
+-            insecure=False, cacert=None,
++            insecure=False, endpoint_type='publicURL', cacert=None,
++            extensions=[assisted_volume_snapshots])
++
++    @mock.patch('novaclient.v1_1.client.Client')
++    def test_nova_client_custom_region(self, p_client):
++        self.override_config('os_region_name', 'farfaraway')
++        nova.novaclient(self.ctx)
++        p_client.assert_called_once_with(
++            'regularuser', 'token', None, region_name='farfaraway',
++            auth_url='http://novahost:8774/v2/e3f0833dc08b4cea',
++            insecure=False, endpoint_type='publicURL', cacert=None,
+             extensions=[assisted_volume_snapshots])
+ 
+ 
+-- 
+2.11.0
+

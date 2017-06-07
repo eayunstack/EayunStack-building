@@ -1,0 +1,42 @@
+From 4d096ef637dc4f719f646dfe69550928871efa53 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 3 May 2016 18:18:16 +0800
+Subject: [PATCH 12/17] unittest: fix test_migration_027.
+
+Change-Id: I117decfe5ad29d37d0f14ad03c6b0055e92294d7
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+(cherry picked from commit c6fe1020e750c19445783386ef7d240b99104be7)
+---
+ cinder/tests/test_migrations.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/cinder/tests/test_migrations.py b/cinder/tests/test_migrations.py
+index 8438cd3..0752c83 100644
+--- a/cinder/tests/test_migrations.py
++++ b/cinder/tests/test_migrations.py
+@@ -1305,11 +1305,11 @@ class TestMigrations(test.TestCase):
+             migration_api.version_control(engine,
+                                           TestMigrations.REPOSITORY,
+                                           migration.db_initial_version())
+-            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 31)
++            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 26)
+             metadata = sqlalchemy.schema.MetaData()
+             metadata.bind = engine
+ 
+-            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 32)
++            migration_api.upgrade(engine, TestMigrations.REPOSITORY, 27)
+ 
+             self.assertTrue(engine.dialect.has_table(engine.connect(),
+                                                      "volume_type_projects"))
+@@ -1338,7 +1338,7 @@ class TestMigrations(test.TestCase):
+             self.assertIsInstance(volume_types.c.is_public.type,
+                                   self.bool_type[engine.name])
+ 
+-            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 31)
++            migration_api.downgrade(engine, TestMigrations.REPOSITORY, 26)
+             metadata = sqlalchemy.schema.MetaData()
+             metadata.bind = engine
+ 
+-- 
+2.8.1
+

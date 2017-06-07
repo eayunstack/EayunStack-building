@@ -1,0 +1,61 @@
+From 84c9fcd79a84db150e18fef6ccf00527d4ffafc6 Mon Sep 17 00:00:00 2001
+From: Danny Al-Gaaf <danny.al-gaaf@bisect.de>
+Date: Mon, 7 Mar 2016 16:25:09 +0100
+Subject: [PATCH 33/33] rbd: Change capacity calculation from integer to float
+
+The current capacity calculation in the rbd driver use old
+c-style integer calculation while e.g. the scheduler
+_weigh_object function uses float, therefore calculate
+capacity information in float with 2 digits precision for
+Gb sizes.
+
+Closes-Bug: #1508340
+
+Change-Id: I1a731c7606a7dee0295b1604b582447d2da6e750
+Signed-off-by: Danny Al-Gaaf <danny.al-gaaf@bisect.de>
+(cherry picked from commit fba1af2bb1382af029e0340512f30b1ba10d389b)
+---
+ cinder/tests/test_rbd.py     |  4 ++--
+ cinder/volume/drivers/rbd.py | 11 ++++++-----
+ 2 files changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/cinder/tests/test_rbd.py b/cinder/tests/test_rbd.py
+index 33d332af0..24111a96c 100644
+--- a/cinder/tests/test_rbd.py
++++ b/cinder/tests/test_rbd.py
+@@ -637,8 +637,8 @@ class RBDTestCase(test.TestCase):
+             vendor_name='Open Source',
+             driver_version=self.driver.VERSION,
+             storage_protocol='ceph',
+-            total_capacity_gb=27,
+-            free_capacity_gb=26,
++            total_capacity_gb=28.44,
++            free_capacity_gb=27.0,
+             reserved_percentage=0)
+ 
+         actual = self.driver.get_volume_stats(True)
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index 3bd4efe67..73905c9e0 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -370,11 +370,12 @@ class RBDDriver(driver.VolumeDriver):
+                     pool_stats = [pool for pool in outbuf['pools'] if
+                                   pool['name'] ==
+                                   self.configuration.rbd_pool][0]['stats']
+-                    stats['free_capacity_gb'] = (
+-                        pool_stats['max_avail'] / units.Gi)
+-                    used_capacity_gb = pool_stats['bytes_used'] / units.Gi
+-                    stats['total_capacity_gb'] = (stats['free_capacity_gb']
+-                                                  + used_capacity_gb)
++                    stats['free_capacity_gb'] = round((float(
++                        pool_stats['max_avail']) / units.Gi), 2)
++                    used_capacity_gb = float(
++                        pool_stats['bytes_used']) / units.Gi
++                    stats['total_capacity_gb'] = round(
++                        (stats['free_capacity_gb'] + used_capacity_gb), 2)
+         except self.rados.Error:
+             # just log and return unknown capacities
+             LOG.exception(_('error refreshing volume stats'))
+-- 
+2.11.0
+
