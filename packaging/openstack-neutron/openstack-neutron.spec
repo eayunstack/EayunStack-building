@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.7%{?dist_eayunstack}
+Release:	18.8%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -111,6 +111,7 @@ Patch0065: 0065-Sync-64-from-devel-to-testing.patch
 Patch0066: 0066-Sync-69-from-devel-to-testing.patch
 Patch0067: 0067-Sync-77-from-devel-to-testing.patch
 Patch0068: 0068-Sync-85-from-devel-to-testing.patch
+Patch0069: 0069-Sync-103-from-devel-to-testing.patch
 
 BuildArch:	noarch
 
@@ -656,6 +657,7 @@ IPSec.
 %patch0066 -p1
 %patch0067 -p1
 %patch0068 -p1
+%patch0069 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1117,6 +1119,9 @@ exit 0
 
 
 %changelog
+* Wed Jun 07 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.8.eayunstack
+- add patch 0069 from github pull request #103 (redmine#10246)
+
 * Wed May 23 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.7.eayunstack
 - add patch 0066 from github pull request #69 (redmine#9249)
 - add patch 0067 from github pull request #77 (redmine#9588)
