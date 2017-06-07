@@ -1,0 +1,112 @@
+From 504e141f2f1db63481681df06fb0dac74ce9f3f4 Mon Sep 17 00:00:00 2001
+From: wuyuting <wytdahu@gmail.com>
+Date: Fri, 20 Mar 2015 18:41:11 +0800
+Subject: [PATCH 32/33] Rbd update volume stats in wrong way
+
+Cinder volume uses a RADOS pool to store volumes and
+update storage stats periodically. However, rbd driver
+reports the whole cluster stats but not the pool's. This
+is wrong. The right way is to report the pool stats but
+not the whole cluster.
+
+Change-Id: Ie18324ebd8b85f7b63dc034ba20857ae9e470804
+Closes-Bug: #1434441
+(cherry picked from commit ac219d5dd93c5c637336a9c79389fc260af65d36)
+(cherry picked from commit e1c20f0b17a0fde408a45e6cfc6bf0b291f82dc1)
+---
+ cinder/tests/test_rbd.py     | 26 ++++++++++++++++----------
+ cinder/volume/drivers/rbd.py | 17 ++++++++++++++---
+ 2 files changed, 30 insertions(+), 13 deletions(-)
+
+diff --git a/cinder/tests/test_rbd.py b/cinder/tests/test_rbd.py
+index 99cdfd724..33d332af0 100644
+--- a/cinder/tests/test_rbd.py
++++ b/cinder/tests/test_rbd.py
+@@ -621,10 +621,14 @@ class RBDTestCase(test.TestCase):
+         client.__enter__.return_value = client
+ 
+         client.cluster = mock.Mock()
+-        client.cluster.get_cluster_stats = mock.Mock()
+-        client.cluster.get_cluster_stats.return_value = {'kb': 1024 ** 3,
+-                                                         'kb_avail': 1024 ** 2}
+-
++        client.cluster.mon_command = mock.Mock()
++        client.cluster.mon_command.return_value = (
++            0, '{"stats":{"total_bytes":64385286144,'
++            '"total_used_bytes":3289628672,"total_avail_bytes":61095657472},'
++            '"pools":[{"name":"rbd","id":2,"stats":{"kb_used":1510197,'
++            '"bytes_used":1546440971,"max_avail":28987613184,"objects":412}},'
++            '{"name":"volumes","id":3,"stats":{"kb_used":0,"bytes_used":0,'
++            '"max_avail":28987613184,"objects":0}}]}\n', '')
+         self.driver.configuration.safe_get = mock.Mock()
+         self.driver.configuration.safe_get.return_value = 'RBD'
+ 
+@@ -633,12 +637,13 @@ class RBDTestCase(test.TestCase):
+             vendor_name='Open Source',
+             driver_version=self.driver.VERSION,
+             storage_protocol='ceph',
+-            total_capacity_gb=1024,
+-            free_capacity_gb=1,
++            total_capacity_gb=27,
++            free_capacity_gb=26,
+             reserved_percentage=0)
+ 
+         actual = self.driver.get_volume_stats(True)
+-        client.cluster.get_cluster_stats.assert_called_once()
++        client.cluster.mon_command.assert_called_once_with(
++            '{"prefix":"df", "format":"json"}', '')
+         self.assertDictMatch(expected, actual)
+ 
+     @common_mocks
+@@ -647,8 +652,8 @@ class RBDTestCase(test.TestCase):
+         client.__enter__.return_value = client
+ 
+         client.cluster = mock.Mock()
+-        client.cluster.get_cluster_stats = mock.Mock()
+-        client.cluster.get_cluster_stats.side_effect = Exception
++        client.cluster.mon_command = mock.Mock()
++        client.cluster.mon_command.return_value = (22, '', '')
+ 
+         self.driver.configuration.safe_get = mock.Mock()
+         self.driver.configuration.safe_get.return_value = 'RBD'
+@@ -662,7 +667,8 @@ class RBDTestCase(test.TestCase):
+                         reserved_percentage=0)
+ 
+         actual = self.driver.get_volume_stats(True)
+-        client.cluster.get_cluster_stats.assert_called_once()
++        client.cluster.mon_command.assert_called_once_with(
++            '{"prefix":"df", "format":"json"}', '')
+         self.assertDictMatch(expected, actual)
+ 
+     @common_mocks
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index a55c1f666..3bd4efe67 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -361,9 +361,20 @@ class RBDDriver(driver.VolumeDriver):
+ 
+         try:
+             with RADOSClient(self) as client:
+-                new_stats = client.cluster.get_cluster_stats()
+-            stats['total_capacity_gb'] = new_stats['kb'] / units.Mi
+-            stats['free_capacity_gb'] = new_stats['kb_avail'] / units.Mi
++                ret, outbuf, _outs = client.cluster.mon_command(
++                    '{"prefix":"df", "format":"json"}', '')
++                if ret != 0:
++                    LOG.warning(_('Unable to get rados pool stats.'))
++                else:
++                    outbuf = json.loads(outbuf)
++                    pool_stats = [pool for pool in outbuf['pools'] if
++                                  pool['name'] ==
++                                  self.configuration.rbd_pool][0]['stats']
++                    stats['free_capacity_gb'] = (
++                        pool_stats['max_avail'] / units.Gi)
++                    used_capacity_gb = pool_stats['bytes_used'] / units.Gi
++                    stats['total_capacity_gb'] = (stats['free_capacity_gb']
++                                                  + used_capacity_gb)
+         except self.rados.Error:
+             # just log and return unknown capacities
+             LOG.exception(_('error refreshing volume stats'))
+-- 
+2.11.0
+
