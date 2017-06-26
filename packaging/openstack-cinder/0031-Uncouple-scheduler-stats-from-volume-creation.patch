@@ -1,0 +1,149 @@
+From a71215b42f2dec2c1680352ea983a2d31a947f25 Mon Sep 17 00:00:00 2001
+From: "Gary W. Smith" <gary.w.smith@hp.com>
+Date: Mon, 15 Dec 2014 14:38:26 -0800
+Subject: [PATCH 31/33] Uncouple scheduler stats from volume creation
+
+Capture and report scheduler stats independently from volume creation.
+Without this scheduler stats were not reported until the first volume
+creation and were subsequently only updated each time a volume was
+created.
+
+Change-Id: Ia1a809ba10e0595e6c255fde683f7c252377ac09
+Fixes-bug: 1402790
+Fixes-bug: 1402806
+(cherry picked from commit b0d99edf3a241cdb87a3b4ab7b588e2aff236be5)
+(cherry picked from commit f9715775a3db5266356fbf1d43c97097a93b59a3)
+---
+ cinder/scheduler/host_manager.py            | 27 +++++++++------
+ cinder/tests/scheduler/test_host_manager.py | 54 +++++++++++++++++++++++++++--
+ 2 files changed, 67 insertions(+), 14 deletions(-)
+
+diff --git a/cinder/scheduler/host_manager.py b/cinder/scheduler/host_manager.py
+index 4729e2355..2b7b360c5 100644
+--- a/cinder/scheduler/host_manager.py
++++ b/cinder/scheduler/host_manager.py
+@@ -433,15 +433,7 @@ class HostManager(object):
+                   {'service_name': service_name, 'host': host,
+                    'cap': capabilities})
+ 
+-    def get_all_host_states(self, context):
+-        """Returns a dict of all the hosts the HostManager knows about.
+-
+-        Each of the consumable resources in HostState are
+-        populated with capabilities scheduler received from RPC.
+-
+-        For example:
+-          {'192.168.1.100': HostState(), ...}
+-        """
++    def _update_host_state_map(self, context):
+ 
+         # Get resource usage across the available volume nodes:
+         topic = CONF.volume_topic
+@@ -475,10 +467,21 @@ class HostManager(object):
+                        "scheduler cache.") % {'host': host})
+             del self.host_state_map[host]
+ 
++    def get_all_host_states(self, context):
++        """Returns a dict of all the hosts the HostManager knows about.
++
++        Each of the consumable resources in HostState are
++        populated with capabilities scheduler received from RPC.
++
++        For example:
++          {'192.168.1.100': HostState(), ...}
++        """
++
++        self._update_host_state_map(context)
++
+         # build a pool_state map and return that map instead of host_state_map
+         all_pools = {}
+-        for host in active_hosts:
+-            state = self.host_state_map[host]
++        for host, state in self.host_state_map.items():
+             for key in state.pools:
+                 pool = state.pools[key]
+                 # use host.pool_name to make sure key is unique
+@@ -490,6 +493,8 @@ class HostManager(object):
+     def get_pools(self, context):
+         """Returns a dict of all pools on all hosts HostManager knows about."""
+ 
++        self._update_host_state_map(context)
++
+         all_pools = []
+         for host, state in self.host_state_map.items():
+             for key in state.pools:
+diff --git a/cinder/tests/scheduler/test_host_manager.py b/cinder/tests/scheduler/test_host_manager.py
+index acb72726d..72c0a66ff 100644
+--- a/cinder/tests/scheduler/test_host_manager.py
++++ b/cinder/tests/scheduler/test_host_manager.py
+@@ -118,6 +118,57 @@ class HostManagerTestCase(test.TestCase):
+ 
+     @mock.patch('cinder.db.service_get_all_by_topic')
+     @mock.patch('cinder.utils.service_is_up')
++    @mock.patch('oslo.utils.timeutils.utcnow')
++    def test_update_and_get_pools(self, _mock_utcnow,
++                                  _mock_service_is_up,
++                                  _mock_service_get_all_by_topic):
++        """Test interaction between update and get_pools
++
++        This test verifies that each time that get_pools is called it gets the
++        latest copy of service_capabilities, which is timestamped with the
++        current date/time.
++        """
++        context = 'fake_context'
++        _mock_utcnow.side_effect = [400, 401, 402]
++
++        services = [
++            # This is the first call to utcnow()
++            dict(id=1, host='host1', topic='volume', disabled=False,
++                 availability_zone='zone1', updated_at=timeutils.utcnow()),
++        ]
++
++        mocked_service_states = {
++            'host1': dict(volume_backend_name='AAA',
++                          total_capacity_gb=512, free_capacity_gb=200,
++                          timestamp=None, reserved_percentage=0),
++        }
++
++        _mock_service_get_all_by_topic.return_value = services
++        _mock_service_is_up.return_value = True
++        _mock_warning = mock.Mock()
++        host_manager.LOG.warn = _mock_warning
++
++        host_volume_capabs = dict(free_capacity_gb=4321)
++
++        service_name = 'volume'
++        with mock.patch.dict(self.host_manager.service_states,
++                             mocked_service_states):
++            self.host_manager.update_service_capabilities(service_name,
++                                                          'host1',
++                                                          host_volume_capabs)
++            res = self.host_manager.get_pools(context)
++            self.assertEqual(1, len(res))
++            self.assertEqual(401, res[0]['capabilities']['timestamp'])
++
++            self.host_manager.update_service_capabilities(service_name,
++                                                          'host1',
++                                                          host_volume_capabs)
++            res = self.host_manager.get_pools(context)
++            self.assertEqual(1, len(res))
++            self.assertEqual(402, res[0]['capabilities']['timestamp'])
++
++    @mock.patch('cinder.db.service_get_all_by_topic')
++    @mock.patch('cinder.utils.service_is_up')
+     def test_get_all_host_states(self, _mock_service_is_up,
+                                  _mock_service_get_all_by_topic):
+         context = 'fake_context'
+@@ -222,9 +273,6 @@ class HostManagerTestCase(test.TestCase):
+ 
+         with mock.patch.dict(self.host_manager.service_states,
+                              mocked_service_states):
+-            # call get_all_host_states to populate host_state_map
+-            self.host_manager.get_all_host_states(context)
+-
+             res = self.host_manager.get_pools(context)
+ 
+             # check if get_pools returns all 3 pools
+-- 
+2.11.0
+
