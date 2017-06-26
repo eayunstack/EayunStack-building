@@ -1,0 +1,124 @@
+From 8683ebe5f86a1a7e0ad57b07fe1d17ac17f9ba1d Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 9 Mar 2017 12:04:21 +0800
+Subject: [PATCH 84/99] Sync #76 from devel to testing
+
+iptables_firewall: use wrap chains and rules for metering
+
+Non-wrap chains/rules may cause problems.
+
+Fixes: redmine #9154
+Fixes: deaf40836 ("iptables_firewall: add firewall rules to meter instance
+port stats")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 9c324b301aa51bbea0860643202ccd7b85f78da7)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/iptables_firewall.py | 44 ++++++++++++++------------------
+ 1 file changed, 19 insertions(+), 25 deletions(-)
+
+diff --git a/neutron/agent/linux/iptables_firewall.py b/neutron/agent/linux/iptables_firewall.py
+index e0a1da757..c755cb99b 100644
+--- a/neutron/agent/linux/iptables_firewall.py
++++ b/neutron/agent/linux/iptables_firewall.py
+@@ -185,46 +185,40 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+         # Only support IPv4
+         chains = self._metering_chain_names(port, direction)
+         for m_chain_name in chains:
+-            self.iptables.ipv4['filter'].add_chain(m_chain_name, wrap=False)
++            self.iptables.ipv4['filter'].add_chain(m_chain_name)
+ 
+         metering_chain, counting_in_chain, counting_chain = chains
+         # Jump to the original security group chain
+-        orig_chain_name = self.iptables.ipv4['filter']._wrap_target_chain(
+-            '$' + chain_name, True)
+-        jump_rule = '-j %s' % orig_chain_name
+-        self.iptables.ipv4['filter'].add_rule(metering_chain, jump_rule,
+-                                              wrap=False)
++        jump_rule = '-j $%s' % chain_name
++        self.iptables.ipv4['filter'].add_rule(metering_chain, jump_rule)
++
+         # Jump to the counting chains
+         counting_rules = []
+         tmp_direction = IPSET_DIRECTION[direction]
+         if self.enable_ipset:
+             counting_rules += [
+-                '-m set --match-set %s %s -j %s' % (
++                '-m set --match-set %s %s -j $%s' % (
+                     PRIVATE_IPSET_NAME, tmp_direction, counting_in_chain
+                 )
+             ]
+         else:
+             counting_rules += [
+-                '--%s %s -j %s' % (
++                '--%s %s -j $%s' % (
+                     tmp_direction, private_net, counting_in_chain
+                 )
+                 for private_net in self.private_nets
+             ]
+-        counting_rules += ['-j %s' % counting_chain]
++        counting_rules += ['-j $%s' % counting_chain]
+         for rule in counting_rules:
+-            self.iptables.ipv4['filter'].add_rule(metering_chain, rule,
+-                                                  wrap=False)
++            self.iptables.ipv4['filter'].add_rule(metering_chain, rule)
+         # Count the counting chain
+-        self.iptables.ipv4['filter'].add_rule(counting_in_chain, '',
+-                                              wrap=False)
+-        self.iptables.ipv4['filter'].add_rule(counting_chain, '',
+-                                              wrap=False)
++        self.iptables.ipv4['filter'].add_rule(counting_in_chain, '')
++        self.iptables.ipv4['filter'].add_rule(counting_chain, '')
+         return metering_chain
+ 
+     def _remove_metering_chains(self, port, direction):
+         for m_chain_name in self._metering_chain_names(port, direction):
+-            self.iptables.ipv4['filter'].ensure_remove_chain(
+-                m_chain_name, wrap=False)
++            self.iptables.ipv4['filter'].ensure_remove_chain(m_chain_name)
+ 
+     def _add_chain(self, port, direction):
+         chain_name = self._port_chain_name(port, direction)
+@@ -247,10 +241,10 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+ 
+         # jump to the chain based on the device
+         jump_rules = [
+-            ['-m physdev --%s %s --physdev-is-bridged -j %s' % (
++            ['-m physdev --%s %s --physdev-is-bridged -j $%s' % (
+                 self.IPTABLES_DIRECTION[direction], device, j_chain_name)
+             ]
+-            for j_chain_name in (metering_chain_name, '$' + chain_name)]
++            for j_chain_name in (metering_chain_name, chain_name)]
+         self._add_rule_to_chain_v4v6(SG_CHAIN, *jump_rules)
+ 
+         if direction == EGRESS_DIRECTION:
+@@ -573,9 +567,9 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+     def _metering_chain_names(self, port, direction):
+         return [
+             iptables_manager.get_chain_name(
+-                '%s%s' % (prefix + direction + '-', port['device'][3:]),
+-                wrap=False
+-            ) for prefix in ('metering-', 'counting-in-', 'counting-')]
++                '%s%s%s' % (
++                    prefix, CHAIN_NAME_PREFIX[direction], port['device'][3:])
++            ) for prefix in ('m', 'c', 'C')]
+ 
+     def filter_defer_apply_on(self):
+         if not self._defer_apply:
+@@ -637,9 +631,9 @@ class OVSHybridIptablesFirewallDriver(IptablesFirewallDriver):
+     def _metering_chain_names(self, port, direction):
+         return [
+             iptables_manager.get_chain_name(
+-                '%s%s' % (prefix + direction + '-', port['device']),
+-                wrap=False
+-            ) for prefix in ('metering-', 'counting-in-', 'counting-')]
++                '%s%s%s' % (
++                    prefix, CHAIN_NAME_PREFIX[direction], port['device'])
++            ) for prefix in ('m', 'c', 'C')]
+ 
+     def _get_device_name(self, port):
+         return (self.OVS_HYBRID_TAP_PREFIX + port['device'])[:LINUX_DEV_LEN]
+-- 
+2.13.0
+

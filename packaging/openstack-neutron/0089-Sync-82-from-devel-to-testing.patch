@@ -1,0 +1,320 @@
+From e441d6a5e2aece1c2380e21702ea9747eebd3861 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Wed, 29 Mar 2017 16:13:12 +0800
+Subject: [PATCH 88/99] Sync #82 from devel to testing
+
+Add extra-action for lb session persistence
+
+Fixes: redmine #9667
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 95816af3ae49569e438f680757722241a0b89230)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/api/v2/attributes.py                       | 15 ++++++
+ neutron/db/loadbalancer/loadbalancer_db.py         | 15 ++++--
+ .../7dc5a7c3d759_add_extra_action_for_lb_vip.py    | 40 +++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/extensions/loadbalancer.py                 |  5 +-
+ .../services/loadbalancer/drivers/haproxy/cfg.py   | 59 ++++++++++++++++++++--
+ 6 files changed, 127 insertions(+), 9 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/7dc5a7c3d759_add_extra_action_for_lb_vip.py
+
+diff --git a/neutron/api/v2/attributes.py b/neutron/api/v2/attributes.py
+index 267b7a428..c4a255d3a 100644
+--- a/neutron/api/v2/attributes.py
++++ b/neutron/api/v2/attributes.py
+@@ -19,6 +19,7 @@ import re
+ from neutron.common import constants
+ from neutron.common import exceptions as n_exc
+ from neutron.openstack.common import log as logging
++from neutron.openstack.common import jsonutils
+ from neutron.openstack.common import uuidutils
+ 
+ 
+@@ -103,6 +104,19 @@ def _validate_string(data, max_len=None):
+         return msg
+ 
+ 
++def _validate_json_string(data, max_len=None):
++    if data is not None:
++        msg = _validate_string(data, max_len=max_len)
++        if not msg:
++            # valid json
++            try:
++                jsonutils.loads(data)
++            except (ValueError, TypeError):
++                msg = (_("'%(data)s' is not an json string format") %
++                       {'data': data})
++        return msg
++
++
+ def _validate_boolean(data, valid_values=None):
+     try:
+         convert_to_boolean(data)
+@@ -582,6 +596,7 @@ validators = {'type:dict': _validate_dict,
+               'type:regex_or_none': _validate_regex_or_none,
+               'type:string': _validate_string,
+               'type:string_or_none': _validate_string_or_none,
++              'type:json_string': _validate_json_string,
+               'type:not_empty_string': _validate_not_empty_string,
+               'type:not_empty_string_or_none':
+               _validate_not_empty_string_or_none,
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index c4addd0b5..061735b24 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -49,6 +49,7 @@ class SessionPersistence(model_base.BASEV2):
+                              name="sesssionpersistences_type"),
+                      nullable=False)
+     cookie_name = sa.Column(sa.String(1024))
++    extra_actions = sa.Column(sa.String(1024), nullable=True)
+ 
+ 
+ class PoolStatistics(model_base.BASEV2):
+@@ -320,6 +321,9 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+ 
+             if vip['session_persistence']['type'] == 'APP_COOKIE':
+                 s_p['cookie_name'] = vip['session_persistence']['cookie_name']
++                # Make PEP8 happy
++                vip_session_persistence = vip['session_persistence']
++                s_p['extra_actions'] = vip_session_persistence['extra_actions']
+ 
+             res['session_persistence'] = s_p
+ 
+@@ -335,9 +339,10 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                 raise ValueError(_("'cookie_name' should be specified for this"
+                                    " type of session persistence."))
+         else:
+-            if 'cookie_name' in info:
+-                raise ValueError(_("'cookie_name' is not allowed for this type"
+-                                   " of session persistence"))
++            if 'cookie_name' in info or 'extra_actions' in info:
++                raise ValueError(_("'cookie_name' or 'extra_actions' is not"
++                                   "allowed for this type"
++                                   "of session persistence"))
+ 
+     def _create_session_persistence_db(self, session_info, vip_id):
+         self._check_session_persistence_info(session_info)
+@@ -345,6 +350,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+         sesspersist_db = SessionPersistence(
+             type=session_info['type'],
+             cookie_name=session_info.get('cookie_name'),
++            extra_actions=session_info.get('extra_actions'),
+             vip_id=vip_id)
+         return sesspersist_db
+ 
+@@ -362,6 +368,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             # an existing value in the database.
+             if 'cookie_name' not in info:
+                 info['cookie_name'] = None
++            if 'extra_actions' not in info:
++                info['extra_actions'] = None
+ 
+             if sesspersist_db:
+                 sesspersist_db.update(info)
+@@ -369,6 +377,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                 sesspersist_db = SessionPersistence(
+                     type=info['type'],
+                     cookie_name=info['cookie_name'],
++                    extra_actions=info['extra_actions'],
+                     vip_id=vip_id)
+                 context.session.add(sesspersist_db)
+                 # Update vip table
+diff --git a/neutron/db/migration/alembic_migrations/versions/7dc5a7c3d759_add_extra_action_for_lb_vip.py b/neutron/db/migration/alembic_migrations/versions/7dc5a7c3d759_add_extra_action_for_lb_vip.py
+new file mode 100644
+index 000000000..fdf786c0e
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/7dc5a7c3d759_add_extra_action_for_lb_vip.py
+@@ -0,0 +1,40 @@
++# Copyright 2017 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""add extra_action for lb vip
++
++Revision ID: 7dc5a7c3d759
++Revises: 222931b3859d
++Create Date: 2017-02-29 23:57:10.409817
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '7dc5a7c3d759'
++down_revision = '222931b3859d'
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.add_column(
++        'sessionpersistences',
++        sa.Column('extra_actions', sa.String(1024), nullable=True)
++    )
++
++
++def downgrade():
++    op.drop_column('sessionpersistences', 'extra_actions')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 34e14c767..81eed9065 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-222931b3859d
++7dc5a7c3d759
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index cbdf495ae..3c6ecb8ff 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -158,7 +158,10 @@ RESOURCE_ATTRIBUTE_MAP = {
+                                                                  'SOURCE_IP'],
+                                                  'required': True},
+                                         'cookie_name': {'type:string': None,
+-                                                        'required': False}}},
++                                                        'required': False},
++                                        'extra_actions': {
++                                            'type:json_string': None,
++                                            'required': False}}},
+                                 'is_visible': True},
+         'connection_limit': {'allow_post': True, 'allow_put': True,
+                              'default': -1,
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/cfg.py b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+index 0cee42c46..ca9899ce7 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/cfg.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+@@ -17,6 +17,7 @@ import netaddr
+ from six import moves
+ 
+ from neutron.agent.linux import utils
++from neutron.openstack.common import jsonutils
+ from neutron.plugins.common import constants as qconstants
+ from neutron.services.loadbalancer import constants
+ 
+@@ -208,6 +209,35 @@ def _build_policy_and_acl(config):
+     return need_add_server_id, opts
+ 
+ 
++def _build_extra_action_for_member(extra_action, member):
++    opts = []
++
++    # extra_action format: {'set_cookie_for_member': {'max_age': 15}}
++    member_cookie_params = extra_action.get('set_cookie_for_member')
++    if member_cookie_params and 'max_age' in member_cookie_params:
++        # build acl and policy
++        # set cookie for member acl and policy template
++        rule = {
++            'id': member['id'],
++            'value': member['id'],
++            'type': 'backendServerId',
++            'compare_type': 'integerEq',
++            'compare_value': _get_acl_member_id(member['id']),
++        }
++        policy = {
++            'action': 'addHeader',
++            'value': (
++                'Set-Cookie: %(cookie_name)s=%(id)s; Max-Age=%(max_age)s' %
++                {'cookie_name': extra_action['cookie_name'],
++                 'id': member['id'],
++                 'max_age': member_cookie_params['max_age']}),
++        }
++        opts.append(_build_acl(rule))
++        opts.append(_build_policy_action(policy, rule))
++
++    return opts
++
++
+ def _build_backend(config):
+     protocol = config['pool']['protocol']
+     lb_method = config['pool']['lb_method']
+@@ -216,6 +246,7 @@ def _build_backend(config):
+         'mode %s' % PROTOCOL_MAP[protocol],
+         'balance %s' % BALANCE_MAP.get(lb_method, 'roundrobin')
+     ]
++    extra_opts = []
+ 
+     if protocol == constants.PROTOCOL_HTTP:
+         opts.append('option forwardfor')
+@@ -225,7 +256,7 @@ def _build_backend(config):
+     opts.extend(health_opts)
+ 
+     # add session persistence (if available)
+-    persist_opts = _get_session_persistence(config)
++    extra_action, persist_opts = _get_session_persistence(config)
+     opts.extend(persist_opts)
+ 
+     # backup members need resort
+@@ -235,6 +266,7 @@ def _build_backend(config):
+     opts.extend(policy_opts)
+ 
+     # add the members
++    member_opts = []
+     for member in config['members']:
+         if ((member['status'] in ACTIVE_PENDING_STATUSES or
+              member['status'] == INACTIVE)
+@@ -244,12 +276,23 @@ def _build_backend(config):
+             if member['priority'] < 256:
+                 server += ' backup'
+ 
++            if extra_action:
++                extra_opts.extend(
++                    _build_extra_action_for_member(extra_action, member)
++                )
++                need_server_id = True
++
+             if need_server_id:
+                 server += ' id %d' % _get_acl_member_id(member['id'])
+ 
+             if _has_http_cookie_persistence(config):
+                 server += ' cookie %d' % config['members'].index(member)
+-            opts.append(server)
++            member_opts.append(server)
++
++    # add extra action opts
++    opts.extend(extra_opts)
++    # add member opts
++    opts.extend(member_opts)
+ 
+     return itertools.chain(
+         ['backend %s' % config['pool']['id']],
+@@ -295,8 +338,10 @@ def _get_server_health_option(config):
+ 
+ def _get_session_persistence(config):
+     persistence = config['vip'].get('session_persistence')
++    extra_action = {}
++
+     if not persistence:
+-        return []
++        return extra_action, []
+ 
+     opts = []
+     if persistence['type'] == constants.SESSION_PERSISTENCE_SOURCE_IP:
+@@ -310,7 +355,13 @@ def _get_session_persistence(config):
+         opts.append('appsession %s len 56 timeout 3h' %
+                     persistence['cookie_name'])
+ 
+-    return opts
++        # convert to dict if exists
++        if persistence.get('extra_actions'):
++            extra_action = jsonutils.loads(persistence.get('extra_actions'))
++            # push cookie_name to extra_action
++            extra_action['cookie_name'] = persistence.get('cookie_name')
++
++    return extra_action, opts
+ 
+ 
+ def _has_http_cookie_persistence(config):
+-- 
+2.13.0
+

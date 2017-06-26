@@ -1,0 +1,32 @@
+From ff44118854c82ab7688db0f2c9fa719fe90d60cd Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Wed, 3 May 2017 16:19:23 +0800
+Subject: [PATCH 94/99] Sync #90 from devel to testing
+
+Fix enable update l7policy value attribute
+
+Fixes: redmine #9989
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit 8f351075ad1f143d6201fc5059a3cd10d2de73f9)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/loadbalancer_l7.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index f3d369a18..7f92c9d0b 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -95,7 +95,7 @@ RESOURCE_ATTRIBUTE_MAP = {
+         'key': {'allow_post': True, 'allow_put': False,
+                 'validate': {'type:string_or_none': None},
+                 'default': None, 'is_visible': True},
+-        'value': {'allow_post': True, 'allow_put': False,
++        'value': {'allow_post': True, 'allow_put': True,
+                   'validate': {'type:string_or_none': None},
+                   'default': None, 'is_visible': True},
+         'admin_state_up': {'allow_post': True, 'allow_put': True,
+-- 
+2.13.0
+

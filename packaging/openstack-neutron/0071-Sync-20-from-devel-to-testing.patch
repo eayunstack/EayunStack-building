@@ -1,0 +1,30 @@
+From dfcd9465eda8edef445c7f3907ecb4d2848f2a21 Mon Sep 17 00:00:00 2001
+From: huntxu <mhuntxu@gmail.com>
+Date: Thu, 17 Dec 2015 11:51:21 +0800
+Subject: [PATCH 70/99] Sync #20 from devel to testing
+
+PPTP VPN: fix minor error in device driver
+
+Signed-off-by: huntxu <mhuntxu@gmail.com>
+(cherry picked from commit 1705efdadf5f9d6e6e621ca501e35f0fa5bf0ff9)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/vpn/device_drivers/pptp.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/services/vpn/device_drivers/pptp.py b/neutron/services/vpn/device_drivers/pptp.py
+index 3e7ec28c5..469fe6253 100644
+--- a/neutron/services/vpn/device_drivers/pptp.py
++++ b/neutron/services/vpn/device_drivers/pptp.py
+@@ -329,7 +329,7 @@ class PPTPDriver(device_drivers.DeviceDriver):
+             if credential_id in self.credentials:
+                 self.credentials[credential_id]['password'] = password
+ 
+-        for port_id, port in ports['added']:
++        for port_id, port in ports['added'].iteritems():
+             process_id = port['vpnservice_id']
+             port_ip = port['ip']
+             credential_id = port['credential_id']
+-- 
+2.13.0
+

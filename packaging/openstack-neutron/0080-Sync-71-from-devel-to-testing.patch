@@ -1,0 +1,114 @@
+From 9e75d49bcf87746f65f05b1fee3f426201dc71dc Mon Sep 17 00:00:00 2001
+From: Hong Hui Xiao <honghui_xiao@yeah.net>
+Date: Sat, 20 Aug 2016 08:29:09 -0400
+Subject: [PATCH 79/99] Sync #71 from devel to testing
+
+Not check subnet with dhcp disabled when get_isolated_subnets
+
+[1] will only return subnets with dhcp enabled for dhcp agent. If there
+is subnet with dhcp disabled in network, and the subnet is attached to
+router, exception can be observed as bug described.
+
+The fix here will just check the subnets that are in network in
+dhcp-agent, when call get_isolated_subnets.
+
+[1] http://git.openstack.org/cgit/openstack/neutron/tree/neutron/api/rpc/handlers/dhcp_rpc.py#n141
+
+Fixes: redmine #9433
+
+Change-Id: I5e816c48d25efda9ea349210316c8f1ea5bdbcac
+Closes-bug: #1582583
+(cherry picked from commit 753f4ea70f9c491f608daff8dbf36c6627c9bba2)
+(cherry picked from commit deb92f5ac68b848af339d78213435c4e340d4a3b)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/dhcp.py           |  3 ++-
+ neutron/tests/unit/test_dhcp_agent.py | 40 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/agent/linux/dhcp.py b/neutron/agent/linux/dhcp.py
+index 639bcd0f3..9a9e1a719 100644
+--- a/neutron/agent/linux/dhcp.py
++++ b/neutron/agent/linux/dhcp.py
+@@ -734,7 +734,8 @@ class Dnsmasq(DhcpLocalProcess):
+             if port.device_owner != constants.DEVICE_OWNER_ROUTER_INTF:
+                 continue
+             for alloc in port.fixed_ips:
+-                if subnets[alloc.subnet_id].gateway_ip == alloc.ip_address:
++                if (alloc.subnet_id in subnets and
++                    subnets[alloc.subnet_id].gateway_ip == alloc.ip_address):
+                     isolated_subnets[alloc.subnet_id] = False
+ 
+         return isolated_subnets
+diff --git a/neutron/tests/unit/test_dhcp_agent.py b/neutron/tests/unit/test_dhcp_agent.py
+index c6f98643f..8ebb1eba1 100644
+--- a/neutron/tests/unit/test_dhcp_agent.py
++++ b/neutron/tests/unit/test_dhcp_agent.py
+@@ -72,6 +72,11 @@ fake_meta_subnet = dhcp.DictModel(dict(id='bbbbbbbb-1111-2222-bbbbbbbbbbbb',
+ 
+ fake_fixed_ip1 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet1.id,
+                                 ip_address='172.9.9.9'))
++fake_fixed_ip2 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet2.id,
++                                ip_address='172.9.8.9'))
++fake_fixed_ip3 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet1.id,
++                                ip_address='172.9.9.1'))
++
+ fake_meta_fixed_ip = dhcp.DictModel(dict(id='', subnet=fake_meta_subnet,
+                                     ip_address='169.254.169.254'))
+ fake_allocation_pool_subnet1 = dhcp.DictModel(dict(id='', start='172.9.9.2',
+@@ -91,6 +96,25 @@ fake_port2 = dhcp.DictModel(dict(id='12345678-1234-aaaa-123456789000',
+                             network_id='12345678-1234-5678-1234567890ab',
+                             fixed_ips=[]))
+ 
++fake_route_owner_port1 = dhcp.DictModel(
++    dict(id='12345678-1234-aaaa-1234567890ab',
++         device_id='dhcp-12345678-1234-aaaa-1234567890ab',
++         device_owner='network:router_interface',
++         allocation_pools=fake_subnet1_allocation_pools,
++         mac_address='aa:bb:cc:dd:ee:ff',
++         network_id='12345678-1234-5678-1234567890ab',
++         fixed_ips=[fake_fixed_ip3])
++    )
++
++fake_route_owner_port2 = dhcp.DictModel(
++    dict(id='12345678-1234-aaaa-123456789000',
++         device_owner='network:router_interface',
++         mac_address='aa:bb:cc:dd:ee:99',
++         network_id='12345678-1234-5678-1234567890ab',
++         fixed_ips=[fake_fixed_ip2])
++    )
++
++
+ fake_meta_port = dhcp.DictModel(dict(id='12345678-1234-aaaa-1234567890ab',
+                                 mac_address='aa:bb:cc:dd:ee:ff',
+                                 network_id='12345678-1234-5678-1234567890ab',
+@@ -104,6 +128,16 @@ fake_network = dhcp.NetModel(True, dict(id='12345678-1234-5678-1234567890ab',
+                              subnets=[fake_subnet1, fake_subnet2],
+                              ports=[fake_port1]))
+ 
++fake_network_with_multi_ports = dhcp.NetModel(
++    True,
++    dict(id='12345678-1234-5678-1234567890ab',
++         tenant_id='aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa',
++         admin_state_up=True,
++         subnets=[fake_subnet1],
++         ports=[fake_route_owner_port1,
++                fake_route_owner_port2])
++    )
++
+ isolated_network = dhcp.NetModel(
+     True, dict(
+         id='12345678-1234-5678-1234567890ab',
+@@ -1506,3 +1540,9 @@ class TestNetModel(base.BaseTestCase):
+     def test_ns_name_none_namespace(self):
+         network = dhcp.NetModel(None, {'id': 'foo'})
+         self.assertIsNone(network.namespace)
++
++
++class TestDnsmasq(base.BaseTestCase):
++    def test_get_isolated_subnets(self):
++        subnet = dhcp.Dnsmasq.get_isolated_subnets(fake_network_with_multi_ports)
++        self.assertFalse(subnet[fake_subnet1.id])
+-- 
+2.13.0
+

@@ -1,0 +1,39 @@
+From f6e2a7bb5cd61bc5d91790de8d5febf34703d5ff Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 12 May 2017 11:06:30 +0800
+Subject: [PATCH 99/99] Sync #96 from devel to testing
+
+OpenFlow EW DVR: be more torelant when syncing dvr ports
+
+TrivialFix
+Related: redmine #9118
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit b6086598bba039777d503d28772b0184d6731004)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py b/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
+index c1cab1dfd..1dfce3c15 100644
+--- a/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
++++ b/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
+@@ -373,8 +373,12 @@ class OFEWDVRAgent(object):
+ 
+         LOG.debug("Started OpenFlow EW DVR sync_dvr_ports()")
+ 
+-        sync_dvrs = self.plugin_rpc.get_openflow_ew_dvrs(
+-            self.context, self.host)
++        try:
++            sync_dvrs = self.plugin_rpc.get_openflow_ew_dvrs(
++                self.context, self.host)
++        except Exception:
++            LOG.exception("Error syncing dvr ports")
++            return
+         LOG.debug("L2 Agent OF-EW DVR: Received response for "
+                   "get_openflow_ew_dvrs() from plugin: %r", sync_dvrs)
+ 
+-- 
+2.13.0
+

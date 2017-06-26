@@ -1,0 +1,33 @@
+From 471aada1fff4b620a702decc96beb2a1fde1dc3e Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 28 Apr 2017 09:45:47 +0800
+Subject: [PATCH 90/99] Sync #86 from devel to testing
+
+Enable ES port metering on all sg-enabled ports
+
+Fixes: redmine #9968
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 9703f20001559049153be54bdae656d082e54661)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/iptables_firewall.py | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/neutron/agent/linux/iptables_firewall.py b/neutron/agent/linux/iptables_firewall.py
+index b0bfb208a..8297fdf14 100644
+--- a/neutron/agent/linux/iptables_firewall.py
++++ b/neutron/agent/linux/iptables_firewall.py
+@@ -179,9 +179,6 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+         return port['device']
+ 
+     def _setup_metering_chains(self, port, direction, chain_name):
+-        if not port['device_owner'].startswith('compute:'):
+-            # Only meter instances' ports
+-            return chain_name
+         # Only support IPv4
+         chains = self._metering_chain_names(port, direction)
+         for m_chain_name in chains:
+-- 
+2.13.0
+
