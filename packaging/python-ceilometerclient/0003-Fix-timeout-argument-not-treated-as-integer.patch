@@ -1,0 +1,189 @@
+From 01ff4c89988d5ba9abe1ef5dc6fa6a9c4c54d944 Mon Sep 17 00:00:00 2001
+From: ZhiQiang Fan <zhiqiang.fan@huawei.com>
+Date: Thu, 13 Nov 2014 11:49:16 +0800
+Subject: [PATCH 2/4] Fix timeout argument not treated as integer
+
+Currently, if we specify --timeout 30 in CLI commands. we will get
+'a float is required' error. Since we already specify timeout is
+ingeter in ceilometer.v2.client, this patch converts CLI argument
+timeout to integer.
+
+Note, if zero is passed to v2.client, we treat it as disable timeout.
+
+Change-Id: I213b6c24964095297cb4e87c25bb871ebd668bb4
+Closes-Bug: #1391606
+(cherry picked from commit 878e32e525bdb0ed3ca125597ea83dd64a4884d9)
+
+Bug-ES #6423
+http://192.168.15.2/issues/6423
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometerclient/shell.py             | 15 +++++++++++++++
+ ceilometerclient/tests/test_client.py | 35 +++++++++++++++++++++++++++++++++++
+ ceilometerclient/tests/test_shell.py  | 29 +++++++++++++++++++++++++++++
+ ceilometerclient/v2/client.py         | 20 +++++++++++++++-----
+ 4 files changed, 94 insertions(+), 5 deletions(-)
+
+diff --git a/ceilometerclient/shell.py b/ceilometerclient/shell.py
+index e8f5752..7356789 100644
+--- a/ceilometerclient/shell.py
++++ b/ceilometerclient/shell.py
+@@ -30,6 +30,20 @@ from ceilometerclient import exc
+ from ceilometerclient.openstack.common import cliutils
+ 
+ 
++def _positive_non_zero_int(argument_value):
++    if argument_value is None:
++        return None
++    try:
++        value = int(argument_value)
++    except ValueError:
++        msg = "%s must be an integer" % argument_value
++        raise argparse.ArgumentTypeError(msg)
++    if value <= 0:
++        msg = "%s must be greater than 0" % argument_value
++        raise argparse.ArgumentTypeError(msg)
++    return value
++
++
+ class CeilometerShell(object):
+ 
+     def get_base_parser(self):
+@@ -64,6 +78,7 @@ class CeilometerShell(object):
+ 
+         parser.add_argument('--timeout',
+                             default=600,
++                            type=_positive_non_zero_int,
+                             help='Number of seconds to wait for a response.')
+ 
+         parser.add_argument('--ceilometer-url',
+diff --git a/ceilometerclient/tests/test_client.py b/ceilometerclient/tests/test_client.py
+index faed8ee..02735c5 100644
+--- a/ceilometerclient/tests/test_client.py
++++ b/ceilometerclient/tests/test_client.py
+@@ -72,3 +72,38 @@ class ClientTest(utils.BaseTestCase):
+     def test_client_with_auth_plugin(self):
+         c = self.create_client(FAKE_ENV, api_version=2)
+         self.assertIsInstance(c.auth_plugin, str)
++
++    def test_v2_client_timeout_invalid_value(self):
++        env = FAKE_ENV.copy()
++        env['timeout'] = 'abc'
++        self.assertRaises(ValueError, self.create_client, env)
++        env['timeout'] = '1.5'
++        self.assertRaises(ValueError, self.create_client, env)
++
++    def _test_v2_client_timeout_integer(self, timeout, expected_value):
++        env = FAKE_ENV.copy()
++        env['timeout'] = timeout
++        expected = {
++            'auth_plugin': 'fake_auth',
++            'timeout': expected_value,
++            'original_ip': None,
++            'http': None,
++            'region_name': None,
++            'verify': None,
++            'timings': None,
++            'keyring_saver': None,
++            'cert': None,
++            'endpoint_type': None,
++            'user_agent': None,
++            'debug': None,
++        }
++        cls = 'ceilometerclient.openstack.common.apiclient.client.HTTPClient'
++        with mock.patch(cls) as mocked:
++            self.create_client(env)
++            mocked.assert_called_with(**expected)
++
++    def test_v2_client_timeout_zero(self):
++        self._test_v2_client_timeout_integer(0, None)
++
++    def test_v2_client_timeout_valid_value(self):
++        self._test_v2_client_timeout_integer(30, 30)
+diff --git a/ceilometerclient/tests/test_shell.py b/ceilometerclient/tests/test_shell.py
+index cadfcc8..53a1952 100644
+--- a/ceilometerclient/tests/test_shell.py
++++ b/ceilometerclient/tests/test_shell.py
+@@ -148,3 +148,32 @@ class ShellKeystoneV3Test(ShellTest):
+         self.make_env(FAKE_V3_ENV)
+         args = ['event-list']
+         self.assertRaises(SystemExit, ceilometer_shell.main, args)
++
++
++class ShellTimeoutTest(ShellTestBase):
++
++    @mock.patch('sys.stderr', new=six.StringIO())
++    def _test_timeout(self, timeout, expected_msg):
++        args = ['--timeout', timeout, 'alarm-list']
++        self.assertRaises(SystemExit, ceilometer_shell.main, args)
++        self.assertEqual(expected_msg, sys.stderr.getvalue().splitlines()[-1])
++
++    def test_timeout_invalid_value(self):
++        expected_msg = ('ceilometer: error: argument --timeout: '
++                        'abc must be an integer')
++        self._test_timeout('abc', expected_msg)
++
++    def test_timeout_negative_value(self):
++        expected_msg = ('ceilometer: error: argument --timeout: '
++                        '-1 must be greater than 0')
++        self._test_timeout('-1', expected_msg)
++
++    def test_timeout_float_value(self):
++        expected_msg = ('ceilometer: error: argument --timeout: '
++                        '1.5 must be an integer')
++        self._test_timeout('1.5', expected_msg)
++
++    def test_timeout_zero(self):
++        expected_msg = ('ceilometer: error: argument --timeout: '
++                        '0 must be greater than 0')
++        self._test_timeout('0', expected_msg)
+diff --git a/ceilometerclient/v2/client.py b/ceilometerclient/v2/client.py
+index 95be8f5..85caf36 100644
+--- a/ceilometerclient/v2/client.py
++++ b/ceilometerclient/v2/client.py
+@@ -32,11 +32,14 @@ from ceilometerclient.v2 import traits
+ class Client(object):
+     """Client for the Ceilometer v2 API.
+ 
+-    :param string endpoint: A user-supplied endpoint URL for the ceilometer
++    :param endpoint: A user-supplied endpoint URL for the ceilometer
+                             service.
+-    :param function token: Provides token for authentication.
+-    :param integer timeout: Allows customization of the timeout for client
+-                            http requests. (optional)
++    :type endpoint: string
++    :param token: Provides token for authentication.
++    :type token: function
++    :param timeout: Allows customization of the timeout for client
++                    http requests. (optional)
++    :type timeout: integer
+     """
+ 
+     def __init__(self, *args, **kwargs):
+@@ -44,6 +47,13 @@ class Client(object):
+         """Initialize a new client for the Ceilometer v2 API."""
+         self.auth_plugin = kwargs.get('auth_plugin') \
+             or ceiloclient.get_auth_plugin(*args, **kwargs)
++
++        timeout = kwargs.get('timeout')
++        if timeout is not None:
++            timeout = int(timeout)
++            if timeout <= 0:
++                timeout = None
++
+         self.client = client.HTTPClient(
+             auth_plugin=self.auth_plugin,
+             region_name=kwargs.get('region_name'),
+@@ -51,7 +61,7 @@ class Client(object):
+             original_ip=kwargs.get('original_ip'),
+             verify=kwargs.get('verify'),
+             cert=kwargs.get('cacert'),
+-            timeout=kwargs.get('timeout'),
++            timeout=timeout,
+             timings=kwargs.get('timings'),
+             keyring_saver=kwargs.get('keyring_saver'),
+             debug=kwargs.get('debug'),
+-- 
+2.7.4
+

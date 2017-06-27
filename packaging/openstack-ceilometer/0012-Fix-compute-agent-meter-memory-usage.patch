@@ -1,0 +1,29 @@
+From 4601f03b21998f5b7f78ecd9eb9d7c427bacf776 Mon Sep 17 00:00:00 2001
+From: "Yuanbin.Chen" <cybing4@gmail.com>
+Date: Wed, 8 Mar 2017 16:54:37 +0800
+Subject: [PATCH 6/7] Fix compute agent meter memory usage
+
+Bug-ES #9579
+http://192.168.15.2/issues/9579
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/compute/virt/libvirt/inspector.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ceilometer/compute/virt/libvirt/inspector.py b/ceilometer/compute/virt/libvirt/inspector.py
+index 98834cd..f492307 100644
+--- a/ceilometer/compute/virt/libvirt/inspector.py
++++ b/ceilometer/compute/virt/libvirt/inspector.py
+@@ -207,7 +207,7 @@ class LibvirtInspector(virt_inspector.Inspector):
+                                memory_stats.get('unused'))
+                 # Stat provided from libvirt is in KB, converting it to MB.
+                 # memory_used = memory_used / units.Ki
+-                maxMemory = domain.maxMemory()
++                maxMemory = memory_stats.get('available')
+                 memory_used = float(memory_used) / float(maxMemory) * 100.0
+                 return virt_inspector.MemoryUsageStats(usage=memory_used)
+             else:
+-- 
+2.7.4
+

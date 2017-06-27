@@ -1,0 +1,28 @@
+From 6311cc917ad071ab763c2bd80c19fa64f9d0323f Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 21 Apr 2017 16:57:09 +0800
+Subject: [PATCH 1/2] neutron_client: fix wrong filter in port_get_hosted
+
+Fixes: redmine #9155
+Fixes: 434b58a3 ("Add instance ports traffic meter")
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/neutron_client.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ceilometer/neutron_client.py b/ceilometer/neutron_client.py
+index 8347903..7ffdbba 100644
+--- a/ceilometer/neutron_client.py
++++ b/ceilometer/neutron_client.py
+@@ -148,5 +148,5 @@ class Client(object):
+ 
+     @logged
+     def port_get_hosted(self):
+-        resp = self.client.list_ports(host=cfg.CONF.host)
++        resp = self.client.list_ports(**{'binding:host_id': cfg.CONF.host})
+         return resp.get('ports', [])
+-- 
+2.7.4
+

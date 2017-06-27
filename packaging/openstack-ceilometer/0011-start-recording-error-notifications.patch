@@ -1,0 +1,76 @@
+From ffcb2bb176c5fc4f469d37b6cdd14249f7c5ae1d Mon Sep 17 00:00:00 2001
+From: gordon chung <gord@live.ca>
+Date: Thu, 5 Feb 2015 15:27:38 -0500
+Subject: [PATCH 5/7] start recording error notifications
+
+projects (specifically nova) send notifications on error topic when
+an error occurs. we should capture this in events.
+
+Change-Id: Ic42cbce948b8b409f83934146407b2480602921d
+Closes-Bug: #1364708
+(cherry picked from commit f7ed2c2a16e8dded6bd2258ea0a5e5954a13bada)
+
+Bug-ES #9569
+http://192.168.15.2/issues/9569
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/event/endpoint.py          | 17 +++++++++++++++++
+ ceilometer/tests/test_notification.py | 16 ++++++++++++++++
+ 2 files changed, 33 insertions(+)
+
+diff --git a/ceilometer/event/endpoint.py b/ceilometer/event/endpoint.py
+index fc22775..c71cfa3 100644
+--- a/ceilometer/event/endpoint.py
++++ b/ceilometer/event/endpoint.py
+@@ -57,6 +57,23 @@ class EventsNotificationEndpoint(object):
+             'info', ctxt, publisher_id, event_type, payload, metadata)
+         self.process_notification(notification)
+ 
++    def error(self, ctxt, publisher_id, event_type, payload, metadata):
++        """Convert error message to Ceilometer Event.
++
++        :param ctxt: oslo.messaging context
++        :param publisher_id: publisher of the notification
++        :param event_type: type of notification
++        :param payload: notification payload
++        :param metadata: metadata about the notification
++        """
++
++        # NOTE: the rpc layer currently rips out the notification
++        # delivery_info, which is critical to determining the
++        # source of the notification. This will have to get added back later.
++        notification = messaging.convert_to_old_notification_format(
++            'error', ctxt, publisher_id, event_type, payload, metadata)
++        self.process_notification(notification)
++
+     def process_notification(self, notification):
+         event = self.event_converter.to_event(notification)
+ 
+diff --git a/ceilometer/tests/test_notification.py b/ceilometer/tests/test_notification.py
+index c105d9a..56981a2 100644
+--- a/ceilometer/tests/test_notification.py
++++ b/ceilometer/tests/test_notification.py
+@@ -207,3 +207,19 @@ class TestRealNotification(tests_base.BaseTestCase):
+         resources = list(set(s.resource_id for s in self.publisher.samples))
+         self.assertEqual(self.expected_samples, len(self.publisher.samples))
+         self.assertEqual(["9f9d01b9-4a58-4271-9e27-398b21ab20d1"], resources)
++
++    @mock.patch('ceilometer.publisher.test.TestPublisher')
++    def test_notification_service_error_topic(self, fake_publisher_cls):
++        fake_publisher_cls.return_value = self.publisher
++        self.srv.start()
++        notifier = messaging.get_notifier(self.transport,
++                                          'compute.vagrant-precise')
++        notifier.error(context.RequestContext(), 'compute.instance.error',
++                       TEST_NOTICE_PAYLOAD)
++        start = timeutils.utcnow()
++        while timeutils.delta_seconds(start, timeutils.utcnow()) < 600:
++            if len(self.publisher.samples) >= self.expected_samples:
++                break
++            eventlet.sleep(0)
++        self.srv.stop()
++        self.assertEqual(self.expected_events, len(self.publisher.samples))
+-- 
+2.7.4
+
