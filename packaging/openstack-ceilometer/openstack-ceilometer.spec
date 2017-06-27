@@ -6,7 +6,7 @@
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
-Release:          4%{?dist_eayunstack}
+Release:          5%{?dist_eayunstack}
 Summary:          OpenStack measurement collection service
 
 Group:            Applications/System
@@ -35,6 +35,8 @@ Source16:         %{name}-notification.init
 Source160:        %{name}-notification.upstart
 Source17:         %{name}-ipmi.init
 Source170:        %{name}-ipmi.upstart
+Source18:         %{name}-network.ini
+Source180:        %{name}-network.upstart
 %else
 Source10:         %{name}-api.service
 Source11:         %{name}-collector.service
@@ -44,6 +46,7 @@ Source14:         %{name}-alarm-notifier.service
 Source15:         %{name}-alarm-evaluator.service
 Source16:         %{name}-notification.service
 Source17:         %{name}-ipmi.service
+Source18:         %{name}-network.service
 %endif
 
 Patch001:            0001-BUG-1433924-Fix-resource-list-error-MongoDB-Refactor.patch
@@ -52,6 +55,15 @@ Patch003:            0003-Add-Memory-Return-a-meaningful-value-or-raise.patch
 Patch004:            0004-API-Use-werkzeug-to-run-the-developement-API-server.patch
 Patch005:            0005-API-Remove-unused-pecan-configuration-options.patch
 Patch006:            0006-Have-eventlet-monkeypatch-the-time-module.patch
+Patch007:            0007-Expose-vm-s-metadata-to-metrics.patch
+Patch008:            0008-Add-ceilometer-network-agent.patch
+Patch009:            0009-Add-instance-ports-traffic-meter.patch
+Patch0010:           0010-Collect-more-stats-for-haproxy-loadbalancer.patch
+Patch0011:           0011-start-recording-error-notifications.patch
+Patch0012:           0012-Fix-compute-agent-meter-memory-usage.patch
+Patch0013:           0013-Port-metering-use-Neutron-wrap-chains-to-count.patch
+Patch0014:           0014-neutron_client-fix-wrong-filter-in-port_get_hosted.patch
+Patch0015:           0015-Enable-ES-port-metering-on-lb-vip-ports.patch
 
 
 BuildArch:        noarch
@@ -180,6 +192,20 @@ collect metrics from OpenStack components.
 
 This package contains the central ceilometer agent.
 
+%package network
+Summary:          OpenStack ceilometer network agent
+Group:            Applications/System
+
+Requires:         %{name}-common = %{version}-%{release}
+
+Requires:         python-neutronclient
+Requires:         python-tooz
+
+%description network
+OpenStack ceilometer provides services to measure and
+collect metrics from OpenStack components.
+
+This package contains the network ceilometer agent.
 
 %package collector
 Summary:          OpenStack ceilometer collector
@@ -301,6 +327,15 @@ This package contains documentation files for ceilometer.
 %patch004 -p1
 %patch005 -p1
 %patch006 -p1
+%patch007 -p1
+%patch008 -p1
+%patch009 -p1
+%patch010 -p1
+%patch011 -p1
+%patch012 -p1
+%patch013 -p1
+%patch014 -p1
+%patch015 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -361,6 +396,7 @@ install -p -D -m 640 etc/ceilometer/pipeline.yaml %{buildroot}%{_sysconfdir}/cei
 install -p -D -m 640 etc/ceilometer/api_paste.ini %{buildroot}%{_sysconfdir}/ceilometer/api_paste.ini
 install -p -D -m 640 etc/ceilometer/rootwrap.conf %{buildroot}%{_sysconfdir}/ceilometer/rootwrap.conf
 install -p -D -m 640 etc/ceilometer/rootwrap.d/ipmi.filters %{buildroot}/%{_sysconfdir}/ceilometer/rootwrap.d/ipmi.filters
+install -p -D -m 640 etc/ceilometer/rootwrap.d/network.filters %{buildroot}/%{_sysconfdir}/ceilometer/rootwrap.d/network.filters
 
 # Install initscripts for services
 %if 0%{?rhel} && 0%{?rhel} <= 6
@@ -372,6 +408,7 @@ install -p -D -m 755 %{SOURCE14} %{buildroot}%{_initrddir}/%{name}-alarm-notifie
 install -p -D -m 755 %{SOURCE15} %{buildroot}%{_initrddir}/%{name}-alarm-evaluator
 install -p -D -m 755 %{SOURCE16} %{buildroot}%{_initrddir}/%{name}-notification
 install -p -D -m 755 %{SOURCE17} %{buildroot}%{_initrddir}/%{name}-ipmi
+install -p -D -m 755 %{SOURCE18} %{buildroot}%{_initrddir}/%{name}-network
 
 # Install upstart jobs examples
 install -d -m 755 %{buildroot}%{_datadir}/ceilometer
@@ -383,6 +420,7 @@ install -p -m 644 %{SOURCE140} %{buildroot}%{_datadir}/ceilometer/
 install -p -m 644 %{SOURCE150} %{buildroot}%{_datadir}/ceilometer/
 install -p -m 644 %{SOURCE160} %{buildroot}%{_datadir}/ceilometer/
 install -p -m 644 %{SOURCE170} %{buildroot}%{_datadir}/ceilometer/
+install -p -m 644 %{SOURCE180} %{buildroot}%{_datadir}/ceilometer/
 %else
 install -p -D -m 644 %{SOURCE10} %{buildroot}%{_unitdir}/%{name}-api.service
 install -p -D -m 644 %{SOURCE11} %{buildroot}%{_unitdir}/%{name}-collector.service
@@ -392,6 +430,7 @@ install -p -D -m 644 %{SOURCE14} %{buildroot}%{_unitdir}/%{name}-alarm-notifier.
 install -p -D -m 644 %{SOURCE15} %{buildroot}%{_unitdir}/%{name}-alarm-evaluator.service
 install -p -D -m 644 %{SOURCE16} %{buildroot}%{_unitdir}/%{name}-notification.service
 install -p -D -m 644 %{SOURCE17} %{buildroot}%{_unitdir}/%{name}-ipmi.service
+install -p -D -m 644 %{SOURCE18} %{buildroot}%{_unitdir}/%{name}-network.service
 %endif
 
 # Install logrotate
@@ -465,6 +504,16 @@ if [ $1 -eq 1 ] ; then
 fi
 %else
 %systemd_post %{name}-central.service
+%endif
+
+%post network
+%if 0%{?rhel} && 0%{?rhel} <= 6
+if [ $1 -eq 1 ] ; then
+    # Initial installation
+    /sbin/chkconfig --add %{name}-network
+fi
+%else
+%systemd_post %{name}-network.service
 %endif
 
 %post alarm
@@ -547,6 +596,18 @@ if [ $1 -eq 0 ] ; then
 fi
 %else
 %systemd_preun %{name}-central.service
+%endif
+
+%preun network
+%if 0%{?rhel} && 0%{?rhel} <= 6
+if [ $1 -eq 0 ] ; then
+    for svc in network; do
+        /sbin/service %{name}-${svc} stop > /dev/null 2>&1
+        /sbin/chkconfig --del %{name}-${svc}
+    done
+fi
+%else
+%systemd_preun %{name}-network.service
 %endif
 
 %preun alarm
@@ -633,6 +694,18 @@ fi
 %systemd_postun_with_restart %{name}-central.service
 %endif
 
+%postun network
+%if 0%{?rhel} && 0%{?rhel} <= 6
+if [ $1 -ge 1 ] ; then
+    # Package upgrade, not uninstall
+    for svc in network; do
+        /sbin/service %{name}-${svc} condrestart > /dev/null 2>&1 || :
+    done
+fi
+%else
+%systemd_postun_with_restart %{name}-network.service
+%endif
+
 %postun alarm
 %if 0%{?rhel} && 0%{?rhel} <= 6
 if [ $1 -ge 1 ] ; then
@@ -666,7 +739,9 @@ fi
 %config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/policy.json
 %config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/pipeline.yaml
 %config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/api_paste.ini
+%config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/rootwrap.conf
 %config(noreplace) %{_sysconfdir}/logrotate.d/%{name}
+%config(noreplace) %{_sysconfdir}/sudoers.d/ceilometer
 
 %dir %attr(0755, ceilometer, root) %{_localstatedir}/log/ceilometer
 %if 0%{?rhel} && 0%{?rhel} <= 6
@@ -676,6 +751,7 @@ fi
 %{_bindir}/ceilometer-dbsync
 %{_bindir}/ceilometer-expirer
 %{_bindir}/ceilometer-send-sample
+%{_bindir}/ceilometer-rootwrap
 
 
 %defattr(-, ceilometer, ceilometer, -)
@@ -743,6 +819,15 @@ fi
 %{_unitdir}/%{name}-central.service
 %endif
 
+%files network
+%config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/rootwrap.d/network.filters
+%{_bindir}/ceilometer-agent-network
+%if 0%{?rhel} && 0%{?rhel} <= 6
+%{_initrddir}/%{name}-network
+%{_datarootdir}/ceilometer/%{name}-network.upstart
+%else
+%{_unitdir}/%{name}-network.service
+%endif
 
 %files alarm
 %{_bindir}/ceilometer-alarm-notifier
@@ -759,11 +844,8 @@ fi
 
 
 %files ipmi
-%config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/rootwrap.conf
 %config(noreplace) %attr(-, root, ceilometer) %{_sysconfdir}/ceilometer/rootwrap.d/ipmi.filters
-%{_bindir}/ceilometer-rootwrap
 %{_bindir}/ceilometer-agent-ipmi
-%{_sysconfdir}/sudoers.d/ceilometer
 %if 0%{?rhel} && 0%{?rhel} <= 6
 %{_initrddir}/%{name}-ipmi
 %{_datarootdir}/ceilometer/%{name}-ipmi.upstart
@@ -773,6 +855,17 @@ fi
 
 
 %changelog
+* Tue May 2 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-5.eayunstack.dev
+- Add metadata meter 0007-Expose-vm-s-metadata-to-metrics.patch
+- Add ceilometer network meter agent 0008-Add-ceilometer-network-agent.patch
+- Add ceilometer network port meter 0009-Add-instance-ports-traffic-meter.patch
+- Add collect haproxy loadbalance 0010-Collect-more-stats-for-haproxy-loadbalancer.patch
+- Add ceilometer record error notification 0011-start-recording-error-notifications.patch
+- Fix computer meter memory usage 0012-Fix-compute-agent-meter-memory-usage.patch
+- Update port metering use chains 0013-Port-metering-use-Neutron-wrap-chains-to-count.patch
+- Fix filter in port get host 0014-neutron_client-fix-wrong-filter-in-port_get_hosted.patch
+- Add enable port metering lb vip 0015-Enable-ES-port-metering-on-lb-vip-ports.patch
+
 * Fri Feb 22 2016 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-4.eayunstack.1.1
 - Update API Usage 0004-API-Use-werkzeug-to-run-the-developement-API-server.patch
 - Remove Pecan configuration Usage 0005-API-Remove-unused-pecan-configuration-options.patch

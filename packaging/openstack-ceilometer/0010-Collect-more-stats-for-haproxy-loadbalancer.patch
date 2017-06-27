@@ -1,0 +1,319 @@
+From 840962d94cec127cfdbb7b037fab04c049fd6510 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Fri, 9 Dec 2016 14:21:18 +0800
+Subject: [PATCH 4/7] Collect more stats for haproxy loadbalancer
+
+Fixes: redmine #9129
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/network/services/discovery.py |  14 +++
+ ceilometer/network/services/lbaas.py     | 204 +++++++++++++++++++++++++++++++
+ ceilometer/neutron_client.py             |  14 +++
+ setup.cfg                                |  13 ++
+ 4 files changed, 245 insertions(+)
+
+diff --git a/ceilometer/network/services/discovery.py b/ceilometer/network/services/discovery.py
+index 72cd324..c40cebd 100644
+--- a/ceilometer/network/services/discovery.py
++++ b/ceilometer/network/services/discovery.py
+@@ -42,6 +42,20 @@ class LBPoolsDiscovery(_BaseServicesDiscovery):
+                 if i.get('status') != 'error']
+ 
+ 
++class LBHostedHaproxyPoolsDiscovery(_BaseServicesDiscovery):
++
++    def is_active_haproxy_pool(self, pool):
++        return pool['status'] == 'ACTIVE' and pool['provider'] == 'haproxy'
++
++    @plugin.check_keystone(cfg.CONF.service_types.neutron)
++    def discover(self, manager, param=None):
++        """Discover resources to monitor."""
++
++        pools = self.neutron_cli.pool_get_hosted()
++
++        return [i for i in pools if self.is_active_haproxy_pool(i)]
++
++
+ class LBVipsDiscovery(_BaseServicesDiscovery):
+     @plugin.check_keystone(cfg.CONF.service_types.neutron)
+     def discover(self, manager, param=None):
+diff --git a/ceilometer/network/services/lbaas.py b/ceilometer/network/services/lbaas.py
+index 24ccdd2..0aaa829 100644
+--- a/ceilometer/network/services/lbaas.py
++++ b/ceilometer/network/services/lbaas.py
+@@ -17,6 +17,8 @@
+ 
+ import abc
+ import collections
++import os.path
++import socket
+ 
+ from oslo.utils import timeutils
+ import six
+@@ -330,3 +332,205 @@ def make_sample_from_pool(pool, name, type, unit, volume,
+         timestamp=timeutils.isotime(),
+         resource_metadata=resource_metadata,
+     )
++
++
++class _ESLBStatsPollster(base.BaseServicesPollster):
++
++    FIELDS = ['id',
++              'name',
++              'protocol',
++              'members',
++              'vip_id'
++              ]
++
++    def _get_stats_from_socket(self, socket_path, entity_type):
++        try:
++            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
++            s.connect(socket_path)
++            s.send('show stat -1 %s -1\n' % entity_type)
++            raw_stats = ''
++            chunk_size = 1024
++            while True:
++                chunk = s.recv(chunk_size)
++                raw_stats += chunk
++                if len(chunk) < chunk_size:
++                    break
++        except socket.error:
++            return []
++
++        stat_lines = raw_stats.splitlines()
++        if len(stat_lines) < 2:
++            return []
++        stat_names = [name.strip('# ') for name in stat_lines[0].split(',')]
++        res_stats = []
++        for raw_values in stat_lines[1:]:
++            if not raw_values:
++                continue
++            stat_values = [
++                value.strip() for value in raw_values.split(',')]
++            res_stats.append(dict(zip(stat_names, stat_values)))
++
++        return res_stats
++
++    def _get_pool_stats(self, pool_id, protocol):
++        TYPE_FRONTEND_REQUEST = 1
++        TYPE_SERVER_REQUEST = 4
++        TYPE_FRONTEND_RESPONSE = '0'
++        TYPE_SERVER_RESPONSE = '2'
++        POOL_PROTOCOL_TCP = 'TCP'
++        STAT_KEYS = ['bin', 'bout', 'stot']
++        STAT_KEYS_HTTP_ONLY = [
++            'hrsp_1xx', 'hrsp_2xx', 'hrsp_3xx', 'hrsp_4xx', 'hrsp_5xx',
++            'req_tot',  # frontend only
++            'rtime'  # server only
++        ]
++
++        ret = []
++        stat_keys = STAT_KEYS
++        if protocol != POOL_PROTOCOL_TCP:
++            stat_keys += STAT_KEYS_HTTP_ONLY
++
++        socket_path = "/var/lib/neutron/lbaas/%s/sock" % pool_id
++        if os.path.exists(socket_path):
++            stats = self._get_stats_from_socket(
++                socket_path,
++                entity_type=TYPE_FRONTEND_REQUEST | TYPE_SERVER_REQUEST)
++            for stat in stats:
++                to_ignore = set()
++                resource_stat = {}
++                if stat['type'] == TYPE_FRONTEND_RESPONSE:
++                    resource_id = stat['pxname']
++                    to_ignore.add('rtime')
++                elif stat['type'] == TYPE_SERVER_RESPONSE:
++                    resource_id = stat['svname']
++                    to_ignore.add('req_tot')
++                    # Report server uptime/downtime
++                    if stat['status'] == 'UP':
++                        resource_stat['uptime'] = stat['lastchg']
++                    elif stat['status'] == 'DOWN':
++                        resource_stat['downtime'] = stat['lastchg']
++                resource_stat['resource_id'] = resource_id
++                for key in stat_keys:
++                    if key not in to_ignore:
++                        resource_stat[key] = stat.get(key, 0)
++                ret.append(resource_stat)
++
++        return ret
++
++    def _populate_stats_cache(self, pool_id, protocol, cache):
++        i_cache = cache.setdefault("lbstats", {})
++        if pool_id not in i_cache:
++            i_cache[pool_id] = self._get_pool_stats(pool_id, protocol)
++        return i_cache[pool_id]
++
++    @property
++    def default_discovery(self):
++        return 'lb_hosted_haproxy_pools'
++
++    def get_samples(self, manager, cache, resources):
++        for pool in resources:
++            tenant_id = pool['tenant_id']
++            pool_id = pool['id']
++            try:
++                stats = self._populate_stats_cache(pool_id, pool['protocol'],
++                                                   cache)
++                for stat in stats:
++                    if self.stat_key in stat:
++                        yield sample.Sample(
++                            name=self.name,
++                            type=self.sample_type,
++                            unit=self.unit,
++                            volume=stat[self.stat_key],
++                            user_id=None,
++                            project_id=tenant_id,
++                            resource_id=stat['resource_id'],
++                            timestamp=timeutils.utcnow().isoformat(),
++                            resource_metadata=self.extract_metadata(pool)
++                        )
++            except Exception as err:
++                LOG.exception(_('Ignoring pool %(pool_id)s: %(error)s'),
++                              {'pool_id': pool_id, 'error': err})
++
++
++class ESLBBytesInPollster(_ESLBStatsPollster):
++    stat_key = 'bin'
++    name = 'network.services.es.lb.incoming.bytes'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'B'
++
++
++class ESLBBytesOutPollster(_ESLBStatsPollster):
++    stat_key = 'bout'
++    name = 'network.services.es.lb.outgoing.bytes'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'B'
++
++
++class ESLBTotalConnectionsPollster(_ESLBStatsPollster):
++    stat_key = 'stot'
++    name = 'network.services.es.lb.total.connections'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'connection'
++
++
++class ESLBServerUptimePollster(_ESLBStatsPollster):
++    stat_key = 'uptime'
++    name = 'network.services.es.lb.server.uptime'
++    sample_type = sample.TYPE_GAUGE
++    unit = 's'
++
++
++class ESLBServerDowntimePollster(_ESLBStatsPollster):
++    stat_key = 'downtime'
++    name = 'network.services.es.lb.server.downtime'
++    sample_type = sample.TYPE_GAUGE
++    unit = 's'
++
++
++class ESLBTotalHTTPRequestsPollster(_ESLBStatsPollster):
++    stat_key = 'req_tot'
++    name = 'network.services.es.lb.http.requests'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'request'
++
++
++class ESLBAverageHTTPResponseTimePollster(_ESLBStatsPollster):
++    stat_key = 'rtime'
++    name = 'network.services.es.lb.http.response.time'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'ms'
++
++
++class ESLBHTTP1xxResponsesPollster(_ESLBStatsPollster):
++    stat_key = 'hrsp_1xx'
++    name = 'network.services.es.lb.http.response.1xx'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'response'
++
++
++class ESLBHTTP2xxResponsesPollster(_ESLBStatsPollster):
++    stat_key = 'hrsp_2xx'
++    name = 'network.services.es.lb.http.response.2xx'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'response'
++
++
++class ESLBHTTP3xxResponsesPollster(_ESLBStatsPollster):
++    stat_key = 'hrsp_3xx'
++    name = 'network.services.es.lb.http.response.3xx'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'response'
++
++
++class ESLBHTTP4xxResponsesPollster(_ESLBStatsPollster):
++    stat_key = 'hrsp_4xx'
++    name = 'network.services.es.lb.http.response.4xx'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'response'
++
++
++class ESLBHTTP5xxResponsesPollster(_ESLBStatsPollster):
++    stat_key = 'hrsp_5xx'
++    name = 'network.services.es.lb.http.response.5xx'
++    sample_type = sample.TYPE_CUMULATIVE
++    unit = 'response'
+diff --git a/ceilometer/neutron_client.py b/ceilometer/neutron_client.py
+index 210425e..8347903 100644
+--- a/ceilometer/neutron_client.py
++++ b/ceilometer/neutron_client.py
+@@ -99,6 +99,20 @@ class Client(object):
+         return resp.get('pools')
+ 
+     @logged
++    def pool_get_hosted(self):
++        lb_agent_type = "Loadbalancer agent"
++        host = cfg.CONF.host
++        lb_agents = self.client.list_agents(
++            agent_type=lb_agent_type, host=host
++        ).get('agents')
++        if lb_agents:
++            agent_id = lb_agents[0]['id']
++            resp = self.client.list_pools_on_lbaas_agent(agent_id)
++            return resp.get('pools', [])
++        else:
++            return []
++
++    @logged
+     def member_get_all(self):
+         resp = self.client.list_members()
+         return resp.get('members')
+diff --git a/setup.cfg b/setup.cfg
+index 16e27f7..3b90167 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -82,6 +82,7 @@ ceilometer.discover =
+ 	endpoint = ceilometer.central.discovery:EndpointDiscovery
+ 	tenant = ceilometer.central.discovery:TenantDiscovery
+ 	lb_pools = ceilometer.network.services.discovery:LBPoolsDiscovery
++	lb_hosted_haproxy_pools = ceilometer.network.services.discovery:LBHostedHaproxyPoolsDiscovery
+ 	lb_vips = ceilometer.network.services.discovery:LBVipsDiscovery
+ 	lb_members = ceilometer.network.services.discovery:LBMembersDiscovery
+ 	lb_health_probes = ceilometer.network.services.discovery:LBHealthMonitorsDiscovery
+@@ -202,6 +203,18 @@ ceilometer.poll.network =
+ 	network.es.port.outgoing.internal.packets = ceilometer.network.services.port_metering:ESPortInternalPacketsOutPollster
+ 	network.es.port.outgoing.external.bytes = ceilometer.network.services.port_metering:ESPortExternalBytesOutPollster
+ 	network.es.port.outgoing.external.packets = ceilometer.network.services.port_metering:ESPortExternalPacketsOutPollster
++	network.services.es.lb.incoming.bytes = ceilometer.network.services.lbaas:ESLBBytesInPollster
++	network.services.es.lb.outgoing.bytes = ceilometer.network.services.lbaas:ESLBBytesOutPollster
++	network.services.es.lb.total.connections = ceilometer.network.services.lbaas:ESLBTotalConnectionsPollster
++	network.services.es.lb.server.uptime = ceilometer.network.services.lbaas:ESLBServerUptimePollster
++	network.services.es.lb.server.downtime = ceilometer.network.services.lbaas:ESLBServerDowntimePollster
++	network.services.es.lb.http.requests = ceilometer.network.services.lbaas:ESLBTotalHTTPRequestsPollster
++	network.services.es.lb.http.response.time = ceilometer.network.services.lbaas:ESLBAverageHTTPResponseTimePollster
++	network.services.es.lb.http.response.1xx = ceilometer.network.services.lbaas:ESLBHTTP1xxResponsesPollster
++	network.services.es.lb.http.response.2xx = ceilometer.network.services.lbaas:ESLBHTTP2xxResponsesPollster
++	network.services.es.lb.http.response.3xx = ceilometer.network.services.lbaas:ESLBHTTP3xxResponsesPollster
++	network.services.es.lb.http.response.4xx = ceilometer.network.services.lbaas:ESLBHTTP4xxResponsesPollster
++	network.services.es.lb.http.response.5xx = ceilometer.network.services.lbaas:ESLBHTTP5xxResponsesPollster
+ ceilometer.alarm.storage = 
+ 	log = ceilometer.alarm.storage.impl_log:Connection
+ 	mongodb = ceilometer.alarm.storage.impl_mongodb:Connection
+-- 
+2.7.4
+

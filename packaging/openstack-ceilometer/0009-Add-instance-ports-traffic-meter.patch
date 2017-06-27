@@ -1,0 +1,302 @@
+From 434b58a3326d4055f351ccb77387f89b340f2778 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 20 Dec 2016 16:07:16 +0800
+Subject: [PATCH 3/7] Add instance ports traffic meter
+
+This supports iptables only.
+
+Fixes: redmine #9155
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/network/services/discovery.py     |  16 +++
+ ceilometer/network/services/port_metering.py | 190 +++++++++++++++++++++++++++
+ ceilometer/neutron_client.py                 |   5 +
+ etc/ceilometer/rootwrap.d/network.filters    |   7 +
+ setup.cfg                                    |  14 ++
+ 5 files changed, 232 insertions(+)
+ create mode 100644 ceilometer/network/services/port_metering.py
+ create mode 100644 etc/ceilometer/rootwrap.d/network.filters
+
+diff --git a/ceilometer/network/services/discovery.py b/ceilometer/network/services/discovery.py
+index 55df01f..72cd324 100644
+--- a/ceilometer/network/services/discovery.py
++++ b/ceilometer/network/services/discovery.py
+@@ -106,3 +106,19 @@ class FirewallPolicyDiscovery(_BaseServicesDiscovery):
+         """Discover resources to monitor."""
+ 
+         return self.neutron_cli.fw_policy_get_all()
++
++
++class ESMeteringPortDiscovery(_BaseServicesDiscovery):
++
++    def is_active_metering_port(self, port):
++        return (
++            port['status'] == 'ACTIVE' and
++            port['device_owner'].startswith('compute:'))
++
++    @plugin.check_keystone(cfg.CONF.service_types.neutron)
++    def discover(self, manager, param=None):
++        """Discover resources to monitor."""
++
++        ports = self.neutron_cli.port_get_hosted()
++
++        return [i for i in ports if self.is_active_metering_port(i)]
+diff --git a/ceilometer/network/services/port_metering.py b/ceilometer/network/services/port_metering.py
+new file mode 100644
+index 0000000..03dc8b8
+--- /dev/null
++++ b/ceilometer/network/services/port_metering.py
+@@ -0,0 +1,190 @@
++# Copyright 2016 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++
++from oslo.utils import timeutils
++
++from ceilometer import plugin
++from ceilometer import sample
++from ceilometer import utils
++from ceilometer.openstack.common import log
++from ceilometer.openstack.common import processutils
++
++LOG = log.getLogger(__name__)
++
++IPT_CHAIN_NAME_LEN = 28
++
++
++class _ESPortMeteringPollster(plugin.PollsterBase):
++
++    @staticmethod
++    def _get_ipt_chain_counters(chain):
++        stats = {'packets': 0, 'bytes': 0}
++        cmd = ['iptables', '-t', 'filter', '-L', chain,
++               '-n', '-v', '-x', '-Z']
++        try:
++            (out, _) = utils.execute(*cmd, run_as_root=True)
++        except processutils.ProcessExecutionError as err:
++            LOG.error('Failed to get counters for iptables chain %(chain)s: '
++                      '%(error)s', {'chain': chain, 'error': err})
++            return stats
++
++        lines = out.split('\n')
++        for line in lines[2:]:
++            if not line:
++                break
++            data = line.split()
++            if (
++                len(data) < 2 or
++                not data[0].isdigit() or
++                not data[1].isdigit()
++            ):
++                break
++            stats['packets'] += int(data[0])
++            stats['bytes'] += int(data[1])
++
++        return stats
++
++    def _get_port_stat(self, port_id):
++        port_stat = {}
++        for direction, key_prefix in (('ingress', 'in'), ('egress', 'out')):
++            overall_chain = '-'.join(
++                ['counting', direction, port_id])[:IPT_CHAIN_NAME_LEN]
++            internal_chain = '-'.join(
++                ['counting-in', direction, port_id])[:IPT_CHAIN_NAME_LEN]
++            overall_stats = self._get_ipt_chain_counters(overall_chain)
++            internal_stats = self._get_ipt_chain_counters(internal_chain)
++            for counter in ('packets', 'bytes'):
++                key_name = '_'.join([key_prefix, counter])
++                in_key_name = '_'.join([key_prefix, 'internal', counter])
++                ex_key_name = '_'.join([key_prefix, 'external', counter])
++                all_s = port_stat[key_name] = overall_stats[counter]
++                in_s = port_stat[in_key_name] = internal_stats[counter]
++                port_stat[ex_key_name] = all_s - in_s if all_s > in_s else 0
++        return port_stat
++
++    def _populate_stats_cache(self, port_id, cache):
++        i_cache = cache.setdefault("port_meter_stats", {})
++        if port_id not in i_cache:
++            i_cache[port_id] = self._get_port_stat(port_id)
++        return i_cache[port_id]
++
++    @property
++    def default_discovery(self):
++        return 'es_metering_ports'
++
++    def get_samples(self, manager, cache, resources):
++        for port in resources:
++            tenant_id = port['tenant_id']
++            port_id = port['id']
++            try:
++                port_stat = self._populate_stats_cache(port_id, cache)
++                yield sample.Sample(
++                    name=self.name,
++                    type=self.sample_type,
++                    unit=self.unit,
++                    volume=port_stat[self.stat_key],
++                    user_id=None,
++                    project_id=tenant_id,
++                    resource_id=port_id,
++                    timestamp=timeutils.utcnow().isoformat(),
++                    resource_metadata={})
++            except Exception as err:
++                LOG.exception('Ignoring port %(port_id)s: %(error)s',
++                              {'port_id': port_id, 'error': err})
++
++
++class ESPortBytesInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_bytes'
++    name = 'network.es.port.incoming.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortPacketsInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_packets'
++    name = 'network.es.port.incoming.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
++
++
++class ESPortInternalBytesInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_internal_bytes'
++    name = 'network.es.port.incoming.internal.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortInternalPacketsInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_internal_packets'
++    name = 'network.es.port.incoming.internal.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
++
++
++class ESPortExternalBytesInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_external_bytes'
++    name = 'network.es.port.incoming.external.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortExternalPacketsInPollster(_ESPortMeteringPollster):
++    stat_key = 'in_external_packets'
++    name = 'network.es.port.incoming.external.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
++
++
++class ESPortBytesOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_bytes'
++    name = 'network.es.port.outgoing.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortPacketsOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_packets'
++    name = 'network.es.port.outgoing.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
++
++
++class ESPortInternalBytesOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_internal_bytes'
++    name = 'network.es.port.outgoing.internal.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortInternalPacketsOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_internal_packets'
++    name = 'network.es.port.outgoing.internal.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
++
++
++class ESPortExternalBytesOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_external_bytes'
++    name = 'network.es.port.outgoing.external.bytes'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'B'
++
++
++class ESPortExternalPacketsOutPollster(_ESPortMeteringPollster):
++    stat_key = 'out_external_packets'
++    name = 'network.es.port.outgoing.external.packets'
++    sample_type = sample.TYPE_GAUGE
++    unit = 'packet'
+diff --git a/ceilometer/neutron_client.py b/ceilometer/neutron_client.py
+index 245628b..210425e 100644
+--- a/ceilometer/neutron_client.py
++++ b/ceilometer/neutron_client.py
+@@ -131,3 +131,8 @@ class Client(object):
+     def fw_policy_get_all(self):
+         resp = self.client.list_firewall_policies()
+         return resp.get('firewall_policies')
++
++    @logged
++    def port_get_hosted(self):
++        resp = self.client.list_ports(host=cfg.CONF.host)
++        return resp.get('ports', [])
+diff --git a/etc/ceilometer/rootwrap.d/network.filters b/etc/ceilometer/rootwrap.d/network.filters
+new file mode 100644
+index 0000000..e11f1a0
+--- /dev/null
++++ b/etc/ceilometer/rootwrap.d/network.filters
+@@ -0,0 +1,7 @@
++# ceilometer-rootwrap command filters for network capable nodes
++# This file should be owned by (and only-writeable by) the root user
++
++[Filters]
++# ceilometer/network/services/port_metering.py: 'iptables'
++iptables: CommandFilter, iptables, root
++
+diff --git a/setup.cfg b/setup.cfg
+index 231b0c0..16e27f7 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -89,6 +89,7 @@ ceilometer.discover =
+ 	ipsec_connections  = ceilometer.network.services.discovery:IPSecConnectionsDiscovery
+ 	fw_services = ceilometer.network.services.discovery:FirewallDiscovery
+ 	fw_policy = ceilometer.network.services.discovery:FirewallPolicyDiscovery
++	es_metering_ports = ceilometer.network.services.discovery:ESMeteringPortDiscovery
+ 	tripleo_overcloud_nodes = ceilometer.hardware.discovery:NodesDiscoveryTripleO
+ ceilometer.poll.compute = 
+ 	disk.read.requests = ceilometer.compute.pollsters.disk:ReadRequestsPollster
+@@ -188,6 +189,19 @@ ceilometer.poll.central =
+ 	network.services.vpn.connections = ceilometer.network.services.vpnaas:IPSecConnectionsPollster
+ 	network.services.firewall = ceilometer.network.services.fwaas:FirewallPollster
+ 	network.services.firewall.policy = ceilometer.network.services.fwaas:FirewallPolicyPollster
++ceilometer.poll.network =
++	network.es.port.incoming.bytes = ceilometer.network.services.port_metering:ESPortBytesInPollster
++	network.es.port.incoming.packets = ceilometer.network.services.port_metering:ESPortPacketsInPollster
++	network.es.port.incoming.internal.bytes = ceilometer.network.services.port_metering:ESPortInternalBytesInPollster
++	network.es.port.incoming.internal.packets = ceilometer.network.services.port_metering:ESPortInternalPacketsInPollster
++	network.es.port.incoming.external.bytes = ceilometer.network.services.port_metering:ESPortExternalBytesInPollster
++	network.es.port.incoming.external.packets = ceilometer.network.services.port_metering:ESPortExternalPacketsInPollster
++	network.es.port.outgoing.bytes = ceilometer.network.services.port_metering:ESPortBytesOutPollster
++	network.es.port.outgoing.packets = ceilometer.network.services.port_metering:ESPortPacketsOutPollster
++	network.es.port.outgoing.internal.bytes = ceilometer.network.services.port_metering:ESPortInternalBytesOutPollster
++	network.es.port.outgoing.internal.packets = ceilometer.network.services.port_metering:ESPortInternalPacketsOutPollster
++	network.es.port.outgoing.external.bytes = ceilometer.network.services.port_metering:ESPortExternalBytesOutPollster
++	network.es.port.outgoing.external.packets = ceilometer.network.services.port_metering:ESPortExternalPacketsOutPollster
+ ceilometer.alarm.storage = 
+ 	log = ceilometer.alarm.storage.impl_log:Connection
+ 	mongodb = ceilometer.alarm.storage.impl_mongodb:Connection
+-- 
+2.7.4
+
