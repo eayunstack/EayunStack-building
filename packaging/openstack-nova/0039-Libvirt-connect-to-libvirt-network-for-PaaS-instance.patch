@@ -1,0 +1,98 @@
+From b7c1fbc9b8e0b3be83b8637ad8457aee555a1447 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 14 Jun 2017 18:40:35 +0800
+Subject: [PATCH] Libvirt: connect to libvirt network for PaaS instances
+
+Fixes: redmine #10270
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 4ccba6722f4e3d4441a01ae15f138f1500e906ea)
+---
+ nova/virt/libvirt/config.py   |  5 ++++-
+ nova/virt/libvirt/designer.py |  8 ++++++++
+ nova/virt/libvirt/driver.py   | 10 ++++++++++
+ nova/virt/libvirt/vif.py      |  8 ++++++++
+ 4 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
+index 7c02977..8b5cc42 100644
+--- a/nova/virt/libvirt/config.py
++++ b/nova/virt/libvirt/config.py
+@@ -1098,7 +1098,8 @@ class LibvirtConfigGuestInterface(LibvirtConfigGuestDevice):
+         dev.set("type", self.net_type)
+         if self.net_type == "hostdev":
+             dev.set("managed", "yes")
+-        dev.append(etree.Element("mac", address=self.mac_addr))
++        if self.mac_addr:
++            dev.append(etree.Element("mac", address=self.mac_addr))
+         if self.model:
+             dev.append(etree.Element("model", type=self.model))
+ 
+@@ -1122,6 +1123,8 @@ class LibvirtConfigGuestInterface(LibvirtConfigGuestDevice):
+             addr_elem.set("function", "0x%s" % (func))
+             source_elem.append(addr_elem)
+             dev.append(source_elem)
++        elif self.net_type == "network":
++            dev.append(etree.Element("source", network=self.source_dev))
+         else:
+             dev.append(etree.Element("source", bridge=self.source_dev))
+ 
+diff --git a/nova/virt/libvirt/designer.py b/nova/virt/libvirt/designer.py
+index 8ed55a2..0801096 100644
+--- a/nova/virt/libvirt/designer.py
++++ b/nova/virt/libvirt/designer.py
+@@ -156,3 +156,11 @@ def set_vif_bandwidth_config(conf, inst_type):
+         if len(scope) > 1 and scope[0] == 'quota':
+             if scope[1] in bandwidth_items:
+                 setattr(conf, scope[1], value)
++
++
++def set_vif_host_backend_libvirt_network_config(conf, source_network):
++    """Populate a LibvirtConfigGuestInterface instance
++    with host backend details for a libvirt network.
++    """
++    conf.net_type = "network"
++    conf.source_dev = source_network
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 0fd4526..26c7b83 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -4010,6 +4010,16 @@ class LibvirtDriver(driver.ComputeDriver):
+                 flavor, CONF.libvirt.virt_type)
+             guest.add_device(config)
+ 
++        # PaaS Network
++        if image_meta.get('properties', {}).get('es_paas_image', False):
++            # Create a NIC with type network connected to a configurable
++            # libvirt NAT network for PaaS instances.
++            vif = {'type': 'libvirt_network', 'address': '',
++                   'network': CONF.libvirt.es_paas_network}
++            config = self.vif_driver.get_config(
++                instance, vif, image_meta, flavor, CONF.libvirt.virt_type)
++            guest.add_device(config)
++
+         if ((CONF.libvirt.virt_type == "qemu" or
+              CONF.libvirt.virt_type == "kvm")):
+             # Create the serial console char devices
+diff --git a/nova/virt/libvirt/vif.py b/nova/virt/libvirt/vif.py
+index 71404f0..1e76227 100644
+--- a/nova/virt/libvirt/vif.py
++++ b/nova/virt/libvirt/vif.py
+@@ -332,6 +332,14 @@ class LibvirtGenericVIFDriver(object):
+ 
+         return conf
+ 
++    def get_config_libvirt_network(self, instance, vif, image_meta,
++                                   inst_type, virt_type):
++        conf = self.get_base_config(instance, vif, image_meta,
++                                    inst_type, virt_type)
++        designer.set_vif_host_backend_libvirt_network_config(
++            conf, vif['network'])
++        return conf
++
+     def get_config(self, instance, vif, image_meta,
+                    inst_type, virt_type):
+         vif_type = vif['type']
+-- 
+2.7.4
+

@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          7.1%{?dist_eayunstack}
+Release:          7.2%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -83,6 +83,7 @@ Patch0035: 0035-add-eayun-userdata-to-v2-API-extension.patch
 Patch0036: 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
 Patch0037: 0037-Replace-root-volume-during-rebuild.patch
 Patch0038: 0038-rebuild-make-sure-server-is-shut-down-before-volumes.patch
+Patch0039: 0039-Libvirt-connect-to-libvirt-network-for-PaaS-instance.patch
 
 
 BuildArch:        noarch
@@ -524,6 +525,7 @@ This package contains documentation files for nova.
 %patch0036 -p1
 %patch0037 -p1
 %patch0038 -p1
+%patch0039 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -881,6 +883,9 @@ exit 0
 %endif
 
 %changelog
+* Mon Jul 3 2017 dwong <peng.wang@gmail.com> - 2014.2-7.2.eayunstack
+- 0039-Libvirt-connect-to-libvirt-network-for-PaaS-instance.patch
+
 * Tue May 23 2017 blkart <blkart.org@gmail.com> - 2014.2-7.1.eayunstack
 - 0036-Fix-rebuild-of-an-instance-with-a-volume-attached.patch
 - 0037-Replace-root-volume-during-rebuild.patch
