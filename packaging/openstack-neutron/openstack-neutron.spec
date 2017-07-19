@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	34%{?dist_eayunstack}
+Release:	35%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -151,6 +151,19 @@ Patch0105: 0105-es-metering-fix-port-selection-when-tcp_port-is-spec.patch
 Patch0106: 0106-Optimize-haproxy-driver-port_to_pool_id-dict.patch
 Patch0107: 0107-OpenFlow-EW-DVR-be-more-torelant-when-syncing-dvr-po.patch
 Patch0108: 0108-Add-check-if-extra-actions-params-is-correct.patch
+Patch0109: 0109-Add-status_changed-notification-for-some-components.patch
+Patch0110: 0110-FWaaS-apply-firewall-rules-to-router-ingress-traffic.patch
+Patch0111: 0111-FWaaS-support-some-more-protocols-in-FW-rules.patch
+Patch0112: 0112-Fix-firewall-port-range-compare-error.patch
+Patch0113: 0113-metering-properly-do-data-filtering-within-some-APIs.patch
+Patch0114: 0114-Loadbalancer-enable-a-created-free-port-to-be-used-b.patch
+Patch0115: 0115-Fix-exception-message-format-error.patch
+Patch0116: 0116-Add-monitor-address-and-port-for-lbaas-member.patch
+Patch0117: 0117-Fix-exception-error-when-l7rule-delete.patch
+Patch0118: 0118-Port-don-t-check-max-fixed_ips-quota-for-dhcp-agent-.patch
+Patch0119: 0119-EW-DVR-fix-issues-related-to-hosted-ports.patch
+Patch0120: 0120-Fix-syntax-error.patch
+Patch0121: 0121-Switch-to-use-classmethod-in-eayun-notifier.patch
 
 
 BuildArch:	noarch
@@ -737,6 +750,19 @@ IPSec.
 %patch0106 -p1
 %patch0107 -p1
 %patch0108 -p1
+%patch0109 -p1
+%patch0110 -p1
+%patch0111 -p1
+%patch0112 -p1
+%patch0113 -p1
+%patch0114 -p1
+%patch0115 -p1
+%patch0116 -p1
+%patch0117 -p1
+%patch0118 -p1
+%patch0119 -p1
+%patch0120 -p1
+%patch0121 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1198,6 +1224,21 @@ exit 0
 
 
 %changelog
+* Wed Jul 19 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-35.eayunstack.dev
+- add patch 0109 from github pull request #100 (redmine#10220)
+- add patch 0110 from github pull request #101 (redmine#10238)
+- add patch 0111 from github pull request #102 (redmine#10240)
+- add patch 0112 from github pull request #103 (redmine#10246)
+- add patch 0113 from github pull request #105 (redmine#10261)
+- add patch 0114 from github pull request #106 (redmine#10286)
+- add patch 0115 from github pull request #107 (redmine#10312)
+- add patch 0116 from github pull request #95 (redmine#9977)
+- add patch 0117 from github pull request #109 (redmine#10380)
+- add patch 0118 from github pull request #110 (redmine#10437)
+- add patch 0119 from github pull request #113 (redmine#10558)
+- add patch 0120 from github pull request #114 (redmine#10240)
+- add patch 0121 from github pull request #115 (redmine#10220)
+
 * Thu Jun 01 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-34.eayunstack.dev
 - add patch 0108 from github pull request #99 (redmine#10217)
 

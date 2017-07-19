@@ -1,0 +1,65 @@
+From d26e41e4c070e0dd687bd960aaae893959b62c5b Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 6 Jun 2017 16:59:29 +0800
+Subject: [PATCH 111/118] FWaaS: support some more protocols in FW rules
+
+* GRE (47)
+* ESP (50)
+* AH (51)
+* SCTP (132)
+
+Fixes: redmine #10240
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/firewall.py                            | 4 +++-
+ neutron/plugins/common/constants.py                       | 4 ++++
+ neutron/services/firewall/drivers/linux/iptables_fwaas.py | 2 +-
+ 3 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/extensions/firewall.py b/neutron/extensions/firewall.py
+index eb038147e..02ac56078 100644
+--- a/neutron/extensions/firewall.py
++++ b/neutron/extensions/firewall.py
+@@ -151,7 +151,9 @@ class FirewallRuleConflict(qexception.Conflict):
+                 "another tenant %(tenant_id)s")
+ 
+ 
+-fw_valid_protocol_values = [None, constants.TCP, constants.UDP, constants.ICMP]
++fw_valid_protocol_values = [None, constants.TCP, constants.UDP, constants.ICMP
++                            constants.SCTP, constants.GRE,
++                            constants.ESP, constants.AH]
+ fw_valid_action_values = [constants.FWAAS_ALLOW, constants.FWAAS_DENY]
+ 
+ 
+diff --git a/neutron/plugins/common/constants.py b/neutron/plugins/common/constants.py
+index 5e435ace7..110addb4d 100644
+--- a/neutron/plugins/common/constants.py
++++ b/neutron/plugins/common/constants.py
+@@ -72,6 +72,10 @@ FWAAS_DENY = "deny"
+ TCP = "tcp"
+ UDP = "udp"
+ ICMP = "icmp"
++SCTP = "sctp"
++GRE = "gre"
++ESP = "esp"
++AH = "ah"
+ 
+ # Network Type constants
+ TYPE_FLAT = 'flat'
+diff --git a/neutron/services/firewall/drivers/linux/iptables_fwaas.py b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+index b7d3a67f1..bae0c7ef6 100644
+--- a/neutron/services/firewall/drivers/linux/iptables_fwaas.py
++++ b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+@@ -311,7 +311,7 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+         return ''
+ 
+     def _port_arg(self, direction, protocol, port):
+-        if not (protocol in ['udp', 'tcp'] and port):
++        if not (protocol in ['udp', 'tcp', 'sctp'] and port):
+             return ''
+         return '--%s %s' % (direction, port)
+ 
+-- 
+2.13.3
+

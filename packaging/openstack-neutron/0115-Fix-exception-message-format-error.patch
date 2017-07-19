@@ -1,0 +1,51 @@
+From ac5cd299fe4c8552ff9f92d669227813a0b2bcde Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Mon, 26 Jun 2017 16:12:01 +0800
+Subject: [PATCH 115/118] Fix exception message format error
+
+Fixes: redmine #10312
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/loadbalancer_l7.py | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index 7f92c9d0b..92f5a77fa 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -39,7 +39,7 @@ class L7policyInUse(qexception.BadRequest):
+ 
+ class L7policyActionKeyValueNotSupport(qexception.BadRequest):
+     message = _("L7policy action %(l7policy_action)s with key %(l7policy_key)s"
+-                "and value %(l7policy_value)s does not support")
++                " and value %(l7policy_value)s does not support")
+ 
+ 
+ class L7ruleNotFound(qexception.NotFound):
+@@ -51,7 +51,7 @@ class L7ruleInUse(qexception.NotFound):
+ 
+ 
+ class L7ruleTypeKeyValueNotSupport(qexception.BadRequest):
+-    message = _("L7rule type %(l7rule_type)s with key %(l7rule_key)s"
++    message = _("L7rule type %(l7rule_type)s with key %(l7rule_key)s "
+                 "and value %(l7rule_value)s dose not support")
+ 
+ 
+@@ -61,12 +61,12 @@ class L7ruleCompareTypeValueNotSupport(qexception.BadRequest):
+ 
+ 
+ class L7policyRuleAssociationExists(qexception.BadRequest):
+-    message = _("L7policy %(policy_id)s is already associated"
++    message = _("L7policy %(policy_id)s is already associated "
+                 "with L7rule %(rule_id)s")
+ 
+ 
+ class L7policyRuleAssociationNotFound(qexception.NotFound):
+-    message = _("L7policy %(policy_id)s is not associated"
++    message = _("L7policy %(policy_id)s is not associated "
+                 "with L7rule %(rule_id)s")
+ 
+ 
+-- 
+2.13.3
+

@@ -1,0 +1,30 @@
+From f64cbcf2ae1e8ad96f99203945b87c8505ab489e Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Wed, 7 Jun 2017 16:33:25 +0800
+Subject: [PATCH 112/118] Fix firewall port range compare error
+
+Fixes: redmine #10246
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/firewall.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/firewall.py b/neutron/extensions/firewall.py
+index 02ac56078..e6e13db42 100644
+--- a/neutron/extensions/firewall.py
++++ b/neutron/extensions/firewall.py
+@@ -206,7 +206,8 @@ def _validate_port_range(data, key_specs=None):
+             msg = _("Invalid port '%s'") % p
+             LOG.debug(msg)
+             return msg
+-    if len(ports) > 2 or ports[0] > ports[-1]:
++
++    if len(ports) > 2 or int(ports[0]) > int(ports[-1]):
+         msg = _("Invalid port range '%s'") % ports
+         return msg
+ 
+-- 
+2.13.3
+
