@@ -1,0 +1,32 @@
+From e8b578c26af1a001b08adde21de313b2dc0fe8bd Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Tue, 11 Jul 2017 12:32:26 +0800
+Subject: [PATCH 2/2] Libvirt: register config opt 'es_paas_network'.
+
+Fixes: redmine #10534
+
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+(cherry picked from commit a5af0eca9267c9fc1d8f774e64720539c31305d4)
+---
+ nova/virt/libvirt/driver.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 26c7b83..ec17540 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -254,7 +254,10 @@ libvirt_opts = [
+                 default=[],
+                 help='List of guid targets and ranges.'
+                      'Syntax is guest-gid:host-gid:count'
+-                     'Maximum of 5 allowed.')
++                     'Maximum of 5 allowed.'),
++    cfg.StrOpt('es_paas_network',
++               default='default',
++               help='Libvirt network for EayunStack PaaS Network.')
+     ]
+ 
+ CONF = cfg.CONF
+-- 
+2.7.4
+
