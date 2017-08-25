@@ -1,0 +1,103 @@
+From 9c4e1a50a8bb5d6cd0655973e43a7eda49f6257f Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Thu, 24 Aug 2017 19:02:17 +0800
+Subject: [PATCH 2/3] Log exception from deallocate_port_for_instance for
+ triage
+
+detach_interface is a cast operation and sometimes
+NeutronClientExceptions slip through the neutronv2 API, so let's be sure
+to log any exceptions that come up from the network API method so we can
+triage them later.
+
+Related-Bug: #1326183
+
+Change-Id: I1e96128b8a502b32d1e651101d9bfd606ed4855b
+
+Related Upstream Commit: 3244063a5cabd76a4651df8c0d8ff496ffc465d4
+
+Upstream-Fixed
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+(cherry picked from commit da7e83a37c461f71ae9ab3dc09c3e2d3dab85cbf)
+---
+ nova/compute/manager.py            | 13 +++++++++++--
+ nova/tests/compute/test_compute.py | 32 ++++++++++++++++++++++++++++++++
+ 2 files changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index 16a9eab..c0f4886 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -4929,8 +4929,17 @@ class ComputeManager(manager.Manager):
+                         {'port_id': port_id, 'msg': ex}, instance=instance)
+             raise exception.InterfaceDetachFailed(instance_uuid=instance.uuid)
+         else:
+-            self.network_api.deallocate_port_for_instance(context, instance,
+-                                                          port_id)
++            try:
++                self.network_api.deallocate_port_for_instance(
++                    context, instance, port_id)
++            except Exception as ex:
++                with excutils.save_and_reraise_exception():
++                    # Since this is a cast operation, log the failure for
++                    # triage.
++                    LOG.warning(_LW('Failed to deallocate port %(port_id)s '
++                                    'for instance. Error: %(error)s'),
++                                {'port_id': port_id, 'error': ex},
++                                instance=instance)
+ 
+     def _get_compute_info(self, context, host):
+         service = objects.Service.get_by_compute_host(context, host)
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index b0a92a1..6518f76 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -29,6 +29,7 @@ import uuid
+ from eventlet import greenthread
+ import mock
+ import mox
++from neutronclient.common import exceptions as neutron_exceptions
+ from oslo.config import cfg
+ from oslo import messaging
+ from oslo.utils import timeutils as db_timeutils
+@@ -9212,6 +9213,37 @@ class ComputeAPITestCase(BaseTestCase):
+                               instance, port_id)
+             self.assertFalse(mock_deallocate.called)
+ 
++    @mock.patch.object(compute_manager.LOG, 'warning')
++    def test_detach_interface_deallocate_port_for_instance_failed(self,
++                                                                  warn_mock):
++        # Tests that when deallocate_port_for_instance fails we log the failure
++        # before exiting compute.detach_interface.
++        nwinfo, port_id = self.test_attach_interface()
++        instance = objects.Instance(uuid=uuidutils.generate_uuid())
++        instance.info_cache = objects.InstanceInfoCache.new(
++            self.context, 'fake-uuid')
++        instance.info_cache.network_info = network_model.NetworkInfo.hydrate(
++            nwinfo)
++
++        # Sometimes neutron errors slip through the neutronv2 API so we want
++        # to make sure we catch those in the compute manager and not just
++        # NovaExceptions.
++        error = neutron_exceptions.PortNotFoundClient()
++        with contextlib.nested(
++            mock.patch.object(self.compute.driver, 'detach_interface'),
++            mock.patch.object(self.compute.network_api,
++                              'deallocate_port_for_instance',
++                              side_effect=error),
++            mock.patch.object(self.compute, '_instance_update')) as (
++            mock_detach, mock_deallocate, mock_instance_update):
++            ex = self.assertRaises(neutron_exceptions.PortNotFoundClient,
++                                   self.compute.detach_interface, self.context,
++                                   instance, port_id)
++            self.assertEqual(error, ex)
++        mock_deallocate.assert_called_once_with(
++            self.context, instance, port_id)
++        self.assertEqual(1, warn_mock.call_count)
++
+     def test_attach_volume(self):
+         fake_bdm = fake_block_device.FakeDbBlockDeviceDict(
+                 {'source_type': 'volume', 'destination_type': 'volume',
+-- 
+2.1.0
+

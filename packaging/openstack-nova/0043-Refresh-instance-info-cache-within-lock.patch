@@ -1,0 +1,99 @@
+From d4053cc07b08dc9b8b703c814ab553b495d283d7 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Thu, 24 Aug 2017 19:42:03 +0800
+Subject: [PATCH 3/3] Refresh instance info cache within lock
+
+Fix interface attachment bug where multiple concurrent attachment
+requests can cause corruption of the nova instance info cache. This
+change refreshes the info cache object from the database whilst
+holding the refresh-cache lock, ensuring that changes are
+synchronised.
+
+Change-Id: I6ea2eda8a61f418b0c32f13a7ed6904352712857
+Closes-Bug: #1467581
+
+Related Upstream Commit: 0fb97014689b1b9575cafae88447db7f86ff4292
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+(cherry picked from commit 8f7b1526f2213e674433c19ed07af05329ba3bdb)
+---
+ nova/compute/utils.py                                            | 9 +++++++++
+ nova/network/base_api.py                                         | 4 +++-
+ nova/network/neutronv2/api.py                                    | 4 ++++
+ .../openstack/compute/contrib/test_neutron_security_groups.py    | 3 ++-
+ 4 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/nova/compute/utils.py b/nova/compute/utils.py
+index ce761d8..2164b8d 100644
+--- a/nova/compute/utils.py
++++ b/nova/compute/utils.py
+@@ -405,6 +405,15 @@ def finish_instance_usage_audit(context, conductor, begin, end, host, errors,
+                                 host, errors, message)
+ 
+ 
++def refresh_info_cache_for_instance(context, instance):
++    """Refresh the info cache for an instance.
++
++    :param instance: The instance object.
++    """
++    if instance.info_cache is not None:
++        instance.info_cache.refresh()
++
++
+ def usage_volume_info(vol_usage):
+     def null_safe_str(s):
+         return str(s) if s else ''
+diff --git a/nova/network/base_api.py b/nova/network/base_api.py
+index beeaa48..5f42a9c 100644
+--- a/nova/network/base_api.py
++++ b/nova/network/base_api.py
+@@ -58,7 +58,6 @@ def refresh_cache(f):
+ 
+     @functools.wraps(f)
+     def wrapper(self, context, *args, **kwargs):
+-        res = f(self, context, *args, **kwargs)
+         try:
+             # get the instance from arguments (or raise ValueError)
+             instance = kwargs.get('instance')
+@@ -69,6 +68,9 @@ def refresh_cache(f):
+             raise Exception(msg)
+ 
+         with lockutils.lock('refresh_cache-%s' % instance['uuid']):
++            # We need to call the wrapped function with the lock held to ensure
++            # that it can call _get_instance_nw_info safely.
++            res = f(self, context, *args, **kwargs)
+             update_instance_cache_with_nw_info(self, context, instance,
+                                                nw_info=res)
+         # return the original function's return value
+diff --git a/nova/network/neutronv2/api.py b/nova/network/neutronv2/api.py
+index 9178930..82afcf2 100644
+--- a/nova/network/neutronv2/api.py
++++ b/nova/network/neutronv2/api.py
+@@ -609,6 +609,10 @@ class API(base_api.NetworkAPI):
+         # by other code that updates instance nwinfo. It *must* be
+         # called with the refresh_cache-%(instance_uuid) lock held!
+         LOG.debug('get_instance_nw_info()', instance=instance)
++        # Ensure that we have an up to date copy of the instance info cache.
++        # Otherwise multiple requests could collide and cause cache
++        # corruption.
++        compute_utils.refresh_info_cache_for_instance(context, instance)
+         nw_info = self._build_network_info_model(context, instance, networks,
+                                                  port_ids)
+         return network_model.NetworkInfo.hydrate(nw_info)
+diff --git a/nova/tests/api/openstack/compute/contrib/test_neutron_security_groups.py b/nova/tests/api/openstack/compute/contrib/test_neutron_security_groups.py
+index 654d635..14eb8da 100644
+--- a/nova/tests/api/openstack/compute/contrib/test_neutron_security_groups.py
++++ b/nova/tests/api/openstack/compute/contrib/test_neutron_security_groups.py
+@@ -177,7 +177,8 @@ class TestNeutronSecurityGroups(
+                                       sg['id'], use_admin_context=True)
+         self.controller.delete(req, sg['id'])
+ 
+-    def test_delete_security_group_in_use(self):
++    @mock.patch('nova.compute.utils.refresh_info_cache_for_instance')
++    def test_delete_security_group_in_use(self, refresh_info_cache_mock):
+         sg = self._create_sg_template().get('security_group')
+         self._create_network()
+         db_inst = fakes.stub_instance(id=1, nw_cache=[], security_groups=[])
+-- 
+2.1.0
+
