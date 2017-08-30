@@ -1,0 +1,89 @@
+From 139e1e78d5a163adf922678d44550ea602d09833 Mon Sep 17 00:00:00 2001
+From: blkart <blkart.org@gmail.com>
+Date: Thu, 24 Aug 2017 18:34:45 +0800
+Subject: [PATCH 1/3] Handle exception when doing detach_interface
+
+Currently, in compute api, detach_interface will delete neutron port
+first then calls hypervisor driver to do detach_interface on the guest.
+If the driver does detach_interface failed, in case of the driver raise
+an exception.InterfaceDetachFailed or other NovaExceptions, there is no
+handler for them.
+Besides this is an asyn rpc call, so nova-api will not notice these
+exceptions. End user will find the port has been deleted in neutron side,
+but still can see this port on guest, this is inconsistent.
+
+This patch moves delete port in neturon side after hypervisor finished
+detach_interface successfully, if it catch NovaException,
+gives a log warning, and keep this port in neutron.
+
+Change-Id: Ie376c211093f63a4b3f3837267c74502bd34a192
+Closes-Bug: #1432465
+
+Related Upstream Commit: 92f986d9c8d982afa6f6d1fa2df281c8a2305a4c
+
+Signed-off-by: blkart <blkart.org@gmail.com>
+(cherry picked from commit 6598e62cbcfdecf76e1281bd00caf5f41176e133)
+---
+ nova/compute/manager.py            | 14 ++++++++++----
+ nova/tests/compute/test_compute.py | 20 ++++++++++++++++++++
+ 2 files changed, 30 insertions(+), 4 deletions(-)
+
+diff --git a/nova/compute/manager.py b/nova/compute/manager.py
+index a5008dd..16a9eab 100644
+--- a/nova/compute/manager.py
++++ b/nova/compute/manager.py
+@@ -4921,10 +4921,16 @@ class ComputeManager(manager.Manager):
+         if condemned is None:
+             raise exception.PortNotFound(_("Port %s is not "
+                                            "attached") % port_id)
+-
+-        self.network_api.deallocate_port_for_instance(context, instance,
+-                                                      port_id)
+-        self.driver.detach_interface(instance, condemned)
++        try:
++            self.driver.detach_interface(instance, condemned)
++        except exception.NovaException as ex:
++            LOG.warning(_LW("Detach interface failed, port_id=%(port_id)s,"
++                            " reason: %(msg)s"),
++                        {'port_id': port_id, 'msg': ex}, instance=instance)
++            raise exception.InterfaceDetachFailed(instance_uuid=instance.uuid)
++        else:
++            self.network_api.deallocate_port_for_instance(context, instance,
++                                                          port_id)
+ 
+     def _get_compute_info(self, context, host):
+         service = objects.Service.get_by_compute_host(context, host)
+diff --git a/nova/tests/compute/test_compute.py b/nova/tests/compute/test_compute.py
+index 48aba6b..b0a92a1 100644
+--- a/nova/tests/compute/test_compute.py
++++ b/nova/tests/compute/test_compute.py
+@@ -9192,6 +9192,26 @@ class ComputeAPITestCase(BaseTestCase):
+         self.compute.detach_interface(self.context, instance, port_id)
+         self.assertEqual(self.compute.driver._interfaces, {})
+ 
++    def test_detach_interface_failed(self):
++        nwinfo, port_id = self.test_attach_interface()
++        instance = objects.Instance()
++        instance['uuid'] = 'fake-uuid'
++        instance.info_cache = objects.InstanceInfoCache.new(
++            self.context, 'fake-uuid')
++        instance.info_cache.network_info = network_model.NetworkInfo.hydrate(
++            nwinfo)
++
++        with contextlib.nested(
++            mock.patch.object(self.compute.driver, 'detach_interface',
++                side_effect=exception.NovaException('detach_failed')),
++            mock.patch.object(self.compute.network_api,
++                              'deallocate_port_for_instance')) as (
++            mock_detach, mock_deallocate):
++            self.assertRaises(exception.InterfaceDetachFailed,
++                              self.compute.detach_interface, self.context,
++                              instance, port_id)
++            self.assertFalse(mock_deallocate.called)
++
+     def test_attach_volume(self):
+         fake_bdm = fake_block_device.FakeDbBlockDeviceDict(
+                 {'source_type': 'volume', 'destination_type': 'volume',
+-- 
+2.1.0
+
