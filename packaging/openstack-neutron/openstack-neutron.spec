@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	35%{?dist_eayunstack}
+Release:	36%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -164,6 +164,9 @@ Patch0118: 0118-Port-don-t-check-max-fixed_ips-quota-for-dhcp-agent-.patch
 Patch0119: 0119-EW-DVR-fix-issues-related-to-hosted-ports.patch
 Patch0120: 0120-Fix-syntax-error.patch
 Patch0121: 0121-Switch-to-use-classmethod-in-eayun-notifier.patch
+Patch0122: 0122-Porting-neutron-lbaas-certificates-manager-to-neutro.patch
+Patch0123: 0123-Add-query-and-fragment-valid-to-url_path.patch
+Patch0124: 0124-agent_sync-filter-out-not-ready-fip-port-targets.patch
 
 
 BuildArch:	noarch
@@ -763,6 +766,9 @@ IPSec.
 %patch0119 -p1
 %patch0120 -p1
 %patch0121 -p1
+%patch0122 -p1
+%patch0123 -p1
+%patch0124 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1224,6 +1230,11 @@ exit 0
 
 
 %changelog
+* Tue Sep 05 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-36.eayunstack.dev
+- add patch 0122 from github pull request #108 (redmine#10330)
+- add patch 0123 from github pull request #111 (redmine#10435)
+- add patch 0124 from neutron-qos github pull request #26 (redmine#10738)
+
 * Wed Jul 19 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-35.eayunstack.dev
 - add patch 0109 from github pull request #100 (redmine#10220)
 - add patch 0110 from github pull request #101 (redmine#10238)

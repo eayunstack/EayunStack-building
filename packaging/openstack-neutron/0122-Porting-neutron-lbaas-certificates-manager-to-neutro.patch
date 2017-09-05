@@ -1,0 +1,1136 @@
+From af7f1d1df2190351e188c3b248e6356e3fad46f6 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Tue, 27 Jun 2017 15:47:42 +0800
+Subject: [PATCH] Porting neutron-lbaas certificates manager to neutron
+
+The cert_manager depend on barbicanclient packages.
+
+Fixes: redmine #10330
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ etc/neutron.conf                                   |  41 ++++
+ neutron/certificates/__init__.py                   |   0
+ neutron/certificates/cert_manager/__init__.py      |  43 +++++
+ .../cert_manager/barbican_auth/__init__.py         |   0
+ .../cert_manager/barbican_auth/barbican_acl.py     |  47 +++++
+ .../cert_manager/barbican_auth/common.py           |  28 +++
+ .../cert_manager/barbican_cert_manager.py          | 211 +++++++++++++++++++++
+ neutron/certificates/cert_manager/cert_manager.py  | 100 ++++++++++
+ .../cert_manager/local_cert_manager.py             | 200 +++++++++++++++++++
+ neutron/certificates/exceptions.py                 |  37 ++++
+ neutron/certificates/keystone.py                   | 122 ++++++++++++
+ neutron/certificates/tls_utils/__init__.py         |   0
+ neutron/certificates/tls_utils/cert_parser.py      | 177 +++++++++++++++++
+ setup.cfg                                          |   5 +
+ 14 files changed, 1011 insertions(+)
+ create mode 100644 neutron/certificates/__init__.py
+ create mode 100644 neutron/certificates/cert_manager/__init__.py
+ create mode 100644 neutron/certificates/cert_manager/barbican_auth/__init__.py
+ create mode 100644 neutron/certificates/cert_manager/barbican_auth/barbican_acl.py
+ create mode 100644 neutron/certificates/cert_manager/barbican_auth/common.py
+ create mode 100644 neutron/certificates/cert_manager/barbican_cert_manager.py
+ create mode 100644 neutron/certificates/cert_manager/cert_manager.py
+ create mode 100644 neutron/certificates/cert_manager/local_cert_manager.py
+ create mode 100644 neutron/certificates/exceptions.py
+ create mode 100644 neutron/certificates/keystone.py
+ create mode 100644 neutron/certificates/tls_utils/__init__.py
+ create mode 100644 neutron/certificates/tls_utils/cert_parser.py
+
+diff --git a/etc/neutron.conf b/etc/neutron.conf
+index 40b91079e..8d22738b5 100644
+--- a/etc/neutron.conf
++++ b/etc/neutron.conf
+@@ -641,3 +641,44 @@ service_provider=VPN:openswan:neutron.services.vpn.service_drivers.ipsec.IPsecVP
+ #service_provider = LOADBALANCER:A10Networks:neutron.services.loadbalancer.drivers.a10networks.driver_v1.ThunderDriver:default
+ # Uncomment the following line to test the LBaaS v2 API _WITHOUT_ a real backend
+ # service_provider = LOADBALANCER:LoggingNoop:neutron.services.loadbalancer.drivers.logging_noop.driver.LoggingNoopLoadBalancerDriver:default
++
++[certificates]
++# Certificate manager plugin, default to barbican
++# cert_manager_type = barbican
++
++# Name of the barbican authentication method to use
++# barbican_auth = barbican_acl_auth
++
++[service_auth]
++# Authentication endpoint
++# auth_url =
++
++# The service auth username
++# admin_user = admin
++
++# The service admin tenant name
++# admin_tenant_name = admin
++
++# The service admin password
++# admin_password = passsword
++
++# The admin user domain name
++# admin_user_domain = admin
++
++# The admin project domain name
++# admin_project_domain = admin
++
++# The deployment region
++# region = RegionOne
++
++# The name of the service
++# service_name = lbaas
++
++# The auth version used to authenticate
++# auth_version = 3
++
++# The endpoint_type to be used
++# endpoint_type = public
++
++# Disable server certificate verification
++# insecure = False
+diff --git a/neutron/certificates/__init__.py b/neutron/certificates/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/certificates/cert_manager/__init__.py b/neutron/certificates/cert_manager/__init__.py
+new file mode 100644
+index 000000000..0a5ee039d
+--- /dev/null
++++ b/neutron/certificates/cert_manager/__init__.py
+@@ -0,0 +1,43 @@
++# Copyright 2015 Rackspace US, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from oslo.config import cfg
++from stevedore import driver
++
++CONF = cfg.CONF
++
++CERT_MANAGER_DEFAULT = 'barbican'
++
++cert_manager_opts = [
++    cfg.StrOpt('cert_manager_type',
++               default=CERT_MANAGER_DEFAULT,
++               help='Certificate Manager plugin. '
++                    'Defaults to {0}.'.format(CERT_MANAGER_DEFAULT)),
++    cfg.StrOpt('barbican_auth',
++               default='barbican_acl_auth',
++               help='Name of the Barbican authentication method to use')
++]
++
++CONF.register_opts(cert_manager_opts, group='certificates')
++
++_CERT_MANAGER_PLUGIN = None
++
++
++def get_backend():
++    global _CERT_MANAGER_PLUGIN
++    if not _CERT_MANAGER_PLUGIN:
++        _CERT_MANAGER_PLUGIN = driver.DriverManager(
++            "neutron.cert_manager.backend",
++            cfg.CONF.certificates.cert_manager_type).driver
++    return _CERT_MANAGER_PLUGIN
+diff --git a/neutron/certificates/cert_manager/barbican_auth/__init__.py b/neutron/certificates/cert_manager/barbican_auth/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/certificates/cert_manager/barbican_auth/barbican_acl.py b/neutron/certificates/cert_manager/barbican_auth/barbican_acl.py
+new file mode 100644
+index 000000000..51ca310e5
+--- /dev/null
++++ b/neutron/certificates/cert_manager/barbican_auth/barbican_acl.py
+@@ -0,0 +1,47 @@
++# Copyright (c) 2014-2016 Rackspace US, Inc
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++"""
++Barbican ACL auth class for Barbican certificate handling
++"""
++from barbicanclient import client as barbican_client
++from oslo.config import cfg
++from oslo.utils import excutils
++
++from neutron.certificates.cert_manager.barbican_auth import common
++from neutron.certificates import keystone
++from neutron.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++CONF = cfg.CONF
++
++
++class BarbicanACLAuth(common.BarbicanAuth):
++    _barbican_client = None
++
++    @classmethod
++    def get_barbican_client(cls, project_id=None):
++        if not cls._barbican_client:
++            try:
++                cls._barbican_client = barbican_client.Client(
++                    session=keystone.get_session(),
++                    region_name=CONF.service_auth.region,
++                    interface=CONF.service_auth.endpoint_type
++                )
++            except Exception:
++                with excutils.save_and_reraise_exception():
++                    LOG.exception("Error creating Barbican client")
++        return cls._barbican_client
+diff --git a/neutron/certificates/cert_manager/barbican_auth/common.py b/neutron/certificates/cert_manager/barbican_auth/common.py
+new file mode 100644
+index 000000000..45c687e35
+--- /dev/null
++++ b/neutron/certificates/cert_manager/barbican_auth/common.py
+@@ -0,0 +1,28 @@
++# Copyright 2014-2016 Rackspace US, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++import abc
++
++import six
++
++
++@six.add_metaclass(abc.ABCMeta)
++class BarbicanAuth(object):
++    @abc.abstractmethod
++    def get_barbican_client(self, project_id):
++        """Creates a Barbican client object.
++
++        :param project_id: Project ID that the request will be used for
++        :return: a Barbican Client object
++        :raises Exception: if the client cannot be created
++        """
+diff --git a/neutron/certificates/cert_manager/barbican_cert_manager.py b/neutron/certificates/cert_manager/barbican_cert_manager.py
+new file mode 100644
+index 000000000..2dff3a78e
+--- /dev/null
++++ b/neutron/certificates/cert_manager/barbican_cert_manager.py
+@@ -0,0 +1,211 @@
++# Copyright 2014, 2015 Rackspace US, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from barbicanclient import client as barbican_client
++from oslo.config import cfg
++from oslo.utils import excutils
++from stevedore import driver as stevedore_driver
++
++from neutron.certificates.cert_manager import cert_manager
++from neutron.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++CONF = cfg.CONF
++
++
++class Cert(cert_manager.Cert):
++    """Representation of a Cert based on the Barbican CertificateContainer."""
++
++    def __init__(self, cert_container):
++        if not isinstance(cert_container,
++                          barbican_client.containers.CertificateContainer):
++            raise TypeError(_(
++                "Retrieved Barbican Container is not of the correct type "
++                "(certificate)."))
++        self._cert_container = cert_container
++
++    # Container secrets are accessed upon query and can return as None,
++    # don't return the payload if the secret is not available.
++
++    def get_certificate(self):
++        if self._cert_container.certificate:
++            return self._cert_container.certificate.payload
++
++    def get_intermediates(self):
++        if self._cert_container.intermediates:
++            return self._cert_container.intermediates.payload
++
++    def get_private_key(self):
++        if self._cert_container.private_key:
++            return self._cert_container.private_key.payload
++
++    def get_private_key_passphrase(self):
++        if self._cert_container.private_key_passphrase:
++            return self._cert_container.private_key_passphrase.payload
++
++
++class CertManager(cert_manager.CertManager):
++    """Certificate Manager that wraps the Barbican client API."""
++
++    def __init__(self):
++        super(CertManager, self).__init__()
++        self.auth = stevedore_driver.DriverManager(
++            namespace='neutron.cert_manager.barbican_auth',
++            name=cfg.CONF.certificates.barbican_auth,
++            invoke_on_load=True,
++        ).driver
++
++    def store_cert(self, project_id, certificate, private_key,
++                   intermediates=None, private_key_passphrase=None,
++                   expiration=None, name='LBaaS TLS Cert'):
++        """Stores a certificate in the certificate manager.
++
++        :param certificate: PEM encoded TLS certificate
++        :param private_key: private key for the supplied certificate
++        :param intermediates: ordered and concatenated intermediate certs
++        :param private_key_passphrase: optional passphrase for the supplied key
++        :param expiration: the expiration time of the cert in ISO 8601 format
++        :param name: a friendly name for the cert
++
++        :returns: the container_ref of the stored cert
++        :raises Exception: if certificate storage fails
++        """
++
++        connection = self.auth.get_barbican_client(project_id)
++
++        LOG.info((
++            "Storing certificate container '{0}' in Barbican."
++        ).format(name))
++
++        certificate_secret = None
++        private_key_secret = None
++        intermediates_secret = None
++        pkp_secret = None
++
++        try:
++            certificate_secret = connection.secrets.create(
++                payload=certificate,
++                expiration=expiration,
++                name="Certificate"
++            )
++            private_key_secret = connection.secrets.create(
++                payload=private_key,
++                expiration=expiration,
++                name="Private Key"
++            )
++            certificate_container = connection.containers.create_certificate(
++                name=name,
++                certificate=certificate_secret,
++                private_key=private_key_secret
++            )
++            if intermediates:
++                intermediates_secret = connection.secrets.create(
++                    payload=intermediates,
++                    expiration=expiration,
++                    name="Intermediates"
++                )
++                certificate_container.intermediates = intermediates_secret
++            if private_key_passphrase:
++                pkp_secret = connection.secrets.create(
++                    payload=private_key_passphrase,
++                    expiration=expiration,
++                    name="Private Key Passphrase"
++                )
++                certificate_container.private_key_passphrase = pkp_secret
++
++            certificate_container.store()
++            return certificate_container.container_ref
++        # Barbican (because of Keystone-middleware) sometimes masks
++        #  exceptions strangely -- this will catch anything that it raises and
++        #  reraise the original exception, while also providing useful
++        #  feedback in the logs for debugging
++        except Exception:
++            for secret in [certificate_secret, private_key_secret,
++                           intermediates_secret, pkp_secret]:
++                if secret and secret.secret_ref:
++                    old_ref = secret.secret_ref
++                    try:
++                        secret.delete()
++                        LOG.info((
++                            "Deleted secret {0} ({1}) during rollback."
++                        ).format(secret.name, old_ref))
++                    except Exception:
++                        LOG.warning((
++                            "Failed to delete {0} ({1}) during rollback. This "
++                            "is probably not a problem."
++                        ).format(secret.name, old_ref))
++            with excutils.save_and_reraise_exception():
++                LOG.exception("Error storing certificate data")
++
++    def get_cert(self, project_id, cert_ref, resource_ref,
++                 check_only=False, service_name='lbaas'):
++        """Retrieves the specified cert and registers as a consumer.
++
++        :param cert_ref: the UUID of the cert to retrieve
++        :param resource_ref: Full HATEOAS reference to the consuming resource
++        :param check_only: Read Certificate data without registering
++        :param service_name: Friendly name for the consuming service
++
++        :returns: octavia.certificates.common.Cert representation of the
++                 certificate data
++        :raises Exception: if certificate retrieval fails
++        """
++        connection = self.auth.get_barbican_client(project_id)
++
++        LOG.info((
++            "Loading certificate container {0} from Barbican."
++        ).format(cert_ref))
++        try:
++            if check_only:
++                cert_container = connection.containers.get(
++                    container_ref=cert_ref
++                )
++            else:
++                cert_container = connection.containers.register_consumer(
++                    container_ref=cert_ref,
++                    name=service_name,
++                    url=resource_ref
++                )
++            return Cert(cert_container)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception("Error getting {0}".format(cert_ref))
++
++    def delete_cert(self, project_id, cert_ref, resource_ref,
++                    service_name='lbaas'):
++        """Deregister as a consumer for the specified cert.
++
++        :param cert_ref: the UUID of the cert to retrieve
++        :param service_name: Friendly name for the consuming service
++        :param lb_id: Loadbalancer id for building resource consumer URL
++
++        :raises Exception: if deregistration fails
++        """
++        connection = self.auth.get_barbican_client(project_id)
++
++        LOG.info((
++            "Deregistering as a consumer of {0} in Barbican."
++        ).format(cert_ref))
++        try:
++            connection.containers.remove_consumer(
++                container_ref=cert_ref,
++                name=service_name,
++                url=resource_ref
++            )
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception((
++                    "Error deregistering as a consumer of {0}"
++                ).format(cert_ref))
+diff --git a/neutron/certificates/cert_manager/cert_manager.py b/neutron/certificates/cert_manager/cert_manager.py
+new file mode 100644
+index 000000000..0323378ac
+--- /dev/null
++++ b/neutron/certificates/cert_manager/cert_manager.py
+@@ -0,0 +1,100 @@
++# Copyright 2014, 2015 Rackspace US, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++"""
++Certificate manager API
++"""
++import abc
++
++from oslo.config import cfg
++import six
++
++cfg.CONF.import_group('service_auth', 'neutron.certificates.keystone')
++
++
++@six.add_metaclass(abc.ABCMeta)
++class Cert(object):
++    """Base class to represent all certificates."""
++
++    @abc.abstractmethod
++    def get_certificate(self):
++        """Returns the certificate."""
++        pass
++
++    @abc.abstractmethod
++    def get_intermediates(self):
++        """Returns the intermediate certificates."""
++        pass
++
++    @abc.abstractmethod
++    def get_private_key(self):
++        """Returns the private key for the certificate."""
++        pass
++
++    @abc.abstractmethod
++    def get_private_key_passphrase(self):
++        """Returns the passphrase for the private key."""
++        pass
++
++
++@six.add_metaclass(abc.ABCMeta)
++class CertManager(object):
++    """Base Cert Manager Interface
++
++    A Cert Manager is responsible for managing certificates for TLS.
++    """
++
++    @abc.abstractmethod
++    def store_cert(self, project_id, certificate, private_key,
++                   intermediates=None, private_key_passphrase=None,
++                   expiration=None, name=None):
++        """Stores (i.e., registers) a cert with the cert manager.
++
++        This method stores the specified cert and returns its UUID that
++        identifies it within the cert manager.
++        If storage of the certificate data fails, a CertificateStorageException
++        should be raised.
++        """
++        pass
++
++    @abc.abstractmethod
++    def get_cert(self, project_id, cert_ref, resource_ref,
++                 check_only=False, service_name=None):
++        """Retrieves the specified cert.
++
++        If check_only is True, don't perform any sort of registration.
++        If the specified cert does not exist, a CertificateStorageException
++        should be raised.
++        """
++        pass
++
++    @abc.abstractmethod
++    def delete_cert(self, project_id, cert_ref, resource_ref,
++                    service_name=None):
++        """Deletes the specified cert.
++
++        If the specified cert does not exist, a CertificateStorageException
++        should be raised.
++        """
++        pass
++
++    @classmethod
++    def get_service_url(cls, loadbalancer_id):
++        # Format: <servicename>://<region>/<resource>/<object_id>
++        return "{0}://{1}/{2}/{3}".format(
++            cfg.CONF.service_auth.service_name,
++            cfg.CONF.service_auth.region,
++            "loadbalancer",
++            loadbalancer_id
++        )
+diff --git a/neutron/certificates/cert_manager/local_cert_manager.py b/neutron/certificates/cert_manager/local_cert_manager.py
+new file mode 100644
+index 000000000..1b1db2621
+--- /dev/null
++++ b/neutron/certificates/cert_manager/local_cert_manager.py
+@@ -0,0 +1,200 @@
++# Copyright 2014, 2015 Rackspace US, Inc.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import os
++
++from oslo.config import cfg
++
++from neutron.openstack.common import log as logging
++from neutron.openstack.common import utils as uuidutils
++from neutron.certificates.cert_manager import cert_manager
++from neutron.certificates import exceptions
++
++LOG = logging.getLogger(__name__)
++
++CONF = cfg.CONF
++
++TLS_STORAGE_DEFAULT = os.environ.get(
++    'OS_LBAAS_TLS_STORAGE', '/var/lib/neutron-lbaas/certificates/'
++)
++
++local_cert_manager_opts = [
++    cfg.StrOpt('storage_path',
++               default=TLS_STORAGE_DEFAULT,
++               help='Absolute path to the certificate storage directory. '
++                    'Defaults to env[OS_LBAAS_TLS_STORAGE].')
++]
++
++CONF.register_opts(local_cert_manager_opts, group='certificates')
++
++
++class Cert(cert_manager.Cert):
++    """Representation of a Cert for local storage."""
++
++    def __init__(self, certificate, private_key, intermediates=None,
++                 private_key_passphrase=None):
++        self.certificate = certificate
++        self.intermediates = intermediates
++        self.private_key = private_key
++        self.private_key_passphrase = private_key_passphrase
++
++    def get_certificate(self):
++        return self.certificate
++
++    def get_intermediates(self):
++        return self.intermediates
++
++    def get_private_key(self):
++        return self.private_key
++
++    def get_private_key_passphrase(self):
++        return self.private_key_passphrase
++
++
++class CertManager(cert_manager.CertManager):
++    """Cert Manager Interface that stores data locally."""
++
++    def store_cert(self, project_id, certificate, private_key,
++                   intermediates=None, private_key_passphrase=None, **kwargs):
++        """Stores (i.e., registers) a cert with the cert manager.
++
++        This method stores the specified cert to the filesystem and returns
++        a UUID that can be used to retrieve it.
++
++        :param project_id: Project ID for the owner of the certificate
++        :param certificate: PEM encoded TLS certificate
++        :param private_key: private key for the supplied certificate
++        :param intermediates: ordered and concatenated intermediate certs
++        :param private_key_passphrase: optional passphrase for the supplied key
++
++        :returns: the UUID of the stored cert
++        :raises CertificateStorageException: if certificate storage fails
++        """
++        cert_ref = uuidutils.generate_uuid()
++        filename_base = os.path.join(CONF.certificates.storage_path, cert_ref)
++
++        LOG.info("Storing certificate data on the local filesystem.")
++        try:
++            filename_certificate = "{0}.crt".format(filename_base)
++            with open(filename_certificate, 'w') as cert_file:
++                cert_file.write(certificate)
++
++            filename_private_key = "{0}.key".format(filename_base)
++            with open(filename_private_key, 'w') as key_file:
++                key_file.write(private_key)
++
++            if intermediates:
++                filename_intermediates = "{0}.int".format(filename_base)
++                with open(filename_intermediates, 'w') as int_file:
++                    int_file.write(intermediates)
++
++            if private_key_passphrase:
++                filename_pkp = "{0}.pass".format(filename_base)
++                with open(filename_pkp, 'w') as pass_file:
++                    pass_file.write(private_key_passphrase)
++        except IOError as ioe:
++            LOG.error("Failed to store certificate.")
++            raise exceptions.CertificateStorageException(message=ioe.message)
++
++        return cert_ref
++
++    def get_cert(self, project_id, cert_ref, resource_ref, **kwargs):
++        """Retrieves the specified cert.
++
++        :param project_id: Project ID for the owner of the certificate
++        :param cert_ref: the UUID of the cert to retrieve
++        :param resource_ref: Full HATEOAS reference to the consuming resource
++
++        :returns: neutron_lbaas.common.cert_manager.cert_manager.Cert
++                 representation of the certificate data
++        :raises CertificateStorageException: if certificate retrieval fails
++        """
++        LOG.info((
++            "Loading certificate {0} from the local filesystem."
++        ).format(cert_ref))
++
++        filename_base = os.path.join(CONF.certificates.storage_path, cert_ref)
++
++        filename_certificate = "{0}.crt".format(filename_base)
++        filename_private_key = "{0}.key".format(filename_base)
++        filename_intermediates = "{0}.int".format(filename_base)
++        filename_pkp = "{0}.pass".format(filename_base)
++
++        cert_data = dict()
++
++        try:
++            with open(filename_certificate, 'r') as cert_file:
++                cert_data['certificate'] = cert_file.read()
++        except IOError:
++            LOG.error((
++                "Failed to read certificate for {0}."
++            ).format(cert_ref))
++            raise exceptions.CertificateStorageException(
++                msg="Certificate could not be read."
++            )
++        try:
++            with open(filename_private_key, 'r') as key_file:
++                cert_data['private_key'] = key_file.read()
++        except IOError:
++            LOG.error((
++                "Failed to read private key for {0}."
++            ).format(cert_ref))
++            raise exceptions.CertificateStorageException(
++                msg="Private Key could not be read."
++            )
++
++        try:
++            with open(filename_intermediates, 'r') as int_file:
++                cert_data['intermediates'] = int_file.read()
++        except IOError:
++            pass
++
++        try:
++            with open(filename_pkp, 'r') as pass_file:
++                cert_data['private_key_passphrase'] = pass_file.read()
++        except IOError:
++            pass
++
++        return Cert(**cert_data)
++
++    def delete_cert(self, project_id, cert_ref, resource_ref, **kwargs):
++        """Deletes the specified cert.
++
++        :param project_id: Project ID for the owner of the certificate
++        :param cert_ref: the UUID of the cert to delete
++        :param resource_ref: Full HATEOAS reference to the consuming resource
++
++        :raises CertificateStorageException: if certificate deletion fails
++        """
++        LOG.info((
++            "Deleting certificate {0} from the local filesystem."
++        ).format(cert_ref))
++
++        filename_base = os.path.join(CONF.certificates.storage_path, cert_ref)
++
++        filename_certificate = "{0}.crt".format(filename_base)
++        filename_private_key = "{0}.key".format(filename_base)
++        filename_intermediates = "{0}.int".format(filename_base)
++        filename_pkp = "{0}.pass".format(filename_base)
++
++        try:
++            os.remove(filename_certificate)
++            os.remove(filename_private_key)
++            os.remove(filename_intermediates)
++            os.remove(filename_pkp)
++        except IOError as ioe:
++            LOG.error((
++                "Failed to delete certificate {0}."
++            ).format(cert_ref))
++            raise exceptions.CertificateStorageException(message=ioe.message)
+diff --git a/neutron/certificates/exceptions.py b/neutron/certificates/exceptions.py
+new file mode 100644
+index 000000000..c919f7373
+--- /dev/null
++++ b/neutron/certificates/exceptions.py
+@@ -0,0 +1,37 @@
++# Copyright 2013 OpenStack Foundation.  All rights reserved
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++from neutron.common import exceptions
++
++
++class TLSException(exceptions.NeutronException):
++    pass
++
++
++class NeedsPassphrase(TLSException):
++    message = _("Passphrase needed to decrypt key but client "
++                "did not provide one.")
++
++
++class UnreadableCert(TLSException):
++    message = _("Could not read X509 from PEM")
++
++
++class MisMatchedKey(TLSException):
++    message = _("Key and x509 certificate do not match")
++
++
++class CertificateStorageException(TLSException):
++    message = _('Could not store certificate: %(msg)s')
+diff --git a/neutron/certificates/keystone.py b/neutron/certificates/keystone.py
+new file mode 100644
+index 000000000..7afe91eeb
+--- /dev/null
++++ b/neutron/certificates/keystone.py
+@@ -0,0 +1,122 @@
++#    Copyright 2015 Rackspace
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from keystoneclient.auth.identity import v2 as v2_client
++from keystoneclient.auth.identity import v3 as v3_client
++from keystoneclient import session
++from oslo.config import cfg
++from oslo.utils import excutils
++
++from neutron.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++_SESSION = None
++OPTS = [
++    cfg.StrOpt(
++        'auth_url',
++        help=_('Authentication endpoint'),
++    ),
++    cfg.StrOpt(
++        'admin_user',
++        default='admin',
++        help=_('The service admin user name'),
++    ),
++    cfg.StrOpt(
++        'admin_tenant_name',
++        default='admin',
++        help=_('The service admin tenant name'),
++    ),
++    cfg.StrOpt(
++        'admin_password',
++        secret=True,
++        default='password',
++        help=_('The service admin password'),
++    ),
++    cfg.StrOpt(
++        'admin_user_domain',
++        default='admin',
++        help=_('The admin user domain name'),
++    ),
++    cfg.StrOpt(
++        'admin_project_domain',
++        default='admin',
++        help=_('The admin project domain name'),
++    ),
++    cfg.StrOpt(
++        'region',
++        default='RegionOne',
++        help=_('The deployment region'),
++    ),
++    cfg.StrOpt(
++        'service_name',
++        default='lbaas',
++        help=_('The name of the service'),
++    ),
++    cfg.StrOpt(
++        'auth_version',
++        default='3',
++        help=_('The auth version used to authenticate'),
++    ),
++    cfg.StrOpt(
++        'endpoint_type',
++        default='public',
++        help=_('The endpoint_type to be used')
++    ),
++    cfg.BoolOpt(
++        'insecure',
++        default=False,
++        help=_('Disable server certificate verification')
++    )
++]
++
++cfg.CONF.register_opts(OPTS, 'service_auth')
++
++
++def get_session():
++    """Initializes a Keystone session.
++
++    :returns: a Keystone Session object
++    :raises Exception: if the session cannot be established
++    """
++    global _SESSION
++    if not _SESSION:
++
++        auth_url = cfg.CONF.service_auth.auth_url
++        insecure = cfg.CONF.service_auth.insecure
++        kwargs = {'auth_url': auth_url,
++                  'username': cfg.CONF.service_auth.admin_user,
++                  'password': cfg.CONF.service_auth.admin_password}
++
++        if cfg.CONF.service_auth.auth_version == '2':
++            client = v2_client
++            kwargs['tenant_name'] = cfg.CONF.service_auth.admin_tenant_name
++        elif cfg.CONF.service_auth.auth_version == '3':
++            client = v3_client
++            kwargs['project_name'] = cfg.CONF.service_auth.admin_tenant_name
++            kwargs['user_domain_name'] = (cfg.CONF.service_auth.
++                                          admin_user_domain)
++            kwargs['project_domain_name'] = (cfg.CONF.service_auth.
++                                             admin_project_domain)
++        else:
++            raise Exception(_('Unknown keystone version!'))
++
++        try:
++            kc = client.Password(**kwargs)
++            _SESSION = session.Session(auth=kc, verify=not insecure)
++        except Exception:
++            with excutils.save_and_reraise_exception():
++                LOG.exception("Error creating Keystone session.")
++
++    return _SESSION
+diff --git a/neutron/certificates/tls_utils/__init__.py b/neutron/certificates/tls_utils/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/certificates/tls_utils/cert_parser.py b/neutron/certificates/tls_utils/cert_parser.py
+new file mode 100644
+index 000000000..6c0b2d0ae
+--- /dev/null
++++ b/neutron/certificates/tls_utils/cert_parser.py
+@@ -0,0 +1,177 @@
++#
++# Copyright 2014 OpenStack Foundation.  All rights reserved
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import six
++
++from cryptography.hazmat import backends
++from cryptography.hazmat.primitives import serialization
++from cryptography import x509
++
++from neutron.openstack.common import log as logging
++import neutron.certificates.exceptions as exceptions
++
++X509_BEG = "-----BEGIN CERTIFICATE-----"
++X509_END = "-----END CERTIFICATE-----"
++
++LOG = logging.getLogger(__name__)
++
++
++def validate_cert(certificate, private_key=None,
++                  private_key_passphrase=None, intermediates=None):
++    """
++    Validate that the certificate is a valid PEM encoded X509 object
++
++    Optionally verify that the private key matches the certificate.
++    Optionally verify that the intermediates are valid X509 objects.
++
++    :param certificate: A PEM encoded certificate
++    :param private_key: The private key for the certificate
++    :param private_key_passphrase: Passphrase for accessing the private key
++    :param intermediates: PEM encoded intermediate certificates
++    :returns: boolean
++    """
++
++    cert = _get_x509_from_pem_bytes(certificate)
++    if intermediates:
++        for x509Pem in _split_x509s(intermediates):
++            _get_x509_from_pem_bytes(x509Pem)
++    if private_key:
++        pkey = _read_privatekey(private_key, passphrase=private_key_passphrase)
++        pknum = pkey.public_key().public_numbers()
++        certnum = cert.public_key().public_numbers()
++        if pknum != certnum:
++            raise exceptions.MisMatchedKey
++    return True
++
++
++def _read_privatekey(privatekey_pem, passphrase=None):
++    if passphrase is not None:
++        passphrase = passphrase.encode('utf-8')
++    privatekey_pem = privatekey_pem.encode('ascii')
++
++    try:
++        return serialization.load_pem_private_key(privatekey_pem, passphrase,
++                                                  backends.default_backend())
++    except Exception:
++        raise exceptions.NeedsPassphrase
++
++
++def _split_x509s(x509Str):
++    """
++    Split the input string into individb(ual x509 text blocks
++
++    :param x509Str: A large multi x509 certificate blcok
++    :returns: A list of strings where each string represents an
++    X509 pem block surrounded by BEGIN CERTIFICATE,
++    END CERTIFICATE block tags
++    """
++    curr_pem_block = []
++    inside_x509 = False
++    for line in x509Str.replace("\r", "").split("\n"):
++        if inside_x509:
++            curr_pem_block.append(line)
++            if line == X509_END:
++                yield "\n".join(curr_pem_block)
++                curr_pem_block = []
++                inside_x509 = False
++            continue
++        else:
++            if line == X509_BEG:
++                curr_pem_block.append(line)
++                inside_x509 = True
++
++
++def _read_pyca_private_key(private_key, private_key_passphrase=None):
++    kw = {"password": None,
++          "backend": backends.default_backend()}
++    if private_key_passphrase is not None:
++        kw["password"] = private_key_passphrase.encode("utf-8")
++    else:
++        kw["password"] = None
++
++    if type(private_key) == six.text_type:
++        private_key = private_key.encode('utf-8')
++    try:
++        pk = serialization.load_pem_private_key(private_key, **kw)
++        return pk
++    except TypeError as ex:
++        if len(ex.args) > 0 and ex.args[0].startswith("Password"):
++            raise exceptions.NeedsPassphrase
++
++
++def dump_private_key(private_key, private_key_passphrase=None):
++    """
++    Parses encrypted key to provide an unencrypted version in PKCS8
++
++    :param private_key: private key
++    :param private_key_passphrase: private key passphrase
++    :returns: Unencrypted private key in PKCS8
++    """
++
++    # re encode the key as unencrypted PKCS8
++    pk = _read_pyca_private_key(private_key,
++                                private_key_passphrase=private_key_passphrase)
++    key = pk.private_bytes(encoding=serialization.Encoding.PEM,
++                           format=serialization.PrivateFormat.PKCS8,
++                           encryption_algorithm=serialization.NoEncryption())
++    return key
++
++
++def get_host_names(certificate):
++    """Extract the host names from the Pem encoded X509 certificate
++
++    :param certificate: A PEM encoded certificate
++    :returns: A dictionary containing the following keys:
++    ['cn', 'dns_names']
++    where 'cn' is the CN from the SubjectName of the certificate, and
++    'dns_names' is a list of dNSNames (possibly empty) from
++    the SubjectAltNames of the certificate.
++    """
++    try:
++        cert = _get_x509_from_pem_bytes(certificate)
++        cn = cert.subject.get_attributes_for_oid(x509.OID_COMMON_NAME)[0]
++        host_names = {
++            'cn': cn.value.lower(),
++            'dns_names': []
++        }
++        try:
++            ext = cert.extensions.get_extension_for_oid(
++                x509.OID_SUBJECT_ALTERNATIVE_NAME
++            )
++            host_names['dns_names'] = ext.value.get_values_for_type(
++                x509.DNSName)
++        except x509.ExtensionNotFound:
++            LOG.debug("%s extension not found",
++                      x509.OID_SUBJECT_ALTERNATIVE_NAME)
++
++        return host_names
++    except Exception:
++        LOG.exception("Unreadable certificate.")
++        raise exceptions.UnreadableCert
++
++
++def _get_x509_from_pem_bytes(certificate_pem):
++    """
++    Parse X509 data from a PEM encoded certificate
++
++    :param certificate_pem: Certificate in PEM format
++    :returns: crypto high-level x509 data from the PEM string
++    """
++    try:
++        x509cert = x509.load_pem_x509_certificate(certificate_pem,
++                                                  backends.default_backend())
++    except Exception:
++        raise exceptions.UnreadableCert
++    return x509cert
+diff --git a/setup.cfg b/setup.cfg
+index 9cc699546..e6431b35a 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -186,6 +186,11 @@ neutron.ml2.extension_drivers =
+ 	test = neutron.tests.unit.ml2.test_extension_driver_api:TestExtensionDriver
+ neutron.openstack.common.cache.backends = 
+ 	memory = neutron.openstack.common.cache._backends.memory:MemoryBackend
++neutron.cert_manager.barbican_auth =
++	barbican_acl_auth = neutron.certificates.cert_manager.barbican_auth.barbican_acl:BarbicanACLAuth
++neutron.cert_manager.backend =
++	barbican = neutron.certificates.cert_manager.barbican_cert_manager
++	local = neutron.certificates.cert_manager.local_cert_manager
+ oslo.messaging.notify.drivers = 
+ 	neutron.openstack.common.notifier.log_notifier = oslo.messaging.notify._impl_log:LogDriver
+ 	neutron.openstack.common.notifier.no_op_notifier = oslo.messaging.notify._impl_noop:NoOpDriver
+-- 
+2.11.0 (Apple Git-81)
+
