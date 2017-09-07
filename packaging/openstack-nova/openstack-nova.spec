@@ -8,7 +8,7 @@
 
 Name:             openstack-nova
 Version:          2014.2
-Release:          7.3%{?dist_eayunstack}
+Release:          7.4%{?dist_eayunstack}
 Summary:          OpenStack Compute (nova)
 
 Group:            Applications/System
@@ -88,6 +88,7 @@ Patch0040: 0040-Libvirt-register-config-opt-es_paas_network.patch
 Patch0041: 0041-Handle-exception-when-doing-detach_interface.patch
 Patch0042: 0042-Log-exception-from-deallocate_port_for_instance-for-.patch
 Patch0043: 0043-Refresh-instance-info-cache-within-lock.patch
+Patch0044: 0044-get-instance-object-from-compute-api.patch
 
 
 BuildArch:        noarch
@@ -534,6 +535,7 @@ This package contains documentation files for nova.
 %patch0041 -p1
 %patch0042 -p1
 %patch0043 -p1
+%patch0044 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -891,6 +893,9 @@ exit 0
 %endif
 
 %changelog
+* Thu Sep 7 2017 blkart <blkart.org@gmail.com> - 2014.2-7.4.eayunstack
+- 0044-get-instance-object-from-compute-api.patch
+
 * Fri Aug 25 2017 blkart <blkart.org@gmail.com> - 2014.2-7.3.eayunstack
 - 0041-Handle-exception-when-doing-detach_interface.patch
 - 0042-Log-exception-from-deallocate_port_for_instance-for-.patch
