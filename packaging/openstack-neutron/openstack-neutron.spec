@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	37%{?dist_eayunstack}
+Release:	38%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -1044,6 +1044,7 @@ exit 0
 %{_datarootdir}/neutron/rootwrap/iptables-firewall.filters
 %{_datarootdir}/neutron/rootwrap/l3.filters
 %{_datarootdir}/neutron/rootwrap/lbaas-haproxy.filters
+%{_datarootdir}/neutron/rootwrap/metering.filters
 %{_datarootdir}/neutron/rootwrap/qos.filters
 
 
@@ -1237,6 +1238,9 @@ exit 0
 
 
 %changelog
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-38.eayunstack.dev
+- update patch 0127 from github pull request #122 (redmine#10878)
+
 * Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-37.eayunstack.dev
 - add patch 0125 from github pull request #118 (redmine#10809)
 - add patch 0126 from github pull request #119 (redmine#10813)
