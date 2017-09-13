@@ -1,4 +1,4 @@
-From 39ff80efe84ebbf202be83184864bf4f4075abc0 Mon Sep 17 00:00:00 2001
+From 4625b61f7bd5e2a8b15f4071c8223acdc505f1fd Mon Sep 17 00:00:00 2001
 From: Hunt Xu <mhuntxu@gmail.com>
 Date: Thu, 7 Sep 2017 15:41:13 +0800
 Subject: [PATCH] Metering: use nfacct to get metering counters
@@ -15,10 +15,10 @@ Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
 ---
  etc/neutron/rootwrap.d/metering.filters            |  12 ++
  neutron/agent/linux/nfacct.py                      | 122 +++++++++++++++++++++
- .../drivers/iptables/es_iptables_driver.py         |  30 ++---
- .../metering/drivers/iptables/iptables_driver.py   |  95 +++++++---------
+ .../drivers/iptables/es_iptables_driver.py         |  34 +++---
+ .../metering/drivers/iptables/iptables_driver.py   |  99 +++++++----------
  setup.cfg                                          |   1 +
- 5 files changed, 186 insertions(+), 74 deletions(-)
+ 5 files changed, 190 insertions(+), 78 deletions(-)
  create mode 100644 etc/neutron/rootwrap.d/metering.filters
  create mode 100644 neutron/agent/linux/nfacct.py
 
@@ -169,7 +169,7 @@ index 000000000..2595f7724
 +        super(NfacctIptablesManager, self).apply()
 +        self.nfacct_flush()
 diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
-index 9c2040053..1d21104e2 100644
+index 9c2040053..9d5c0fa34 100644
 --- a/neutron/services/metering/drivers/iptables/es_iptables_driver.py
 +++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
 @@ -16,6 +16,7 @@
@@ -180,6 +180,17 @@ index 9c2040053..1d21104e2 100644
  from neutron.common import constants as constants
  from neutron.common import log
  from neutron.openstack.common import log as logging
+@@ -46,8 +47,8 @@ class EsRouterWithMetering(iptables_driver.RouterWithMetering):
+             iptables_driver.EXTERNAL_DEV_PREFIX, ES_METERING_MARK)
+         im.ipv4['mangle'].add_rule('PREROUTING', mark_rule)
+ 
+-    def iter_metering_labels(self):
+-        return self.metering_labels.items() + self.es_metering_labels.items()
++    def get_metering_labels(self):
++        return self.metering_labels.keys() + self.es_metering_labels.keys()
+ 
+ 
+ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
 @@ -104,7 +105,7 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
                  self._process_associate_es_metering_label(router)
  
@@ -239,7 +250,7 @@ index 9c2040053..1d21104e2 100644
      def _process_associate_es_metering_label(self, router):
          self._update_router(router)
 diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
-index 1610bbe71..98934bcea 100644
+index 1610bbe71..963c16c31 100644
 --- a/neutron/services/metering/drivers/iptables/iptables_driver.py
 +++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
 @@ -15,9 +15,12 @@
@@ -273,6 +284,17 @@ index 1610bbe71..98934bcea 100644
              root_helper=self.root_helper,
              namespace=self.ns_name,
              binary_name=WRAP_NAME,
+@@ -79,8 +81,8 @@ class RouterWithMetering(object):
+             use_ipv6=ipv6_utils.is_enabled())
+         self.metering_labels = {}
+ 
+-    def iter_metering_labels(self):
+-        return self.metering_labels.items()
++    def get_metering_labels(self):
++        return self.metering_labels.keys()
+ 
+ 
+ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 @@ -133,8 +135,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
          if router_id in self.routers:
              del self.routers[router_id]
@@ -368,7 +390,7 @@ index 1610bbe71..98934bcea 100644
 +        if not rm:
 +            return (True, router_id, {})
 +
-+        label_ids = rm.metering_labels.keys()
++        label_ids = rm.get_metering_labels()
 +        accs = rm.iptables_manager.get_result(label_ids)
 +        if accs is None:
 +            return (False, router_id, {})

@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	38%{?dist_eayunstack}
+Release:	39%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -1238,6 +1238,9 @@ exit 0
 
 
 %changelog
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-39.eayunstack.dev
+- update patch 0127 from github pull request #123 (redmine#10878)
+
 * Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-38.eayunstack.dev
 - update patch 0127 from github pull request #122 (redmine#10878)
 
