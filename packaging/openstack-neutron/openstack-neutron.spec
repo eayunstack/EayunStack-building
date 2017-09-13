@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	36%{?dist_eayunstack}
+Release:	37%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -167,6 +167,9 @@ Patch0121: 0121-Switch-to-use-classmethod-in-eayun-notifier.patch
 Patch0122: 0122-Porting-neutron-lbaas-certificates-manager-to-neutro.patch
 Patch0123: 0123-Add-query-and-fragment-valid-to-url_path.patch
 Patch0124: 0124-agent_sync-filter-out-not-ready-fip-port-targets.patch
+Patch0125: 0125-PPTP-allow-the-same-username-used-by-different-tenan.patch
+Patch0126: 0126-PPTP-fix-vpnservices-checking-for-PPTP-credentials.patch
+Patch0127: 0127-Metering-use-nfacct-to-get-metering-counters.patch
 
 
 BuildArch:	noarch
@@ -607,6 +610,7 @@ Summary:	Neutron bandwidth metering agent
 Group:		Applications/System
 
 Requires:	openstack-neutron = %{version}-%{release}
+Requires:	nfacct >= 1.0.2
 
 %description metering-agent
 Neutron provides an API to measure bandwidth utilization
@@ -769,6 +773,9 @@ IPSec.
 %patch0122 -p1
 %patch0123 -p1
 %patch0124 -p1
+%patch0125 -p1
+%patch0126 -p1
+%patch0127 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1230,6 +1237,11 @@ exit 0
 
 
 %changelog
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-37.eayunstack.dev
+- add patch 0125 from github pull request #118 (redmine#10809)
+- add patch 0126 from github pull request #119 (redmine#10813)
+- add patch 0127 from github pull request #120 (redmine#10878)
+
 * Tue Sep 05 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-36.eayunstack.dev
 - add patch 0122 from github pull request #108 (redmine#10330)
 - add patch 0123 from github pull request #111 (redmine#10435)
