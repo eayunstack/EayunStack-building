@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	39%{?dist_eayunstack}
+Release:	40%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -170,6 +170,8 @@ Patch0124: 0124-agent_sync-filter-out-not-ready-fip-port-targets.patch
 Patch0125: 0125-PPTP-allow-the-same-username-used-by-different-tenan.patch
 Patch0126: 0126-PPTP-fix-vpnservices-checking-for-PPTP-credentials.patch
 Patch0127: 0127-Metering-use-nfacct-to-get-metering-counters.patch
+Patch0128: 0128-metering-get-all-metering-label-at-once-on-a-host.patch
+Patch0129: 0129-metering-parallelize-workloads-in-iptables-drivers.patch
 
 
 BuildArch:	noarch
@@ -776,6 +778,8 @@ IPSec.
 %patch0125 -p1
 %patch0126 -p1
 %patch0127 -p1
+%patch0128 -p1
+%patch0129 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1238,6 +1242,10 @@ exit 0
 
 
 %changelog
+* Thu Sep 14 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-40.eayunstack.dev
+- add patch 0128 from github pull request #127, #124(1), #128 (redmine#10957)
+- add patch 0129 from github pull request #124(2) (redmine#10956)
+
 * Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-39.eayunstack.dev
 - update patch 0127 from github pull request #123 (redmine#10878)
 
