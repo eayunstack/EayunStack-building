@@ -1,0 +1,32 @@
+From 92b5e9ab3781991d840813df528a41ba0e057c78 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 29 Jun 2017 13:01:28 +0800
+Subject: [PATCH 105/112] Sync #109 from devel to testing
+
+Fix exception error when l7rule delete
+
+Fixes: redmine #10380
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+(cherry picked from commit c9dc08807c7dd61fb9e6e3a143648307ab9cc851)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/loadbalancer_l7.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index 92f5a77fa..3b258b821 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -46,7 +46,7 @@ class L7ruleNotFound(qexception.NotFound):
+     message = _("L7rule %(l7rule_id)s could not be found")
+ 
+ 
+-class L7ruleInUse(qexception.NotFound):
++class L7ruleInUse(qexception.InUse):
+     message = _("L7rule %(l7rule_id)s still in use")
+ 
+ 
+-- 
+2.11.0 (Apple Git-81)
+
