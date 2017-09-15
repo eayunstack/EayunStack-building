@@ -1,0 +1,36 @@
+From b6b11f33a1bf8210de0b5b5956a3d14743cf8ef4 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 31 Aug 2017 13:28:05 +0800
+Subject: [PATCH 107/112] Sync #117 from devel to testing
+
+agent_sync: filter out not-ready fip port targets
+
+When a FIP is not associated with a fixed IP, its port is not configured
+on the hosts, and its router_id is None. So no QoS should be applied on
+the target port.
+
+Fixes: redmine #10738
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit 6dd7c12cff5d7879aa6aa75aa95d2ec83c373bb4)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/qos/qos_db.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/neutron/db/qos/qos_db.py b/neutron/db/qos/qos_db.py
+index b3a465ccb..f3eadfcb7 100644
+--- a/neutron/db/qos/qos_db.py
++++ b/neutron/db/qos/qos_db.py
+@@ -827,6 +827,8 @@ class QosPluginRpcDbMixin(object):
+                             context, qos.port.device_id)
+                     except ext_l3.FloatingIPNotFound:
+                         continue
++                    if fip['router_id'] is None:
++                        continue
+                     namespace = 'qrouter-' + fip['router_id']
+                 else:
+                     namespace = '_root'
+-- 
+2.11.0 (Apple Git-81)
+

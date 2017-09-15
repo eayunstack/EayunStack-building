@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.9%{?dist_eayunstack}
+Release:	18.10%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -144,6 +144,18 @@ Patch0098: 0098-Sync-93-from-devel-to-testing.patch
 Patch0099: 0099-Sync-94-from-devel-to-testing.patch
 Patch0100: 0100-Sync-96-from-devel-to-testing.patch
 Patch0101: 0101-Sync-99-from-devel-to-testing.patch
+Patch0102: 0102-loadbalancer-fix-filter-condition-when-getting-vip-p.patch
+Patch0103: 0103-Sync-105-from-devel-to-testing.patch
+Patch0104: 0104-Sync-107-from-devel-to-testing.patch
+Patch0105: 0105-Sync-109-from-devel-to-testing.patch
+Patch0106: 0106-Sync-113-from-devel-to-testing.patch
+Patch0107: 0107-Sync-117-from-devel-to-testing.patch
+Patch0108: 0108-Sync-118-from-devel-to-testing.patch
+Patch0109: 0109-Sync-119-from-devel-to-testing.patch
+Patch0110: 0110-Sync-120-122-123-from-devel-to-testing.patch
+Patch0111: 0111-Sync-127-124-1-128-from-devel-to-testing.patch
+Patch0112: 0112-Sync-124-2-from-devel-to-testing.patch
+
 
 BuildArch:	noarch
 
@@ -583,6 +595,7 @@ Summary:	Neutron bandwidth metering agent
 Group:		Applications/System
 
 Requires:	openstack-neutron = %{version}-%{release}
+Requires:	nfacct >= 1.0.2
 
 %description metering-agent
 Neutron provides an API to measure bandwidth utilization
@@ -722,6 +735,17 @@ IPSec.
 %patch0099 -p1
 %patch0100 -p1
 %patch0101 -p1
+%patch0102 -p1
+%patch0103 -p1
+%patch0104 -p1
+%patch0105 -p1
+%patch0106 -p1
+%patch0107 -p1
+%patch0108 -p1
+%patch0109 -p1
+%patch0110 -p1
+%patch0111 -p1
+%patch0112 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -990,6 +1014,7 @@ exit 0
 %{_datarootdir}/neutron/rootwrap/iptables-firewall.filters
 %{_datarootdir}/neutron/rootwrap/l3.filters
 %{_datarootdir}/neutron/rootwrap/lbaas-haproxy.filters
+%{_datarootdir}/neutron/rootwrap/metering.filters
 %{_datarootdir}/neutron/rootwrap/qos.filters
 
 
@@ -1183,6 +1208,19 @@ exit 0
 
 
 %changelog
+* Fri Sep 15 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.10.eayunstack
+- add patch 0102 from github pull request #121 (redmine#10882)
+- add patch 0103 from github pull request #105 (redmine#10261)
+- add patch 0104 from github pull request #107 (redmine#10312)
+- add patch 0105 from github pull request #109 (redmine#10380)
+- add patch 0106 from github pull request #113 (redmine#10558)
+- add patch 0107 from neutron-qos github pull request #26 (redmine#10738)
+- add patch 0108 from github pull request #118 (redmine#10809)
+- add patch 0109 from github pull request #119 (redmine#10813)
+- add patch 0110 from github pull request #120, #122, #123 (redmine#10878)
+- add patch 0111 from github pull request #127, #124(1), #128 (redmine#10957)
+- add patch 0112 from github pull request #124(2) (redmine#10956)
+
 * Mon Jun 19 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.9.eayunstack
 - add patch 0070 from github pull request #15 (redmine#8832)
 - add patch 0071 from github pull request #20

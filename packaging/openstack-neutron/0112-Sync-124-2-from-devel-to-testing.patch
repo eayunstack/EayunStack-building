@@ -1,0 +1,258 @@
+From 8bf54ebf02c342400836de1050556dff75a6b73b Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 14 Sep 2017 09:49:22 +0800
+Subject: [PATCH 112/112] Sync #124(2) from devel to testing
+
+metering: parallelize workloads in *iptables drivers
+
+Fixes: redmine #10956
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit a6045ae7bd489b8a171176e4001c8272f167ed08)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/nfacct.py                      |  8 ++-
+ neutron/services/metering/agents/metering_agent.py |  9 +++-
+ .../drivers/iptables/es_iptables_driver.py         | 58 +++++++++++++---------
+ .../metering/drivers/iptables/iptables_driver.py   | 49 +++++++++++-------
+ 4 files changed, 80 insertions(+), 44 deletions(-)
+
+diff --git a/neutron/agent/linux/nfacct.py b/neutron/agent/linux/nfacct.py
+index 2595f7724..786fc1272 100644
+--- a/neutron/agent/linux/nfacct.py
++++ b/neutron/agent/linux/nfacct.py
+@@ -119,4 +119,10 @@ class NfacctIptablesManager(iptables_manager.IptablesManager,
+         self.add_nfacct_objects(self.nfacct_objects)
+         self.nfacct_objects = set()
+         super(NfacctIptablesManager, self).apply()
+-        self.nfacct_flush()
++        # Hack for kernel doesn't support nfacct per net namespace.
++        # We cannot flush nfacct now because iptables-save processes
++        # in other net namespaces may not finish yet. Flushing now would
++        # delete all newly added nfacct objects and make iptables-save in
++        # other net namespaces fail.
++        # The following line is keep here for reference.
++        # self.nfacct_flush()
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 270ec781a..5044d4861 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -21,6 +21,7 @@ eventlet.monkey_patch()
+ from oslo.config import cfg
+ 
+ from neutron.agent.common import config
++from neutron.agent.linux.nfacct import NfacctIptablesManager
+ from neutron.agent import rpc as agent_rpc
+ from neutron.common import config as common_config
+ from neutron.common import constants as constants
+@@ -88,6 +89,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+         self.label_tenant_id = {}
+         self.routers = {}
+         self.metering_infos = {}
++        # Hack for kernel doesn't support nfacct per net namespace
++        self.dummy_iptables_manager = \
++            self.metering_driver.dummy_iptables_manager
+         super(MeteringAgent, self).__init__(host=host)
+ 
+     def _load_drivers(self):
+@@ -173,7 +177,10 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+     @utils.synchronized('metering-agent')
+     def _invoke_driver(self, context, meterings, func_name):
+         try:
+-            return getattr(self.metering_driver, func_name)(context, meterings)
++            ret = getattr(self.metering_driver, func_name)(context, meterings)
++            # Hack for kernel doesn't support nfacct per net namespace
++            self.dummy_iptables_manager.nfacct_flush()
++            return ret
+         except AttributeError:
+             LOG.exception(_("Driver %(driver)s does not implement %(func)s"),
+                           {'driver': self.conf.driver,
+diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+index 9d5c0fa34..116452814 100644
+--- a/neutron/services/metering/drivers/iptables/es_iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+@@ -15,6 +15,8 @@
+ 
+ import six
+ 
++import eventlet
++
+ from neutron.agent.linux import iptables_manager
+ from neutron.agent.linux.nfacct import NfacctMixin
+ from neutron.common import constants as constants
+@@ -67,6 +69,28 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+         self.routers[r.id] = r
+         return r
+ 
++    def _green_update_es_router(self, router):
++        old_rm = self.routers.get(router['id'])
++        if old_rm:
++            old_es_metering_labels = set(old_rm.es_metering_labels.keys())
++            persist_labels = set()
++            with iptables_driver.IptablesManagerTransaction(
++                old_rm.iptables_manager
++            ):
++                labels = router.get(constants.ES_METERING_LABEL_KEY, [])
++                for label in labels:
++                    label_id = label['id']
++                    if label_id in old_es_metering_labels:
++                        persist_labels.add(label_id)
++                    else:
++                        self._add_es_metering_label(old_rm, label)
++
++                for label_id in old_es_metering_labels - persist_labels:
++                    self._remove_es_metering_label(old_rm, label_id)
++
++        else:
++            self._process_associate_es_metering_label(router)
++
+     @log.log
+     def update_routers(self, context, routers):
+         """Deal with the EayunStack metering extension."""
+@@ -79,30 +103,14 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+         router_ids = set(router['id'] for router in routers)
+         for router_id, rm in six.iteritems(self.routers):
+             if router_id not in router_ids:
+-                self._process_disassociate_es_metering_label(rm.router)
++                self.green_pool.spawn_n(
++                    self._process_disassociate_es_metering_label, rm.router)
++        self.green_pool.waitall()
+ 
+         # Added or updated routers
+         for router in routers:
+-            old_rm = self.routers.get(router['id'])
+-            if old_rm:
+-                old_es_metering_labels = set(old_rm.es_metering_labels.keys())
+-                persist_labels = set()
+-                with iptables_driver.IptablesManagerTransaction(
+-                    old_rm.iptables_manager
+-                ):
+-                    labels = router.get(constants.ES_METERING_LABEL_KEY, [])
+-                    for label in labels:
+-                        label_id = label['id']
+-                        if label_id in old_es_metering_labels:
+-                            persist_labels.add(label_id)
+-                        else:
+-                            self._add_es_metering_label(old_rm, label)
+-
+-                    for label_id in old_es_metering_labels - persist_labels:
+-                        self._remove_es_metering_label(old_rm, label_id)
+-
+-            else:
+-                self._process_associate_es_metering_label(router)
++            self.green_pool.spawn_n(self._green_update_es_router, router)
++        self.green_pool.waitall()
+ 
+     @staticmethod
+     def _get_es_meter_rule(label):
+@@ -169,9 +177,13 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+     @log.log
+     def add_es_metering_label(self, _context, routers):
+         for router in routers:
+-            self._process_associate_es_metering_label(router)
++            self.green_pool.spawn_n(
++                self._process_associate_es_metering_label, router)
++        self.green_pool.waitall()
+ 
+     @log.log
+     def remove_es_metering_label(self, _context, routers):
+         for router in routers:
+-            self._process_disassociate_es_metering_label(router)
++            self.green_pool.spawn_n(
++                self._process_disassociate_es_metering_label, router)
++        self.green_pool.waitall()
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index ec73e6f42..fc7da34cd 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -99,6 +99,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                                                 self.conf)
+         self.dummy_iptables_manager = NfacctIptablesManager(
+             root_helper=plugin.root_helper)
++        self.green_pool = eventlet.greenpool.GreenPool()
+ 
+     def _update_router(self, router):
+         r = self.routers.get(router['id'],
+@@ -108,29 +109,34 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+ 
+         return r
+ 
++    def _green_update_router(self, router):
++        old_gw_port_id = None
++        old_rm = self.routers.get(router['id'])
++        if old_rm:
++            old_gw_port_id = old_rm.router['gw_port_id']
++        gw_port_id = router['gw_port_id']
++
++        if gw_port_id != old_gw_port_id:
++            if old_rm:
++                with IptablesManagerTransaction(old_rm.iptables_manager):
++                    self._process_disassociate_metering_label(router)
++                    if gw_port_id:
++                        self._process_associate_metering_label(router)
++            elif gw_port_id:
++                self._process_associate_metering_label(router)
++
+     @log.log
+     def update_routers(self, context, routers):
+         # disassociate removed routers
+         router_ids = set(router['id'] for router in routers)
+         for router_id, rm in six.iteritems(self.routers):
+             if router_id not in router_ids:
+-                self._process_disassociate_metering_label(rm.router)
+-
++                self.green_pool.spawn_n(
++                    self._process_disassociate_metering_label, rm.router)
++        self.green_pool.waitall()
+         for router in routers:
+-            old_gw_port_id = None
+-            old_rm = self.routers.get(router['id'])
+-            if old_rm:
+-                old_gw_port_id = old_rm.router['gw_port_id']
+-            gw_port_id = router['gw_port_id']
+-
+-            if gw_port_id != old_gw_port_id:
+-                if old_rm:
+-                    with IptablesManagerTransaction(old_rm.iptables_manager):
+-                        self._process_disassociate_metering_label(router)
+-                        if gw_port_id:
+-                            self._process_associate_metering_label(router)
+-                elif gw_port_id:
+-                    self._process_associate_metering_label(router)
++            self.green_pool.spawn_n(self._green_update_router, router)
++        self.green_pool.waitall()
+ 
+     @log.log
+     def remove_router(self, context, router_id):
+@@ -212,12 +218,15 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+     @log.log
+     def add_metering_label(self, context, routers):
+         for router in routers:
+-            self._process_associate_metering_label(router)
++            self.green_pool.spawn_n(
++                self._process_associate_metering_label, router)
++        self.green_pool.waitall()
+ 
+     @log.log
+     def update_metering_label_rules(self, context, routers):
+         for router in routers:
+-            self._update_metering_label_rules(router)
++            self.green_pool.spawn_n(self._update_metering_label_rules, router)
++        self.green_pool.waitall()
+ 
+     def _update_metering_label_rules(self, router):
+         rm = self.routers.get(router['id'])
+@@ -244,7 +253,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+     @log.log
+     def remove_metering_label(self, context, routers):
+         for router in routers:
+-            self._process_disassociate_metering_label(router)
++            self.green_pool.spawn_n(
++                self._process_disassociate_metering_label, router)
++        self.green_pool.waitall()
+ 
+     def get_traffic_counter(self, router):
+         router_id = router['id']
+-- 
+2.11.0 (Apple Git-81)
+
