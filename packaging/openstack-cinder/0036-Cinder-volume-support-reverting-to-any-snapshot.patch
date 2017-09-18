@@ -1,0 +1,73 @@
+From 43bbae8a9ad06294f2ae579564c56384966ec6c3 Mon Sep 17 00:00:00 2001
+From: Xiaojun Liao <xiaojunliao85@gmail.com>
+Date: Wed, 6 Sep 2017 17:27:10 +0800
+Subject: [PATCH 36/38] Cinder volume support reverting to any snapshot
+
+Cinder volume support reverting to any snapshot for some drivers.
+
+Signed-off-by: Xiaojun Liao <xiaojunliao85@gmail.com>
+---
+ cinder/api/contrib/volume_actions.py | 11 ++++-------
+ cinder/volume/manager.py             | 17 +++++++++++++++++
+ 2 files changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/cinder/api/contrib/volume_actions.py b/cinder/api/contrib/volume_actions.py
+index e14b40f8f..a0a25b1c7 100644
+--- a/cinder/api/contrib/volume_actions.py
++++ b/cinder/api/contrib/volume_actions.py
+@@ -27,7 +27,6 @@ from cinder import utils
+ from cinder import volume
+ 
+ import six
+-from cinder import db
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -395,12 +394,10 @@ class VolumeActionsController(wsgi.Controller):
+             msg = _("Snapshot could not be found")
+             raise webob.exc.HTTPNotFound(explanation=msg)
+ 
+-        # Ensure snapshot is the volume's latest snapshot.
+-        l_snap = db.snapshot_get_latest_for_volume(context,
+-                                                        volume['id'])
+-        if l_snap.id != snapshot_id:
+-            msg = _("Specified snapshot %(s_id)s is not "
+-                    "the latest one of volume %(v_id)s.")
++        # Ensure volume and snapshot match.
++        if snapshot['volume_id'] != id:
++            msg = _("Snapshot %(s_id)s was not created from "
++                    "the volume %(v_id)s.")
+             raise webob.exc.HTTPBadRequest(
+                 explanation=msg % {'s_id': snapshot_id, 'v_id': id})
+ 
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 7601b5e7a..0cf21aa63 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -592,6 +592,23 @@ class VolumeManager(manager.SchedulerDependentManager):
+                                     {'status': 'error_restoring'})
+             raise exception.InvalidSnapshot(reason=err)
+ 
++        # if the backend driver do not support reverting to any snapshot,
++        # sure the snapshot is the latest one
++        if not (hasattr(self.driver, 'support_reverting_to_any_snapshot') and
++                self.driver.support_reverting_to_any_snapshot is True):
++            l_snap = self.db.snapshot_get_latest_for_volume(context,
++                                                                 volume['id'])
++            if l_snap.id != snapshot['id']:
++                err = (_('Revert volume aborted, the backend only '
++                         'support reverting from the latest snapshot, '
++                         'but got %(snap_id)s.') %
++                       {'snap_id': snapshot['id']})
++                self.db.snapshot_update(context, snapshot['id'],
++                                        {'status': 'available'})
++                self.db.volume_update(context, volume['id'],
++                                      {'status': 'error_reverting'})
++                raise exception.InvalidSnapshot(reason=err)
++
+         LOG.info("Start to perform revert to snapshot process.")
+ 
+         # Create a snapshot which can be used to restore the volume
+-- 
+2.14.1
+
