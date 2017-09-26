@@ -6,7 +6,7 @@
 
 Name:             openstack-cinder
 Version:          2014.2.1
-Release:          8%{?dist_eayunstack}
+Release:          9%{?dist_eayunstack}
 Summary:          OpenStack Volume service
 
 License:          ASL 2.0
@@ -61,6 +61,11 @@ Patch0036: 0036-Cinder-volume-support-reverting-to-any-snapshot.patch
 Patch0037: 0037-Cinder-volume-revert-to-snapshot-with-Ceph.patch
 Patch0038: 0038-Resize-rbd-to-match-expected-volume-size-when.patch
 Patch0039: 0039-Rbd-driver-support-reverting-to-any-snapshot.patch
+Patch0040: 0040-fix-cinder-ceph-backup-driver-padding-error.patch
+Patch0041: 0041-Fix-always-false-condition-in-glance-wrapper.patch
+Patch0042: 0042-Fix-properties-extracting-from-image-with-glance-api.patch
+Patch0043: 0043-Fix-glance-image-create-fail-with-glance-api-v1.patch
+Patch0044: 0044-Upload-backup-volume-to-image.patch
 
 BuildArch:        noarch
 BuildRequires:    intltool
@@ -222,6 +227,11 @@ This package contains documentation files for cinder.
 %patch0037 -p1
 %patch0038 -p1
 %patch0039 -p1
+%patch0040 -p1
+%patch0041 -p1
+%patch0042 -p1
+%patch0043 -p1
+%patch0044 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -362,8 +372,11 @@ exit 0
 %endif
 
 %changelog
+* Tue Sep 26 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-9.eayunstack.dev
+- add Patches 0040-0044, from github pull request #20 (redmine #10587)
+
 * Thu Sep 21 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-8.eayunstack.dev
-- add Patch 0038, from github pull request #21 (redmine #10661, fix Patch 0037)
+- add Patch 0039, from github pull request #21 (redmine #10661, fix Patch 0037)
 
 * Mon Sep 18 2017 Zhao Chao <chao.zhao@eayun.com> - 2014.2.1-7.eayunstack.dev
 - add Patches 0034-0038, from github pull request #21 (redmine #10661)

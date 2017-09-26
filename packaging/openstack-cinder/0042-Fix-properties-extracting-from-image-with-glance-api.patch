@@ -1,0 +1,199 @@
+From c67761b29f088ff3c2f2407e3a9617f80e98ecbf Mon Sep 17 00:00:00 2001
+From: Anton Arefiev <aarefiev@mirantis.com>
+Date: Tue, 31 Mar 2015 19:44:57 +0300
+Subject: [PATCH 42/44] Fix properties extracting from image with glance api v2
+
+When a volume is created using the glance v1 API, the non based
+properties places in 'properties' dict, and nova is expected
+to find them here. Otherwise api's v2 return custom image properties
+as base properties, so nova can't find them in volume 'image
+properties'.
+
+This change add new glance call to get image schema, it allows
+extract custom properties from image.
+
+Closes-Bug: 1323660
+
+Change-Id: Ib54bb6759b27334294fb2c6d2c0bfe4eae3d0920
+(cherry picked from commit f20643ca44e139e3384b9dea638b54c2235b1169)
+
+Conflicts:
+	cinder/tests/image/test_glance.py
+---
+ cinder/image/glance.py       | 59 +++++++++++++++++++++++++++++++++-----------
+ cinder/tests/glance/stubs.py | 23 +++++++++++++----
+ 2 files changed, 62 insertions(+), 20 deletions(-)
+
+diff --git a/cinder/image/glance.py b/cinder/image/glance.py
+index f57330806..283c5d651 100644
+--- a/cinder/image/glance.py
++++ b/cinder/image/glance.py
+@@ -151,9 +151,7 @@ class GlanceClientWrapper(object):
+         If we get a connection error,
+         retry the request according to CONF.glance_num_retries.
+         """
+-        version = self.version
+-        if 'version' in kwargs:
+-            version = kwargs['version']
++        version = kwargs.pop('version', self.version)
+ 
+         retry_excs = (glanceclient.exc.ServiceUnavailable,
+                       glanceclient.exc.InvalidEndpoint,
+@@ -164,7 +162,9 @@ class GlanceClientWrapper(object):
+             client = self.client or self._create_onetime_client(context,
+                                                                 version)
+             try:
+-                return getattr(client.images, method)(*args, **kwargs)
++                controller = getattr(client,
++                                     kwargs.pop('controller', 'images'))
++                return getattr(controller, method)(*args, **kwargs)
+             except retry_excs as e:
+                 netloc = self.netloc
+                 extra = "retrying"
+@@ -193,6 +193,7 @@ class GlanceImageService(object):
+ 
+     def __init__(self, client=None):
+         self._client = client or GlanceClientWrapper()
++        self._image_schema = None
+ 
+     def detail(self, context, **kwargs):
+         """Calls out to Glance for a list of detailed image information."""
+@@ -205,7 +206,7 @@ class GlanceImageService(object):
+         _images = []
+         for image in images:
+             if self._is_image_available(context, image):
+-                _images.append(self._translate_from_glance(image))
++                _images.append(self._translate_from_glance(context, image))
+ 
+         return _images
+ 
+@@ -234,7 +235,7 @@ class GlanceImageService(object):
+         if not self._is_image_available(context, image):
+             raise exception.ImageNotFound(image_id=image_id)
+ 
+-        base_image_meta = self._translate_from_glance(image)
++        base_image_meta = self._translate_from_glance(context, image)
+         return base_image_meta
+ 
+     def get_location(self, context, image_id):
+@@ -294,7 +295,7 @@ class GlanceImageService(object):
+         recv_service_image_meta = self._client.call(context, 'create',
+                                                     **sent_service_image_meta)
+ 
+-        return self._translate_from_glance(recv_service_image_meta)
++        return self._translate_from_glance(context, recv_service_image_meta)
+ 
+     def update(self, context, image_id,
+                image_meta, data=None, purge_props=True):
+@@ -319,7 +320,7 @@ class GlanceImageService(object):
+         except Exception:
+             _reraise_translated_image_exception(image_id)
+         else:
+-            return self._translate_from_glance(image_meta)
++            return self._translate_from_glance(context, image_meta)
+ 
+     def delete(self, context, image_id):
+         """Delete the given image.
+@@ -334,19 +335,47 @@ class GlanceImageService(object):
+             raise exception.ImageNotFound(image_id=image_id)
+         return True
+ 
++    def _translate_from_glance(self, context, image):
++        """Get image metadata from glance image.
++
++        Extract metadata from image and convert it's properties
++        to type cinder expected.
++
++        :param image: glance image object
++        :return: image metadata dictionary
++        """
++        if CONF.glance_api_version == 2:
++            if self._image_schema is None:
++                self._image_schema = self._client.call(context, 'get',
++                                                       controller='schemas',
++                                                       schema_name='image',
++                                                       version=2)
++            # NOTE(aarefiev): get base image property, store image 'schema'
++            #                 is redundant, so ignore it.
++            image_meta = {key: getattr(image, key)
++                          for key in image.keys()
++                          if self._image_schema.is_base_property(key) is True
++                          and key != 'schema'}
++
++            # NOTE(aarefiev): nova is expected that all image properties
++            # (custom or defined in schema-image.json) stores in
++            # 'properties' key.
++            image_meta['properties'] = {
++                key: getattr(image, key) for key in image.keys()
++                if self._image_schema.is_base_property(key) is False}
++        else:
++            image_meta = _extract_attributes(image)
++
++        image_meta = _convert_timestamps_to_datetimes(image_meta)
++        image_meta = _convert_from_string(image_meta)
++        return image_meta
++
+     @staticmethod
+     def _translate_to_glance(image_meta):
+         image_meta = _convert_to_string(image_meta)
+         image_meta = _remove_read_only(image_meta)
+         return image_meta
+ 
+-    @staticmethod
+-    def _translate_from_glance(image):
+-        image_meta = _extract_attributes(image)
+-        image_meta = _convert_timestamps_to_datetimes(image_meta)
+-        image_meta = _convert_from_string(image_meta)
+-        return image_meta
+-
+     @staticmethod
+     def _is_image_available(context, image):
+         """Check image availability.
+diff --git a/cinder/tests/glance/stubs.py b/cinder/tests/glance/stubs.py
+index 9a1bbdd27..7ad45d037 100644
+--- a/cinder/tests/glance/stubs.py
++++ b/cinder/tests/glance/stubs.py
+@@ -18,6 +18,13 @@ import glanceclient.exc
+ NOW_GLANCE_FORMAT = "2010-10-11T10:30:22"
+ 
+ 
++IMAGE_ATTRIBUTES = ['size', 'disk_format', 'owner',
++                    'container_format', 'checksum', 'id',
++                    'name', 'created_at', 'updated_at',
++                    'deleted', 'status',
++                    'min_disk', 'min_ram', 'is_public']
++
++
+ class StubGlanceClient(object):
+ 
+     def __init__(self, images=None):
+@@ -88,11 +95,6 @@ class StubGlanceClient(object):
+ 
+ class FakeImage(object):
+     def __init__(self, metadata):
+-        IMAGE_ATTRIBUTES = ['size', 'disk_format', 'owner',
+-                            'container_format', 'checksum', 'id',
+-                            'name', 'created_at', 'updated_at',
+-                            'deleted', 'status',
+-                            'min_disk', 'min_ram', 'is_public']
+         raw = dict.fromkeys(IMAGE_ATTRIBUTES)
+         raw.update(metadata)
+         self.__dict__['raw'] = raw
+@@ -108,3 +110,14 @@ class FakeImage(object):
+             self.__dict__['raw'][key] = value
+         except KeyError:
+             raise AttributeError(key)
++
++    def keys(self):
++        return self.__dict__['raw'].keys()
++
++
++class FakeSchema(object):
++    def is_base_property(self, key):
++        if key in IMAGE_ATTRIBUTES:
++            return True
++        else:
++            return False
+-- 
+2.14.1
+

@@ -1,0 +1,36 @@
+From 44c23f24171667e55c8458d5ff0de38386c3365d Mon Sep 17 00:00:00 2001
+From: Liu Qing <liuqing@chinac.com>
+Date: Tue, 21 Jun 2016 17:14:44 +0800
+Subject: [PATCH 40/44] fix cinder ceph backup driver padding error
+
+While restore an extended source, ceph backup driver will pad
+0 to the unused space if restore_discard_excess_bytes is True.
+The original code use total length of the unused space to fill
+each chunk. Change to use chunk size to fill each chunk.
+
+Change-Id: I9658d31a55e5024f5f6d5ccf00939edd668ea451
+Signed-off-by: Liu Qing <liuqing@chinac.com>
+Closes-Bug: 1595014
+
+Conflicts:
+	cinder/tests/test_backup_ceph.py
+---
+ cinder/backup/drivers/ceph.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cinder/backup/drivers/ceph.py b/cinder/backup/drivers/ceph.py
+index a7809ae7c..a8adbb5a7 100644
+--- a/cinder/backup/drivers/ceph.py
++++ b/cinder/backup/drivers/ceph.py
+@@ -283,7 +283,7 @@ class CephBackupDriver(BackupDriver):
+             if self._file_is_rbd(volume):
+                 volume.rbd_image.discard(offset, length)
+             else:
+-                zeroes = '\0' * length
++                zeroes = '\0' * self.chunk_size
+                 chunks = int(length / self.chunk_size)
+                 for chunk in xrange(0, chunks):
+                     LOG.debug("Writing zeroes chunk %d" % chunk)
+-- 
+2.14.1
+
