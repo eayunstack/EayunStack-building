@@ -1,0 +1,165 @@
+From 38d3a390989379ad97858364636a03de5a1bc0c0 Mon Sep 17 00:00:00 2001
+From: "Yuanbin.Chen" <cybing4@gmail.com>
+Date: Wed, 20 Sep 2017 23:06:50 +0800
+Subject: [PATCH 3/4] Add trove database mongo monitor
+
+Feature-ES #11008
+http://192.168.15.2/issues/11008
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+(cherry picked from commit f9ceeb3b6cd04634abde2fa763b82895f4d9a22e)
+---
+ ceilometer/database/mongo.py | 118 +++++++++++++++++++++++++++++++++++++++++++
+ setup.cfg                    |  11 ++++
+ 2 files changed, 129 insertions(+)
+ create mode 100644 ceilometer/database/mongo.py
+
+diff --git a/ceilometer/database/mongo.py b/ceilometer/database/mongo.py
+new file mode 100644
+index 0000000..466cec8
+--- /dev/null
++++ b/ceilometer/database/mongo.py
+@@ -0,0 +1,118 @@
++#
++# Copyright 2017 Eayun, Inc.
++#
++# Author: Julien Danjou <julien@danjou.info>
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++from ceilometer import sample
++from notifications import DataBaseNotificationBase
++
++
++class MongoMaxConnsPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.max.connections'
++    unit = 'connect'
++    sample_type = sample.TYPE_DELTA
++
++
++class MongoConnectUseRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.connections.usage'
++    unit = '%'
++    sample_type = sample.TYPE_DELTA
++
++
++class MongoQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoQPSRatePollster(DataBaseNotificationBase):
++        """Listen for Trove notifications.
++           Listen in order to mediate with the metering framework.
++        """
++        resource_name = 'mongo.qps.rate'
++        unit = 'request/s'
++        sample_type = sample.TYPE_DELTA
++
++
++class MongoTotalRequestsPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.total.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoInsertPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.insert.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoQueryPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.query.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoUpdatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.update.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoDeletePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.delete.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoGetMorePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.getmore.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class MongoCommandPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'mongo.command.requests'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
+diff --git a/setup.cfg b/setup.cfg
+index 2873bda..14e50cd 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -98,6 +98,17 @@ ceilometer.notification =
+ 	mysql.total.select = ceilometer.database.mysql:MysqlTotalSelectPollster
+ 	mysql.replace.qps = ceilometer.database.mysql:MysqlReplaceQPSPollster
+ 	mysql.replace.qps.rate = ceilometer.database.mysql:MysqlReplaceQPSRatePollster
++	mongo.max.connections = ceilometer.database.mongo:MongoMaxConnsPollster
++	mongo.connections.usage = ceilometer.database.mongo:MongoConnectUseRatePollster
++	mongo.qps = ceilometer.database.mongo:MongoQPSPollster
++	mongo.qps.rate = ceilometer.database.mongo:MongoQPSRatePollster
++	mongo.total.requests = ceilometer.database.mongo:MongoTotalRequestsPollster
++	mongo.insert.requests = ceilometer.database.mongo:MongoInsertPollster
++	mongo.query.requests = ceilometer.database.mongo:MongoQueryPollster
++	mongo.update.requests = ceilometer.database.mongo:MongoUpdatePollster
++	mongo.delete.requests = ceilometer.database.mongo:MongoDeletePollster
++	mongo.getmore.requests = ceilometer.database.mongo:MongoGetMorePollster
++	mongo.command.requests = ceilometer.database.mongo:MongoCommandPollster
+ ceilometer.discover = 
+ 	local_instances = ceilometer.compute.discovery:InstanceDiscovery
+ 	endpoint = ceilometer.central.discovery:EndpointDiscovery
+-- 
+2.7.4
+

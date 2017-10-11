@@ -1,0 +1,315 @@
+From 32b3e87dbe0d5ca75790338e11b327f54af54f24 Mon Sep 17 00:00:00 2001
+From: "Yuanbin.Chen" <cybing4@gmail.com>
+Date: Wed, 20 Sep 2017 23:19:44 +0800
+Subject: [PATCH 4/4] Add trove database redis monitor
+
+Feature-ES #11008
+http://192.168.15.2/issues/11008
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+(cherry picked from commit 2daf2c984e88233dfe7f70379c77390580177371)
+---
+ ceilometer/database/redis.py | 253 +++++++++++++++++++++++++++++++++++++++++++
+ setup.cfg                    |  26 +++++
+ 2 files changed, 279 insertions(+)
+ create mode 100644 ceilometer/database/redis.py
+
+diff --git a/ceilometer/database/redis.py b/ceilometer/database/redis.py
+new file mode 100644
+index 0000000..4c7f52b
+--- /dev/null
++++ b/ceilometer/database/redis.py
+@@ -0,0 +1,253 @@
++#
++# Copyright 2017 Eayun, Inc.
++#
++# Author: Julien Danjou <julien@danjou.info>
++#
++# Licensed under the Apache License, Version 2.0 (the "License"); you may
++# not use this file except in compliance with the License. You may obtain
++# a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++# License for the specific language governing permissions and limitations
++# under the License.
++
++from ceilometer import sample
++from notifications import DataBaseNotificationBase
++
++
++class RedisMemoryUsagePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.memory.usage'
++    unit = '%'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisTotalRecConnPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.total.received.connections'
++    unit = 'connect'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisClientsConnectionsPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.clients.connections'
++    unit = 'connect'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisTotalKeysPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.total.keys'
++    unit = 'key'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisExpiredKeysPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.expire.keys'
++    unit = 'key'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisEvictedKeysPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.evicte.keys'
++    unit = 'key'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisKeyspaceHitsPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.keyspace.hits'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisKeyspaceHitsRatioPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.keyspace.hits.ratio'
++    unit = '%'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisSetQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.set.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisSetQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.set.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisListQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.list.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisListQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.list.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisStringQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.string.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisStringQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.string.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisHashQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.hash.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisHashQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.hash.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisZsetQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.zset.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisZsetQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.zset.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisHyperLoglogQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.hyperloglog.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisHyperLoglogQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.hyperloglog.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisPubsubQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.pubsub.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisPubsubQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.pubsub.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
++
++
++class RedisTransactionQPSPollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.transaction.qps'
++    unit = 'request'
++    sample_type = sample.TYPE_CUMULATIVE
++
++
++class RedisTransactionQPSRatePollster(DataBaseNotificationBase):
++    """Listen for Trove notifications.
++       Listen in order to mediate with the metering framework.
++    """
++    resource_name = 'redis.transaction.qps.rate'
++    unit = 'request/s'
++    sample_type = sample.TYPE_DELTA
+diff --git a/setup.cfg b/setup.cfg
+index 14e50cd..d28d2b5 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -109,6 +109,32 @@ ceilometer.notification =
+ 	mongo.delete.requests = ceilometer.database.mongo:MongoDeletePollster
+ 	mongo.getmore.requests = ceilometer.database.mongo:MongoGetMorePollster
+ 	mongo.command.requests = ceilometer.database.mongo:MongoCommandPollster
++	redis.memory.usage = ceilometer.database.redis:RedisMemoryUsagePollster
++	redis.qps = ceilometer.database.redis:RedisQPSPollster
++	redis.qps.rate = ceilometer.database.redis:RedisQPSRatePollster
++	redis.total.received.connections = ceilometer.database.redis:RedisTotalRecConnPollster
++	redis.clients.connections = ceilometer.database.redis:RedisClientsConnectionsPollster
++	redis.total.keys = ceilometer.database.redis:RedisTotalKeysPollster
++	redis.expire.keys = ceilometer.database.redis:RedisExpiredKeysPollster
++	redis.evicte.keys = ceilometer.database.redis:RedisEvictedKeysPollster
++	redis.keyspace.hits = ceilometer.database.redis:RedisKeyspaceHitsPollster
++	redis.keyspace.hits.ratio = ceilometer.database.redis:RedisKeyspaceHitsRatioPollster
++	redis.set.qps = ceilometer.database.redis:RedisSetQPSPollster
++	redis.set.qps.rate = ceilometer.database.redis:RedisSetQPSRatePollster
++	redis.list.qps = ceilometer.database.redis:RedisListQPSPollster
++	redis.list.qps.rate = ceilometer.database.redis:RedisListQPSRatePollster
++	redis.string.qps = ceilometer.database.redis:RedisStringQPSPollster
++	redis.string.qps.rate = ceilometer.database.redis:RedisStringQPSRatePollster
++	redis.hash.qps = ceilometer.database.redis:RedisHashQPSPollster
++	redis.hash.qps.rate = ceilometer.database.redis:RedisHashQPSRatePollster
++	redis.zset.qps = ceilometer.database.redis:RedisZsetQPSPollster
++	redis.zset.qps.rate = ceilometer.database.redis:RedisZsetQPSRatePollster
++	redis.hyperloglog.qps = ceilometer.database.redis:RedisHyperLoglogQPSPollster
++	redis.hyperloglog.qps.rate = ceilometer.database.redis:RedisHyperLoglogQPSRatePollster
++	redis.pubsub.qps = ceilometer.database.redis:RedisPubsubQPSPollster
++	redis.pubsub.qps.rate = ceilometer.database.redis:RedisPubsubQPSRatePollster
++	redis.transaction.qps = ceilometer.database.redis:RedisTransactionQPSPollster
++	redis.transaction.qps.rate = ceilometer.database.redis:RedisTransactionQPSRatePollster
+ ceilometer.discover = 
+ 	local_instances = ceilometer.compute.discovery:InstanceDiscovery
+ 	endpoint = ceilometer.central.discovery:EndpointDiscovery
+-- 
+2.7.4
+

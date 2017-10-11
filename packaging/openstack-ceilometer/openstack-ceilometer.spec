@@ -6,7 +6,7 @@
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
-Release:          5%{?dist_eayunstack}
+Release:          6%{?dist_eayunstack}
 Summary:          OpenStack measurement collection service
 
 Group:            Applications/System
@@ -64,6 +64,10 @@ Patch0012:           0012-Fix-compute-agent-meter-memory-usage.patch
 Patch0013:           0013-Port-metering-use-Neutron-wrap-chains-to-count.patch
 Patch0014:           0014-neutron_client-fix-wrong-filter-in-port_get_hosted.patch
 Patch0015:           0015-Enable-ES-port-metering-on-lb-vip-ports.patch
+Patch0016:           0016-Add-ceilometer-database-meter-base.patch
+Patch0017:           0017-Add-trove-database-mysql-monitor.patch
+Patch0018:           0018-Add-trove-database-mongo-monitor.patch
+Patch0019:           0019-Add-trove-database-redis-monitor.patch
 
 
 BuildArch:        noarch
@@ -336,6 +340,10 @@ This package contains documentation files for ceilometer.
 %patch013 -p1
 %patch014 -p1
 %patch015 -p1
+%patch016 -p1
+%patch017 -p1
+%patch018 -p1
+%patch019 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -855,6 +863,12 @@ fi
 
 
 %changelog
+* Wed Sep 27 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-6.eayunstack.dev
+- Add database monitor base 0016-Add-ceilometer-database-meter-base.patch
+- Add database monitor mysql 0017-Add-trove-database-mysql-monitor.patch
+- Add database monitor mongo 0018-Add-trove-database-mongo-monitor.patch
+- Add database monitor redis 0019-Add-trove-database-redis-monitor.patch
+
 * Tue May 2 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-5.eayunstack.dev
 - Add metadata meter 0007-Expose-vm-s-metadata-to-metrics.patch
 - Add ceilometer network meter agent 0008-Add-ceilometer-network-agent.patch
