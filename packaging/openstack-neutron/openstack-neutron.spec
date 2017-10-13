@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	40%{?dist_eayunstack}
+Release:	41%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -172,6 +172,17 @@ Patch0126: 0126-PPTP-fix-vpnservices-checking-for-PPTP-credentials.patch
 Patch0127: 0127-Metering-use-nfacct-to-get-metering-counters.patch
 Patch0128: 0128-metering-get-all-metering-label-at-once-on-a-host.patch
 Patch0129: 0129-metering-parallelize-workloads-in-iptables-drivers.patch
+Patch0130: 0130-Get-rid-of-ml2-port-model-hook-join.patch
+Patch0131: 0131-Get-rid-of-_network_model_hook-for-external_net.patch
+Patch0132: 0132-Get-rid-of-additional-fixed_ip-filter-join.patch
+Patch0133: 0133-Switch-to-subquery-for-1-M-relationships.patch
+Patch0134: 0134-ES-ACL-add-EayunStack-subnet-ACL-extension.patch
+Patch0135: 0135-ES-ACL-add-database-operations-related-to-subnet-ACL.patch
+Patch0136: 0136-ES-ACL-ACL-plugin-and-L3-agent-enhancement.patch
+Patch0137: 0137-metering-exclude-label-without-rules-when-getting-co.patch
+Patch0138: 0138-db-fix-backref-cascade-between-router-and-es_meter_l.patch
+Patch0139: 0139-metering-use-eventlet-when-sending-metering-reports.patch
+Patch0140: 0140-metering-always-setup-metering-iptables-rules-for-ro.patch
 
 
 BuildArch:	noarch
@@ -262,7 +273,6 @@ Requires:	python-stevedore >= 1.0.0
 Requires:	python-six >= 1.7.0
 Requires:	python-webob >= 1.2.3
 Requires:	sudo
-Requires:	libreswan
 
 
 
@@ -640,6 +650,7 @@ Summary:	Neutron VPNaaS agent
 Group:		Applications/System
 
 Requires:	openstack-neutron = %{version}-%{release}
+Requires:	libreswan
 
 %description vpn-agent
 Neutron provides an API to implement VPN as a service
@@ -780,6 +791,17 @@ IPSec.
 %patch0127 -p1
 %patch0128 -p1
 %patch0129 -p1
+%patch0130 -p1
+%patch0131 -p1
+%patch0132 -p1
+%patch0133 -p1
+%patch0134 -p1
+%patch0135 -p1
+%patch0136 -p1
+%patch0137 -p1
+%patch0138 -p1
+%patch0139 -p1
+%patch0140 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1242,6 +1264,15 @@ exit 0
 
 
 %changelog
+* Fri Oct 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-41.eayunstack.dev
+- fix dependency on libreswan (only vpn-agent needs it)
+- add patch 0130-0133 from github pull request #116 (redmine#10685)
+- add patch 0134-0136 from github pull request #130 (redmine#11027)
+- add patch 0137 from github pull request #131 (redmine#10988)
+- add patch 0138 from github pull request #132 (redmine#11042)
+- add patch 0139 from github pull request #133 (redmine#11060)
+- add patch 0140 from github pull request #135 (redmine#9992)
+
 * Thu Sep 14 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-40.eayunstack.dev
 - add patch 0128 from github pull request #127, #124(1), #128 (redmine#10957)
 - add patch 0129 from github pull request #124(2) (redmine#10956)

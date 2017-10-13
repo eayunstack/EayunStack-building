@@ -1,0 +1,144 @@
+From b0bca831a4c4189bfb9ffd7bbdb92df16be3e373 Mon Sep 17 00:00:00 2001
+From: Kevin Benton <kevin@benton.pub>
+Date: Mon, 9 Jan 2017 05:02:42 -0800
+Subject: [PATCH 133/133] Switch to 'subquery' for 1-M relationships
+
+This switches to the use of subqueries for 1-m relationships
+which will result in a higher constant query factor but will
+eliminate the potential for cross-product explosions.
+
+Closes-Bug: #1649317
+Change-Id: I6952c48236153a8e2f2f155375b70573ddc2cf0f
+(cherry picked from commit 3ffe006743b33f48bca6fce541e0a8f64f844fb7)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Conflicts:
+    neutron/db/extra_dhcp_opt/models.py
+    neutron/db/models/allowed_address_pair.py
+    neutron/db/models/l3.py
+    neutron/db/models/metering.py
+    neutron/db/models/securitygroup.py
+    neutron/db/models/segment.py
+    neutron/db/models/subnet_service_type.py
+    neutron/db/models/tag.py
+    neutron/db/models_v2.py
+    neutron/db/qos/models.py
+    neutron/plugins/ml2/models.py
+    neutron/services/trunk/models.py
+    neutron/tests/unit/db/test_l3_hamode_db.py
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/allowedaddresspairs_db.py |  2 +-
+ neutron/db/extradhcpopt_db.py        |  2 +-
+ neutron/db/metering/metering_db.py   |  3 ++-
+ neutron/db/models_v2.py              | 10 ++++++----
+ neutron/db/securitygroups_db.py      |  2 +-
+ neutron/plugins/ml2/models.py        |  2 +-
+ 6 files changed, 12 insertions(+), 9 deletions(-)
+
+diff --git a/neutron/db/allowedaddresspairs_db.py b/neutron/db/allowedaddresspairs_db.py
+index b648c8c47..fe4295c0f 100644
+--- a/neutron/db/allowedaddresspairs_db.py
++++ b/neutron/db/allowedaddresspairs_db.py
+@@ -33,7 +33,7 @@ class AllowedAddressPair(model_base.BASEV2):
+     port = orm.relationship(
+         models_v2.Port,
+         backref=orm.backref("allowed_address_pairs",
+-                            lazy="joined", cascade="delete"))
++                            lazy="subquery", cascade="delete"))
+ 
+ 
+ class AllowedAddressPairsMixin(object):
+diff --git a/neutron/db/extradhcpopt_db.py b/neutron/db/extradhcpopt_db.py
+index 6e7b23f43..ae5abaea2 100644
+--- a/neutron/db/extradhcpopt_db.py
++++ b/neutron/db/extradhcpopt_db.py
+@@ -48,7 +48,7 @@ class ExtraDhcpOpt(model_base.BASEV2, models_v2.HasId):
+     # eagerly load extra_dhcp_opts bindings
+     ports = orm.relationship(
+         models_v2.Port,
+-        backref=orm.backref("dhcp_opts", lazy='joined', cascade='delete'))
++        backref=orm.backref("dhcp_opts", lazy='subquery', cascade='delete'))
+ 
+ 
+ class ExtraDhcpOptMixin(object):
+diff --git a/neutron/db/metering/metering_db.py b/neutron/db/metering/metering_db.py
+index 94d5d3ddc..99f7a9f1e 100644
+--- a/neutron/db/metering/metering_db.py
++++ b/neutron/db/metering/metering_db.py
+@@ -46,11 +46,12 @@ class MeteringLabel(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+     name = sa.Column(sa.String(255))
+     description = sa.Column(sa.String(1024))
+     rules = orm.relationship(MeteringLabelRule, backref="label",
+-                             cascade="delete", lazy="joined")
++                             cascade="delete", lazy="subquery")
+     routers = orm.relationship(
+         l3_db.Router,
+         primaryjoin="MeteringLabel.tenant_id==Router.tenant_id",
+         foreign_keys='MeteringLabel.tenant_id',
++        lazy='subquery',
+         uselist=True)
+     shared = sa.Column(sa.Boolean, default=False, server_default=sql.false())
+ 
+diff --git a/neutron/db/models_v2.py b/neutron/db/models_v2.py
+index 53efc6692..94157dd31 100644
+--- a/neutron/db/models_v2.py
++++ b/neutron/db/models_v2.py
+@@ -122,7 +122,7 @@ class Port(model_base.BASEV2, HasId, HasTenant):
+     name = sa.Column(sa.String(255))
+     network_id = sa.Column(sa.String(36), sa.ForeignKey("networks.id"),
+                            nullable=False)
+-    fixed_ips = orm.relationship(IPAllocation, backref='ports', lazy='joined')
++    fixed_ips = orm.relationship(IPAllocation, backref='ports', lazy='subquery')
+     mac_address = sa.Column(sa.String(32), nullable=False)
+     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
+     status = sa.Column(sa.String(16), nullable=False)
+@@ -172,15 +172,17 @@ class Subnet(model_base.BASEV2, HasId, HasTenant):
+     gateway_ip = sa.Column(sa.String(64))
+     allocation_pools = orm.relationship(IPAllocationPool,
+                                         backref='subnet',
+-                                        lazy="joined",
++                                        lazy="subquery",
+                                         cascade='delete')
+     enable_dhcp = sa.Column(sa.Boolean())
+     dns_nameservers = orm.relationship(DNSNameServer,
+                                        backref='subnet',
+-                                       cascade='all, delete, delete-orphan')
++                                       cascade='all, delete, delete-orphan',
++                                       lazy='subquery')
+     routes = orm.relationship(SubnetRoute,
+                               backref='subnet',
+-                              cascade='all, delete, delete-orphan')
++                              cascade='all, delete, delete-orphan',
++                              lazy='subquery')
+     shared = sa.Column(sa.Boolean)
+     ipv6_ra_mode = sa.Column(sa.Enum(constants.IPV6_SLAAC,
+                                      constants.DHCPV6_STATEFUL,
+diff --git a/neutron/db/securitygroups_db.py b/neutron/db/securitygroups_db.py
+index 23b5c80cb..14a7ed23a 100644
+--- a/neutron/db/securitygroups_db.py
++++ b/neutron/db/securitygroups_db.py
+@@ -82,7 +82,7 @@ class SecurityGroupRule(model_base.BASEV2, models_v2.HasId,
+     remote_ip_prefix = sa.Column(sa.String(255))
+     security_group = orm.relationship(
+         SecurityGroup,
+-        backref=orm.backref('rules', cascade='all,delete'),
++        backref=orm.backref('rules', cascade='all,delete', lazy='subquery'),
+         primaryjoin="SecurityGroup.id==SecurityGroupRule.security_group_id")
+     source_group = orm.relationship(
+         SecurityGroup,
+diff --git a/neutron/plugins/ml2/models.py b/neutron/plugins/ml2/models.py
+index 80ae1bbb6..8ce472ff3 100644
+--- a/neutron/plugins/ml2/models.py
++++ b/neutron/plugins/ml2/models.py
+@@ -114,5 +114,5 @@ class DVRPortBinding(model_base.BASEV2):
+     port = orm.relationship(
+         models_v2.Port,
+         backref=orm.backref("dvr_port_binding",
+-                            lazy='joined', uselist=False,
++                            lazy='subquery', uselist=False,
+                             cascade='delete'))
+-- 
+2.13.5 (Apple Git-94)
+

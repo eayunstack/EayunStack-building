@@ -1,0 +1,50 @@
+From b3bd06eee45e7e664aaad26339a15ab681fcfa65 Mon Sep 17 00:00:00 2001
+From: Kevin Benton <kevin@benton.pub>
+Date: Tue, 13 Dec 2016 18:07:42 -0800
+Subject: [PATCH 130/133] Get rid of ml2 port model hook join
+
+The binding is already joined to the port via a backref relationship
+so we can just utilize that rather than join to the table an additional
+time.
+
+Partial-Bug: #1649317
+Change-Id: I267a808b411f44b2128955dc93bd8da34d1fac91
+(cherry picked from commit 3ea5f7ce5627599b7e1f0f1c1d583dd5466b7d31)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/plugins/ml2/plugin.py | 11 +++--------
+ 1 file changed, 3 insertions(+), 8 deletions(-)
+
+diff --git a/neutron/plugins/ml2/plugin.py b/neutron/plugins/ml2/plugin.py
+index 9d37c871e..e54c4d9ed 100644
+--- a/neutron/plugins/ml2/plugin.py
++++ b/neutron/plugins/ml2/plugin.py
+@@ -446,22 +446,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+     # registration of hooks in portbindings_db.py used by other
+     # plugins.
+ 
+-    def _ml2_port_model_hook(self, context, original_model, query):
+-        query = query.outerjoin(models.PortBinding,
+-                                (original_model.id ==
+-                                 models.PortBinding.port_id))
+-        return query
+-
+     def _ml2_port_result_filter_hook(self, query, filters):
+         values = filters and filters.get(portbindings.HOST_ID, [])
+         if not values:
+             return query
+-        return query.filter(models.PortBinding.host.in_(values))
++        bind_criteria = models.PortBinding.host.in_(values)
++        return query.filter(models_v2.Port.port_binding.has(bind_criteria))
+ 
+     db_base_plugin_v2.NeutronDbPluginV2.register_model_query_hook(
+         models_v2.Port,
+         "ml2_port_bindings",
+-        '_ml2_port_model_hook',
++        None,
+         None,
+         '_ml2_port_result_filter_hook')
+ 
+-- 
+2.13.5 (Apple Git-94)
+

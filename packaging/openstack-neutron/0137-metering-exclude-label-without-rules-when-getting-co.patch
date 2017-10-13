@@ -1,0 +1,59 @@
+From d553659a9396e20e59876194cd435fc5e00ffdd0 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 27 Sep 2017 15:17:52 +0800
+Subject: [PATCH] metering: exclude label without rules when getting counters
+
+With nfacct we use "nfacct flush" to clean up unused objects. Thus a
+label without rules will lead to unused objects which will be purged
+later. And this leads to errors when getting counters for this label
+because the related object is missing.
+
+Fixes: redmine #10988
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/drivers/iptables/es_iptables_driver.py | 4 +++-
+ neutron/services/metering/drivers/iptables/iptables_driver.py    | 5 ++++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+index 116452814..8c361a4c6 100644
+--- a/neutron/services/metering/drivers/iptables/es_iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+@@ -50,7 +50,9 @@ class EsRouterWithMetering(iptables_driver.RouterWithMetering):
+         im.ipv4['mangle'].add_rule('PREROUTING', mark_rule)
+ 
+     def get_metering_labels(self):
+-        return self.metering_labels.keys() + self.es_metering_labels.keys()
++        return super(
++            EsRouterWithMetering, self
++        ).get_metering_labels() + self.es_metering_labels.keys()
+ 
+ 
+ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index fc7da34cd..453f6b10d 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -82,7 +82,9 @@ class RouterWithMetering(object):
+         self.metering_labels = {}
+ 
+     def get_metering_labels(self):
+-        return self.metering_labels.keys()
++        return [
++            label_id for label_id in self.metering_labels.keys()
++            if self.metering_labels[label_id]['rules']]
+ 
+ 
+ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+@@ -249,6 +251,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                     self._process_metering_label_rules(rm, rules,
+                                                        label_id,
+                                                        rules_chain)
++                rm.metering_labels[label_id] = label
+ 
+     @log.log
+     def remove_metering_label(self, context, routers):
+-- 
+2.13.5 (Apple Git-94)
+
