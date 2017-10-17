@@ -1,0 +1,414 @@
+From f2ea4ecbb82d14423ca2d223fefb454d7e99bace Mon Sep 17 00:00:00 2001
+From: Vincent Hou <sbhou@cn.ibm.com>
+Date: Wed, 2 Jul 2014 23:32:11 -0400
+Subject: [PATCH 51/53] Send the notifications to the Ceilometer for backup
+ service
+
+* Add the notification send-out for create_backup, delete_backup
+  and restore_backup.
+* Add the progress notification to Swift backup service.
+
+DocImpact
+
+Change-Id: I9835073a39aa8b2ffbec12d84147cce027ff731b
+implements-bp: backup-notification
+(cherry picked from commit 77452d8c05d7a6b62e84dd39930fdca40257ce09)
+---
+ cinder/backup/driver.py           | 10 +++++-
+ cinder/backup/drivers/swift.py    | 68 +++++++++++++++++++++++++++++++++++++--
+ cinder/backup/manager.py          | 27 +++++++++++++---
+ cinder/tests/test_backup.py       | 33 +++++++++++++++++++
+ cinder/tests/test_backup_swift.py | 44 +++++++++++++++++++++++++
+ cinder/volume/utils.py            | 34 ++++++++++++++++++++
+ 6 files changed, 208 insertions(+), 8 deletions(-)
+
+diff --git a/cinder/backup/driver.py b/cinder/backup/driver.py
+index 674f59e5a..c9f5d9f55 100644
+--- a/cinder/backup/driver.py
++++ b/cinder/backup/driver.py
+@@ -30,7 +30,15 @@ service_opts = [
+     cfg.IntOpt('backup_metadata_version', default=1,
+                help='Backup metadata version to be used when backing up '
+                     'volume metadata. If this number is bumped, make sure the '
+-                    'service doing the restore supports the new version.')
++                    'service doing the restore supports the new version.'),
++    cfg.IntOpt('backup_object_number_per_notification',
++               default=10,
++               help='The number of chunks or objects, for which one '
++                    'Ceilometer notification will be sent'),
++    cfg.IntOpt('backup_timer_interval',
++               default=120,
++               help='Interval, in seconds, between two progress notifications '
++                    'reporting the backup status'),
+ ]
+ 
+ CONF = cfg.CONF
+diff --git a/cinder/backup/drivers/swift.py b/cinder/backup/drivers/swift.py
+index 1c1035ef2..96f78fd8c 100644
+--- a/cinder/backup/drivers/swift.py
++++ b/cinder/backup/drivers/swift.py
+@@ -48,6 +48,8 @@ from cinder.openstack.common import excutils
+ from cinder.openstack.common import log as logging
+ from cinder.openstack.common import timeutils
+ from cinder.openstack.common import units
++from cinder.openstack.common import loopingcall
++from cinder.volume import utils as volume_utils
+ 
+ 
+ LOG = logging.getLogger(__name__)
+@@ -94,6 +96,12 @@ swiftbackup_service_opts = [
+     cfg.StrOpt('backup_compression_algorithm',
+                default='zlib',
+                help='Compression algorithm (None to disable)'),
++    cfg.BoolOpt('backup_swift_enable_progress_timer',
++                default=True,
++                help='Enable or Disable the timer to send the periodic '
++                     'progress notifications to Ceilometer when backing '
++                     'up the volume to the Swift backend storage. The '
++                     'default value is True to enable the timer.'),
+ ]
+ 
+ CONF = cfg.CONF
+@@ -149,6 +157,9 @@ class SwiftBackupDriver(BackupDriver):
+         LOG.debug("Using swift URL %s", self.swift_url)
+         self.az = CONF.storage_availability_zone
+         self.data_block_size_bytes = CONF.backup_swift_object_size
++        self.backup_timer_interval = CONF.backup_timer_interval
++        self.data_block_num = CONF.backup_object_number_per_notification
++        self.enable_progress_timer = CONF.backup_swift_enable_progress_timer
+         self.swift_attempts = CONF.backup_swift_retry_attempts
+         self.swift_backoff = CONF.backup_swift_retry_backoff
+         self.compressor = \
+@@ -286,7 +297,7 @@ class SwiftBackupDriver(BackupDriver):
+                   })
+         object_meta = {'id': 1, 'list': [], 'prefix': object_prefix,
+                        'volume_meta': None}
+-        return object_meta, container
++        return object_meta, container, volume_size_bytes
+ 
+     def _backup_chunk(self, backup, container, data, data_offset, object_meta):
+         """Backup data chunk based on the object metadata and offset."""
+@@ -374,10 +385,46 @@ class SwiftBackupDriver(BackupDriver):
+ 
+         object_meta["volume_meta"] = json_meta
+ 
++    def _send_progress_end(self, context, backup, object_meta):
++        object_meta['backup_percent'] = 100
++        volume_utils.notify_about_backup_usage(context,
++                                               backup,
++                                               "createprogress",
++                                               extra_usage_info=
++                                               object_meta)
++
++    def _send_progress_notification(self, context, backup, object_meta,
++                                    total_block_sent_num, total_volume_size):
++        backup_percent = total_block_sent_num * 100 / total_volume_size
++        object_meta['backup_percent'] = backup_percent
++        volume_utils.notify_about_backup_usage(context,
++                                               backup,
++                                               "createprogress",
++                                               extra_usage_info=
++                                               object_meta)
++
+     def backup(self, backup, volume_file, backup_metadata=True):
+         """Backup the given volume to Swift."""
++        (object_meta, container,
++            volume_size_bytes) = self._prepare_backup(backup)
++        counter = 0
++        total_block_sent_num = 0
++
++        # There are two mechanisms to send the progress notification.
++        # 1. The notifications are periodically sent in a certain interval.
++        # 2. The notifications are sent after a certain number of chunks.
++        # Both of them are working simultaneously during the volume backup,
++        # when swift is taken as the backup backend.
++        def _notify_progress():
++            self._send_progress_notification(self.context, backup,
++                                             object_meta,
++                                             total_block_sent_num,
++                                             volume_size_bytes)
++        timer = loopingcall.FixedIntervalLoopingCall(
++            _notify_progress)
++        if self.enable_progress_timer:
++            timer.start(interval=self.backup_timer_interval)
+ 
+-        object_meta, container = self._prepare_backup(backup)
+         while True:
+             data = volume_file.read(self.data_block_size_bytes)
+             data_offset = volume_file.tell()
+@@ -385,6 +432,23 @@ class SwiftBackupDriver(BackupDriver):
+                 break
+             self._backup_chunk(backup, container, data,
+                                data_offset, object_meta)
++            total_block_sent_num += self.data_block_num
++            counter += 1
++            if counter == self.data_block_num:
++                # Send the notification to Ceilometer when the chunk
++                # number reaches the data_block_num. The backup percentage
++                # is put in the metadata as the extra information.
++                self._send_progress_notification(self.context, backup,
++                                                 object_meta,
++                                                 total_block_sent_num,
++                                                 volume_size_bytes)
++                # reset the counter
++                counter = 0
++
++        # Stop the timer.
++        timer.stop()
++        # All the data have been sent, the backup_percent reaches 100.
++        self._send_progress_end(self.context, backup, object_meta)
+ 
+         if backup_metadata:
+             try:
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index d337e56eb..dfac0e6ab 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -340,6 +340,7 @@ class BackupManager(manager.SchedulerDependentManager):
+                    'volume: %(volume_id)s.'),
+                  {'backup_id': backup['id'], 'volume_id': volume_id})
+ 
++        self._notify_about_backup_usage(context, backup, "create.start")
+         volume_host = volume_utils.extract_host(volume['host'], 'backend')
+         backend = self._get_volume_backend(host=volume_host)
+ 
+@@ -401,11 +402,12 @@ class BackupManager(manager.SchedulerDependentManager):
+         self.db.volume_update(context, volume_id,
+                               {'status': previous_status,
+                                'previous_status': 'backing-up'})
+-        self.db.backup_update(context, backup_id, {'status': 'available',
+-                                                   'size': volume['size'],
+-                                                   'availability_zone':
+-                                                   self.az})
++        backup = self.db.backup_update(context, backup_id,
++                                       {'status': 'available',
++                                        'size': volume['size'],
++                                        'availability_zone': self.az})
+         LOG.info(_('Create backup finished. backup: %s.'), backup_id)
++        self._notify_about_backup_usage(context, backup, "create.end")
+ 
+     def _delete_image(self, context, image_id, image_service):
+         """Deletes an image stuck in queued or saving state."""
+@@ -501,6 +503,7 @@ class BackupManager(manager.SchedulerDependentManager):
+         volume = self.db.volume_get(context, volume_id)
+         volume_host = volume_utils.extract_host(volume['host'], 'backend')
+         backend = self._get_volume_backend(host=volume_host)
++        self._notify_about_backup_usage(context, backup, "restore.start")
+ 
+         self.db.backup_update(context, backup_id, {'host': self.host})
+ 
+@@ -568,10 +571,12 @@ class BackupManager(manager.SchedulerDependentManager):
+                                       {'status': 'available'})
+ 
+         self.db.volume_update(context, volume_id, {'status': 'available'})
+-        self.db.backup_update(context, backup_id, {'status': 'available'})
++        backup = self.db.backup_update(context, backup_id,
++                                       {'status': 'available'})
+         LOG.info(_('Restore backup finished, backup %(backup_id)s restored'
+                    ' to volume %(volume_id)s.') %
+                  {'backup_id': backup_id, 'volume_id': volume_id})
++        self._notify_about_backup_usage(context, backup, "restore.end")
+ 
+     def delete_backup(self, context, backup_id):
+         """Delete volume backup from configured backup service."""
+@@ -590,6 +595,7 @@ class BackupManager(manager.SchedulerDependentManager):
+ 
+         LOG.info(_('Delete backup started, backup: %s.'), backup_id)
+         backup = self.db.backup_get(context, backup_id)
++        self._notify_about_backup_usage(context, backup, "delete.start")
+         self.db.backup_update(context, backup_id, {'host': self.host})
+ 
+         expected_status = 'deleting'
+@@ -649,6 +655,17 @@ class BackupManager(manager.SchedulerDependentManager):
+                           project_id=backup['project_id'])
+ 
+         LOG.info(_('Delete backup finished, backup %s deleted.'), backup_id)
++        self._notify_about_backup_usage(context, backup, "delete.end")
++
++    def _notify_about_backup_usage(self,
++                                   context,
++                                   backup,
++                                   event_suffix,
++                                   extra_usage_info=None):
++        volume_utils.notify_about_backup_usage(
++            context, backup, event_suffix,
++            extra_usage_info=extra_usage_info,
++            host=self.host)
+ 
+     def export_record(self, context, backup_id):
+         """Export all volume backup metadata details to allow clean import.
+diff --git a/cinder/tests/test_backup.py b/cinder/tests/test_backup.py
+index 4a240288d..fd3390084 100644
+--- a/cinder/tests/test_backup.py
++++ b/cinder/tests/test_backup.py
+@@ -492,6 +492,17 @@ class BackupTestCase(BaseBackupTest):
+         self.assertEqual(backup['size'], vol_size)
+         self.assertTrue(_mock_volume_backup.called)
+ 
++    @mock.patch('cinder.volume.utils.notify_about_backup_usage')
++    @mock.patch('%s.%s' % (CONF.volume_driver, 'backup_volume'))
++    def test_create_backup_with_notify(self, _mock_volume_backup, notify):
++        """Test normal backup creation with notifications."""
++        vol_size = 1
++        vol_id = self._create_volume_db_entry(size=vol_size)
++        backup_id = self._create_backup_db_entry(volume_id=vol_id)
++
++        self.backup_mgr.create_backup(self.ctxt, backup_id)
++        self.assertEqual(2, notify.call_count)
++
+     def test_restore_backup_with_bad_volume_status(self):
+         """Test error handling when restoring a backup to a volume
+         with a bad status.
+@@ -581,6 +592,19 @@ class BackupTestCase(BaseBackupTest):
+         self.assertEqual(backup['status'], 'available')
+         self.assertTrue(_mock_volume_restore.called)
+ 
++    @mock.patch('cinder.volume.utils.notify_about_backup_usage')
++    @mock.patch('%s.%s' % (CONF.volume_driver, 'restore_backup'))
++    def test_restore_backup_with_notify(self, _mock_volume_restore, notify):
++        """Test normal backup restoration with notifications."""
++        vol_size = 1
++        vol_id = self._create_volume_db_entry(status='restoring-backup',
++                                              size=vol_size)
++        backup_id = self._create_backup_db_entry(status='restoring',
++                                                 volume_id=vol_id)
++
++        self.backup_mgr.restore_backup(self.ctxt, backup_id, vol_id)
++        self.assertEqual(2, notify.call_count)
++
+     def test_delete_backup_with_bad_backup_status(self):
+         """Test error handling when deleting a backup with a backup
+         with a bad status.
+@@ -651,6 +675,15 @@ class BackupTestCase(BaseBackupTest):
+         self.assertGreaterEqual(timeutils.utcnow(), backup.deleted_at)
+         self.assertEqual(backup.status, 'deleted')
+ 
++    @mock.patch('cinder.volume.utils.notify_about_backup_usage')
++    def test_delete_backup_with_notify(self, notify):
++        """Test normal backup deletion with notifications."""
++        vol_id = self._create_volume_db_entry(size=1)
++        backup_id = self._create_backup_db_entry(status='deleting',
++                                                 volume_id=vol_id)
++        self.backup_mgr.delete_backup(self.ctxt, backup_id)
++        self.assertEqual(2, notify.call_count)
++
+     def test_list_backup(self):
+         backups = db.backup_get_all_by_project(self.ctxt, 'project1')
+         self.assertEqual(len(backups), 0)
+diff --git a/cinder/tests/test_backup_swift.py b/cinder/tests/test_backup_swift.py
+index 34c830f6a..fad295056 100644
+--- a/cinder/tests/test_backup_swift.py
++++ b/cinder/tests/test_backup_swift.py
+@@ -23,6 +23,7 @@ import os
+ import tempfile
+ import zlib
+ 
++import mock
+ from oslo.config import cfg
+ from swiftclient import client as swift
+ 
+@@ -145,6 +146,49 @@ class BackupSwiftTestCase(test.TestCase):
+         backup = db.backup_get(self.ctxt, 123)
+         self.assertEqual(backup['container'], 'volumebackups')
+ 
++    @mock.patch('cinder.backup.drivers.swift.SwiftBackupDriver.'
++                '_send_progress_end')
++    @mock.patch('cinder.backup.drivers.swift.SwiftBackupDriver.'
++                '_send_progress_notification')
++    def test_backup_default_container_notify(self, _send_progress,
++                                             _send_progress_end):
++        self._create_backup_db_entry(container=None)
++        # If the backup_object_number_per_notification is set to 1,
++        # the _send_progress method will be called for sure.
++        CONF.set_override("backup_object_number_per_notification", 1)
++        CONF.set_override("backup_swift_enable_progress_timer", False)
++        service = SwiftBackupDriver(self.ctxt)
++        self.volume_file.seek(0)
++        backup = db.backup_get(self.ctxt, 123)
++        service.backup(backup, self.volume_file)
++        self.assertTrue(_send_progress.called)
++        self.assertTrue(_send_progress_end.called)
++
++        # If the backup_object_number_per_notification is increased to
++        # another value, the _send_progress method will not be called.
++        _send_progress.reset_mock()
++        _send_progress_end.reset_mock()
++        CONF.set_override("backup_object_number_per_notification", 10)
++        service = SwiftBackupDriver(self.ctxt)
++        self.volume_file.seek(0)
++        backup = db.backup_get(self.ctxt, 123)
++        service.backup(backup, self.volume_file)
++        self.assertFalse(_send_progress.called)
++        self.assertTrue(_send_progress_end.called)
++
++        # If the timer is enabled, the _send_progress will be called,
++        # since the timer can trigger the progress notification.
++        _send_progress.reset_mock()
++        _send_progress_end.reset_mock()
++        CONF.set_override("backup_object_number_per_notification", 10)
++        CONF.set_override("backup_swift_enable_progress_timer", True)
++        service = SwiftBackupDriver(self.ctxt)
++        self.volume_file.seek(0)
++        backup = db.backup_get(self.ctxt, 123)
++        service.backup(backup, self.volume_file)
++        self.assertTrue(_send_progress.called)
++        self.assertTrue(_send_progress_end.called)
++
+     def test_backup_custom_container(self):
+         container_name = 'fake99'
+         self._create_backup_db_entry(container=container_name)
+diff --git a/cinder/volume/utils.py b/cinder/volume/utils.py
+index 885390438..c658c77f2 100644
+--- a/cinder/volume/utils.py
++++ b/cinder/volume/utils.py
+@@ -66,6 +66,25 @@ def _usage_from_volume(context, volume_ref, **kw):
+     return usage_info
+ 
+ 
++def _usage_from_backup(context, backup_ref, **kw):
++    usage_info = dict(tenant_id=backup_ref['project_id'],
++                      user_id=backup_ref['user_id'],
++                      availability_zone=backup_ref['availability_zone'],
++                      backup_id=backup_ref['id'],
++                      host=backup_ref['host'],
++                      display_name=backup_ref['display_name'],
++                      created_at=str(backup_ref['created_at']),
++                      status=backup_ref['status'],
++                      volume_id=backup_ref['volume_id'],
++                      size=backup_ref['size'],
++                      service_metadata=backup_ref['service_metadata'],
++                      service=backup_ref['service'],
++                      fail_reason=backup_ref['fail_reason'])
++
++    usage_info.update(kw)
++    return usage_info
++
++
+ def notify_about_volume_usage(context, volume, event_suffix,
+                               extra_usage_info=None, host=None):
+     if not host:
+@@ -80,6 +99,21 @@ def notify_about_volume_usage(context, volume, event_suffix,
+                                           usage_info)
+ 
+ 
++def notify_about_backup_usage(context, backup, event_suffix,
++                              extra_usage_info=None,
++                              host=None):
++    if not host:
++        host = CONF.host
++
++    if not extra_usage_info:
++        extra_usage_info = {}
++
++    usage_info = _usage_from_backup(context, backup, **extra_usage_info)
++
++    rpc.get_notifier("backup", host).info(context, 'backup.%s' % event_suffix,
++                                          usage_info)
++
++
+ def _usage_from_snapshot(context, snapshot_ref, **extra_usage_info):
+     usage_info = {
+         'tenant_id': snapshot_ref['project_id'],
+-- 
+2.15.0.rc0
+
