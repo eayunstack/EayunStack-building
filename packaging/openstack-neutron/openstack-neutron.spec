@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	41%{?dist_eayunstack}
+Release:	42%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -183,6 +183,7 @@ Patch0137: 0137-metering-exclude-label-without-rules-when-getting-co.patch
 Patch0138: 0138-db-fix-backref-cascade-between-router-and-es_meter_l.patch
 Patch0139: 0139-metering-use-eventlet-when-sending-metering-reports.patch
 Patch0140: 0140-metering-always-setup-metering-iptables-rules-for-ro.patch
+Patch0141: 0141-Use-specific-priority-for-ES-fip-ip-rules.patch
 
 
 BuildArch:	noarch
@@ -802,6 +803,7 @@ IPSec.
 %patch0138 -p1
 %patch0139 -p1
 %patch0140 -p1
+%patch0141 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1264,6 +1266,9 @@ exit 0
 
 
 %changelog
+* Wed Oct 25 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-42.eayunstack.dev
+- add patch 0141 from github pull request #136 (redmine#11086)
+
 * Fri Oct 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-41.eayunstack.dev
 - fix dependency on libreswan (only vpn-agent needs it)
 - add patch 0130-0133 from github pull request #116 (redmine#10685)
