@@ -1,0 +1,49 @@
+From 017c4705d75acda3449015e8e1b969687edf281b Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 27 Sep 2017 15:39:24 +0800
+Subject: [PATCH 115/117] Sync #133 from devel to testing
+
+metering: use eventlet when sending metering reports
+
+This leads to a better performance when sending reports.
+
+Fixes: redmine #11060
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+(cherry picked from commit a74fc69bbf7c95a9e050eb0af16773063aa55c53)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/metering/agents/metering_agent.py | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 5044d4861..4133e4e8a 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -78,6 +78,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+         self.root_helper = config.get_root_helper(self.conf)
+         self._load_drivers()
+         self.context = context.get_admin_context_without_session()
++        self.report_pool = eventlet.greenpool.GreenPool()
++        self.notifier = n_rpc.get_notifier('metering')
+         self.metering_loop = loopingcall.FixedIntervalLoopingCall(
+             self._metering_loop
+         )
+@@ -114,11 +116,12 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+                     'host': self.host}
+ 
+             LOG.debug(_("Send metering report: %s"), data)
+-            notifier = n_rpc.get_notifier('metering')
+-            notifier.info(self.context, 'l3.meter', data)
++            self.report_pool.spawn_n(
++                self.notifier.info, self.context, 'l3.meter', data)
+             info['pkts'] = 0
+             info['bytes'] = 0
+             info['time'] = 0
++        self.report_pool.waitall()
+ 
+     def _purge_metering_info(self):
+         deadline_timestamp = int(time.time()) - self.conf.report_interval
+-- 
+2.13.5 (Apple Git-94)
+

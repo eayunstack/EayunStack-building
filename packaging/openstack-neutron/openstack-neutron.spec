@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	18.10%{?dist_eayunstack}
+Release:	18.11%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -155,6 +155,11 @@ Patch0109: 0109-Sync-119-from-devel-to-testing.patch
 Patch0110: 0110-Sync-120-122-123-from-devel-to-testing.patch
 Patch0111: 0111-Sync-127-124-1-128-from-devel-to-testing.patch
 Patch0112: 0112-Sync-124-2-from-devel-to-testing.patch
+Patch0113: 0113-Sync-131-from-devel-to-testing.patch
+Patch0114: 0114-Sync-132-from-devel-to-testing.patch
+Patch0115: 0115-Sync-133-from-devel-to-testing.patch
+Patch0116: 0116-Sync-135-from-devel-to-testing.patch
+Patch0117: 0117-Sync-136-from-devel-to-testing.patch
 
 
 BuildArch:	noarch
@@ -746,6 +751,11 @@ IPSec.
 %patch0110 -p1
 %patch0111 -p1
 %patch0112 -p1
+%patch0113 -p1
+%patch0114 -p1
+%patch0115 -p1
+%patch0116 -p1
+%patch0117 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -1208,6 +1218,13 @@ exit 0
 
 
 %changelog
+* Thu Oct 26 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.11.eayunstack
+- add patch 0113 from github pull request #131 (redmine#10988)
+- add patch 0114 from github pull request #132 (redmine#11042)
+- add patch 0115 from github pull request #133 (redmine#11060)
+- add patch 0116 from github pull request #135 (redmine#9992)
+- add patch 0117 from github pull request #136 (redmine#11086)
+
 * Fri Sep 15 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-18.10.eayunstack
 - add patch 0102 from github pull request #121 (redmine#10882)
 - add patch 0103 from github pull request #105 (redmine#10261)
