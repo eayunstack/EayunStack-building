@@ -16,7 +16,7 @@
 Name: libreswan
 Summary: IPsec implementation with IKEv1 and IKEv2 keying protocols
 Version: 3.12
-Release: %{?prever:0.}5%{?prever:.%{prever}}%{?dist}
+Release: %{?prever:0.}6%{?prever:.%{prever}}%{?dist}
 License: GPLv2
 Url: https://www.libreswan.org/
 Source: https://download.libreswan.org/%{name}-%{version}%{?prever}.tar.gz
@@ -36,6 +36,7 @@ Patch5: libreswan-3.12-1131503-invalid-ke.patch
 Patch6: libreswan-3.12-1134297-aes_ctr.patch
 Patch7: libreswan-3.12-1162770-gcm-man.patch
 Patch8: libreswan-3.12-826264-ike-aes-gcm.patch
+Patch9: libreswan-3.12-eayun-11078-restore-route.patch
 
 Conflicts: openswan < %{version}-%{release}
 Obsoletes: openswan < %{version}-%{release}
@@ -97,6 +98,7 @@ Libreswan is based on Openswan-2.6.38 which in turn is based on FreeS/WAN-2.04
 %patch6 -p1
 %patch7 -p1
 %patch8 -p1
+%patch9 -p1
 # remove man page for ipsec.conf so it is forced to regenerate
 rm ./programs/configs/ipsec.conf.5
 
@@ -165,6 +167,7 @@ rm -rf %{buildroot}/usr/share/doc/libreswan
 install -d -m 0755 %{buildroot}%{_localstatedir}/run/pluto
 # used when setting --perpeerlog without --perpeerlogbase
 install -d -m 0700 %{buildroot}%{_localstatedir}/log/pluto/peer
+install -d -m 0755 %{buildroot}%{_localstatedir}/lib/ipsec
 install -d %{buildroot}%{_sbindir}
 
 %if %{USE_FIPSCHECK}
@@ -190,6 +193,7 @@ rm -fr %{buildroot}/etc/rc.d/rc*
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/ipsec.d/policies/*
 %attr(0700,root,root) %dir %{_localstatedir}/log/pluto/peer
 %attr(0755,root,root) %dir %{_localstatedir}/run/pluto
+%attr(0755,root,root) %dir %{_localstatedir}/lib/ipsec
 %attr(0644,root,root) %{_unitdir}/ipsec.service
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/pam.d/pluto
 %{_sbindir}/ipsec
@@ -217,6 +221,9 @@ if [ ! -f %{_sysconfdir}/ipsec.d/cert8.db ] ; then
 fi
 
 %changelog
+* Wed Oct 11 2017 Xu Meihong <meihong.xu@eayun.com> - 3.12-6
+- Resolves: redmine#11078 save and restore route if left and right cidrs are overlapped
+
 * Tue Jan 20 2015 Paul Wouters <pwouters@redhat.com> - 3.12-5
 - Resolves: rhbz#826264 aes-gcm implementation support (for IKEv2)
 - Resolves: rhbz#1074018 Audit key agreement (integ gcm fixup)

@@ -1,0 +1,39 @@
+diff -Nur libreswan-3.12-orig/programs/_updown.netkey/_updown.netkey.in libreswan-3.12/programs/_updown.netkey/_updown.netkey.in
+--- libreswan-3.12-orig/programs/_updown.netkey/_updown.netkey.in	2014-11-06 22:52:50.000000000 -0500
++++ libreswan-3.12/programs/_updown.netkey/_updown.netkey.in	2017-10-11 00:36:33.288000000 -0400
+@@ -389,6 +389,8 @@
+ 
+ doroute() {
+     st=0
++    restore_route=0
++    route_save_file="/var/lib/ipsec/save_routes_${PLUTO_CONNECTION%%/*}"
+     # skip routing if it's not enabled or necessary
+     if [ -z "${PLUTO_MY_SOURCEIP}" -a \
+ 	-z "${PLUTO_MTU}" -a \
+@@ -405,6 +407,11 @@
+     # route via proper interface according to routing table
+     if [ "${1}" = "del" ]; then
+ 	peer_interface=$(ip -o route get ${PLUTO_PEER_CLIENT} | sed "s/^.*dev \([^ ]*\) .*/\1/")
++	next_hop_interface=$(ip -o route get ${PLUTO_NEXT_HOP} | sed "s/^.*dev \([^ ]*\) .*/\1/")
++	if [ "${peer_interface}" != "${next_hop_interface}" ]; then
++	    restore_route=1
++	    peer_interface=${next_hop_interface}
++	fi
+     else
+ 	peer_interface=$(ip -o route get ${PLUTO_NEXT_HOP} | sed "s/^.*dev \([^ ]*\) .*/\1/")
+     fi
+@@ -432,6 +439,14 @@
+ 	    ;;
+ 	*)
+ 	    it="ip route $1 ${parms} ${parms2}"
++	    if [ ${restore_route} -eq 1 ]; then
++		it="${it} && ip route restore < ${route_save_file}"
++	    fi
++	    if [ "$1" = "del" ]; then
++		it="${it} && rm -rf ${route_save_file}"
++	    else
++		it="ip route save to ${parms} > ${route_save_file} && ${it}"
++	    fi
+ 	    ;;
+     esac
+     oops="$(eval ${it} 2>&1)"
