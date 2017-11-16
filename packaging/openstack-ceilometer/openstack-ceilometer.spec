@@ -6,7 +6,7 @@
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
-Release:          6%{?dist_eayunstack}
+Release:          7%{?dist_eayunstack}
 Summary:          OpenStack measurement collection service
 
 Group:            Applications/System
@@ -68,6 +68,7 @@ Patch0016:           0016-Add-ceilometer-database-meter-base.patch
 Patch0017:           0017-Add-trove-database-mysql-monitor.patch
 Patch0018:           0018-Add-trove-database-mongo-monitor.patch
 Patch0019:           0019-Add-trove-database-redis-monitor.patch
+Patch0020:           0020-Fix-ceilometer-collector-server-error.patch
 
 
 BuildArch:        noarch
@@ -93,6 +94,7 @@ Group:            Applications/System
 
 Requires:         python-babel
 Requires:         python-eventlet
+Requires:         python-werkzeug >= 0.7
 Requires:         python-greenlet
 Requires:         python-iso8601
 Requires:         python-lxml
@@ -344,6 +346,7 @@ This package contains documentation files for ceilometer.
 %patch017 -p1
 %patch018 -p1
 %patch019 -p1
+%patch020 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -863,6 +866,9 @@ fi
 
 
 %changelog
+* Thu Nov 16 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-7.eayunstack.dev
+- Fix collector server dispatcher faild 0020-Fix-ceilometer-collector-server-error.patch
+
 * Wed Sep 27 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-6.eayunstack.dev
 - Add database monitor base 0016-Add-ceilometer-database-meter-base.patch
 - Add database monitor mysql 0017-Add-trove-database-mysql-monitor.patch
