@@ -1,0 +1,64 @@
+From 141a410b0b5b82072630c7251772f1b93f943f3a Mon Sep 17 00:00:00 2001
+From: "Yuanbin.Chen" <cybing4@gmail.com>
+Date: Thu, 16 Nov 2017 09:48:29 +0800
+Subject: [PATCH] Fix ceilometer-collector server error
+
+This patch fix when ceilometer-collector start,
+the mongod server not right. After time the mongod
+recover right, the ceilometer-collector is not
+running right.
+
+Bug-ES #11201
+http://192.168.15.2/issues/11201
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+(cherry picked from commit bd71777342f6fcfe26aca45cbcbb01260b97ddd5)
+---
+ ceilometer/dispatcher/__init__.py | 24 ++++++++++++++++--------
+ 1 file changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/ceilometer/dispatcher/__init__.py b/ceilometer/dispatcher/__init__.py
+index a7baf5e..382b733 100644
+--- a/ceilometer/dispatcher/__init__.py
++++ b/ceilometer/dispatcher/__init__.py
+@@ -16,6 +16,7 @@
+ # under the License.
+ 
+ import abc
++import time
+ 
+ from oslo.config import cfg
+ import six
+@@ -42,14 +43,21 @@ DISPATCHER_NAMESPACE = 'ceilometer.dispatcher'
+ def load_dispatcher_manager():
+     LOG.debug(_('loading dispatchers from %s'),
+               DISPATCHER_NAMESPACE)
+-    dispatcher_manager = named.NamedExtensionManager(
+-        namespace=DISPATCHER_NAMESPACE,
+-        names=cfg.CONF.dispatcher,
+-        invoke_on_load=True,
+-        invoke_args=[cfg.CONF])
+-    if not list(dispatcher_manager):
+-        LOG.warning(_('Failed to load any dispatchers for %s'),
+-                    DISPATCHER_NAMESPACE)
++
++    # When dispatcher_manager get faild, The dispatcher_manager it's
++    # going to run all the time.
++    while True:
++        dispatcher_manager = named.NamedExtensionManager(
++            namespace=DISPATCHER_NAMESPACE,
++            names=cfg.CONF.dispatcher,
++            invoke_on_load=True,
++            invoke_args=[cfg.CONF])
++        if not list(dispatcher_manager):
++            LOG.warning(_('Failed to load any dispatchers for %s'),
++                        DISPATCHER_NAMESPACE)
++            time.sleep(60)
++        else:
++            break
+     return dispatcher_manager
+ 
+ 
+-- 
+2.7.4
+
