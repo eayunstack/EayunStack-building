@@ -1,0 +1,67 @@
+From 38b4f22fb11254cbd159c909bef3398c41c3ecad Mon Sep 17 00:00:00 2001
+From: "Yuanbin.Chen" <cybing4@gmail.com>
+Date: Tue, 28 Nov 2017 10:35:59 +0800
+Subject: [PATCH] Fix mysql database monitor name typo error
+
+This patch fix mysql.slow.queries/mysql.qcache.query.hits.ratio
+name typo error
+
+Bug-ES #11204
+http://192.168.15.2/issues/11204
+
+Signed-off-by: Yuanbin.Chen <cybing4@gmail.com>
+---
+ ceilometer/database/mysql.py | 6 +++---
+ setup.cfg                    | 4 ++--
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/ceilometer/database/mysql.py b/ceilometer/database/mysql.py
+index cf896fc..0557eb9 100644
+--- a/ceilometer/database/mysql.py
++++ b/ceilometer/database/mysql.py
+@@ -73,11 +73,11 @@ class MysqlTPSRatePollster(DataBaseNotificationBase):
+     sample_type = sample.TYPE_DELTA
+ 
+ 
+-class MysqlSlowQuerysPollster(DataBaseNotificationBase):
++class MysqlSlowQueriesPollster(DataBaseNotificationBase):
+     """Listen for Trove notifications.
+        Listen in order to mediate with the metering framework.
+     """
+-    resource_name = 'mysql.slow.querys'
++    resource_name = 'mysql.slow.queries'
+     unit = 'request'
+     sample_type = sample.TYPE_CUMULATIVE
+ 
+@@ -131,7 +131,7 @@ class MysqlQcacheQueryHitsRatioPollster(DataBaseNotificationBase):
+     """Listen for Trove notifications.
+        Listen in order to mediate with the metering framework.
+     """
+-    resource_name = 'mysql.qcahce.query.hits.ratio'
++    resource_name = 'mysql.qcache.query.hits.ratio'
+     unit = '%'
+     sample_type = sample.TYPE_DELTA
+ 
+diff --git a/setup.cfg b/setup.cfg
+index b23c2ba..976c27a 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -83,13 +83,13 @@ ceilometer.notification =
+	mysql.qps.rate = ceilometer.database.mysql:MysqlQPSRatePollster
+	mysql.tps = ceilometer.database.mysql:MysqlTPSPollster
+	mysql.tps.rate = ceilometer.database.mysql:MysqlTPSRatePollster
+-	mysql.slow.querys = ceilometer.database.mysql:MysqlSlowQuerysPollster
++	mysql.slow.queries = ceilometer.database.mysql:MysqlSlowQueriesPollster
+	mysql.sync.delay = ceilometer.database.mysql:MysqlSyncSlaveDelayPollster
+	mysql.scan.full.table = ceilometer.database.mysql:MysqlScanFullTablePollster
+	mysql.buffer.pool.dirty.ratio = ceilometer.database.mysql:MysqlBufferPoolDirtyRatioPollster
+	mysql.buffer.pool.size = ceilometer.database.mysql:MysqlBufferPoolSizePollster
+	mysql.buffer.pool.read.hits.ratio = ceilometer.database.mysql:MysqlBufferPoolReadHitsRatioPollster
+-	mysql.qcahce.query.hits.ratio = ceilometer.database.mysql:MysqlQcacheQueryHitsRatioPollster
++	mysql.qcache.query.hits.ratio = ceilometer.database.mysql:MysqlQcacheQueryHitsRatioPollster
+	mysql.cached.connections.hits.ratio = ceilometer.database.mysql:MysqlCachedConnectionsHitsRatioPollster
+	mysql.threads.running = ceilometer.database.mysql:MysqlThreadsRunningPollster
+	mysql.max.connections = ceilometer.database.mysql:MysqlMaxConnectionsPollster
+-- 
+2.7.4
+
