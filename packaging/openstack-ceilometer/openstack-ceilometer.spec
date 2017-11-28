@@ -6,7 +6,7 @@
 
 Name:             openstack-ceilometer
 Version:          2014.2.2
-Release:          7%{?dist_eayunstack}
+Release:          8%{?dist_eayunstack}
 Summary:          OpenStack measurement collection service
 
 Group:            Applications/System
@@ -69,6 +69,7 @@ Patch0017:           0017-Add-trove-database-mysql-monitor.patch
 Patch0018:           0018-Add-trove-database-mongo-monitor.patch
 Patch0019:           0019-Add-trove-database-redis-monitor.patch
 Patch0020:           0020-Fix-ceilometer-collector-server-error.patch
+Patch0021:           0021-Fix-mysql-database-monitor-name-typo-error.patch
 
 
 BuildArch:        noarch
@@ -347,6 +348,7 @@ This package contains documentation files for ceilometer.
 %patch018 -p1
 %patch019 -p1
 %patch020 -p1
+%patch021 -p1
 
 find . \( -name .gitignore -o -name .placeholder \) -delete
 
@@ -866,6 +868,9 @@ fi
 
 
 %changelog
+* Tue Nov 28 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-8.eayunstack.dev
+- Fix database monitor mysql name typo 0021-Fix-mysql-database-monitor-name-typo-error.patch
+
 * Thu Nov 16 2017 Yuanbin Chen <cybing4@gmail.com> 2014.2.2-7.eayunstack.dev
 - Fix collector server dispatcher faild 0020-Fix-ceilometer-collector-server-error.patch
 
