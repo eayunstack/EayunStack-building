@@ -1,0 +1,119 @@
+From 997764c7558dbd87c1a324b008711650ff49e652 Mon Sep 17 00:00:00 2001
+From: LisaLi <xiaoyan.li@intel.com>
+Date: Thu, 24 Dec 2015 11:16:26 +0800
+Subject: [PATCH 47/53] Add restore_volume_id in backup
+
+This patch is to add restore_volume_id in backup object.
+When restoring a volume from a backup, it saves the
+volume in backup object.
+
+Currently volume service and backup service are in same host.
+When backup service starts, it does cleanup tasks on both
+backups and volumes on current host.
+
+But with bp scalable-backup-service, backup service and
+volume services can run on different hosts. When doing cleanup
+tasks, we need to find out backing-up and restoring volumes
+related to the backups on current host. Backing-up volumes can
+be found with field backup.volume_id. Restoring volumes are found
+by new field backup.restore_volume_id.
+
+Change-Id: I757be7a5e47fc366c181400587b5a61fe3709a0b
+Partial-Implements: bp scalable-backup-service
+Co-Authored-By: Tom Barron <tpb@dyncloud.net>
+(cherry picked from commit 4c83280125cc7ce15dc65b700494b2cc4491b4bd)
+---
+ cinder/backup/api.py                               |  5 ++-
+ .../030_add_restore_volume_id_to_backups.py        | 36 ++++++++++++++++++++++
+ cinder/db/sqlalchemy/models.py                     |  1 +
+ cinder/tests/test_db_api.py                        |  3 +-
+ 4 files changed, 43 insertions(+), 2 deletions(-)
+ create mode 100644 cinder/db/sqlalchemy/migrate_repo/versions/030_add_restore_volume_id_to_backups.py
+
+diff --git a/cinder/backup/api.py b/cinder/backup/api.py
+index c53249ab0..1f4b8451f 100644
+--- a/cinder/backup/api.py
++++ b/cinder/backup/api.py
+@@ -309,7 +309,10 @@ class API(base.Base):
+ 
+         # Setting the status here rather than setting at start and unrolling
+         # for each error condition, it should be a very small window
+-        self.db.backup_update(context, backup_id, {'status': 'restoring'})
++        self.db.backup_update(context, backup_id, {
++            'status': 'restoring',
++            'restore_volume_id': volume_id
++            })
+         self.db.volume_update(context, volume_id, {'status':
+                                                    'restoring-backup'})
+ 
+diff --git a/cinder/db/sqlalchemy/migrate_repo/versions/030_add_restore_volume_id_to_backups.py b/cinder/db/sqlalchemy/migrate_repo/versions/030_add_restore_volume_id_to_backups.py
+new file mode 100644
+index 000000000..3ee700a8a
+--- /dev/null
++++ b/cinder/db/sqlalchemy/migrate_repo/versions/030_add_restore_volume_id_to_backups.py
+@@ -0,0 +1,36 @@
++# Copyright (c) 2015 Intel Corporation
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from sqlalchemy import Column, MetaData, String, Table
++
++
++def upgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    backups = Table('backups', meta, autoload=True)
++    restore_volume_id = Column('restore_volume_id', String(length=36))
++
++    backups.create_column(restore_volume_id)
++
++
++def downgrade(migrate_engine):
++    meta = MetaData()
++    meta.bind = migrate_engine
++
++    backups = Table('backups', meta, autoload=True)
++    restore_volume_id = backups.columns.restore_volume_id
++
++    backups.drop_column(restore_volume_id)
+diff --git a/cinder/db/sqlalchemy/models.py b/cinder/db/sqlalchemy/models.py
+index ada438327..c787662be 100644
+--- a/cinder/db/sqlalchemy/models.py
++++ b/cinder/db/sqlalchemy/models.py
+@@ -503,6 +503,7 @@ class Backup(BASE, CinderBase):
+     object_count = Column(Integer)
+     temp_volume_id = Column(String(36))
+     temp_snapshot_id = Column(String(36))
++    restore_volume_id = Column(String(36))
+ 
+     @validates('fail_reason')
+     def validate_fail_reason(self, key, fail_reason):
+diff --git a/cinder/tests/test_db_api.py b/cinder/tests/test_db_api.py
+index aef8c5efd..9ac70a975 100644
+--- a/cinder/tests/test_db_api.py
++++ b/cinder/tests/test_db_api.py
+@@ -1189,7 +1189,8 @@ class DBAPIBackupTestCase(BaseTest):
+             'size': 1000,
+             'object_count': 100,
+             'temp_volume_id': 'temp_volume_id',
+-            'temp_snapshot_id': 'temp_snapshot_id', }
++            'temp_snapshot_id': 'temp_snapshot_id',
++            'restore_volume_id': 'restore_volume_id'}
+         if one:
+             return base_values
+ 
+-- 
+2.15.0.rc0
+

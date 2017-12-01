@@ -1,0 +1,61 @@
+From 878eb1cff372cd630cc45630b3f514423f4fb3bc Mon Sep 17 00:00:00 2001
+From: kongxiangyun <kongxyxian2010@163.com>
+Date: Fri, 7 Jul 2017 18:29:21 +0800
+Subject: [PATCH 37/38] Cinder volume revert to snapshot with Ceph
+
+This commit implements reverting volume to a snapshot when
+backend_storage is ceph
+
+Change-Id: I845d4770f26ba6dc48bce2a4959b104df3668ea9
+Partial-Implements: blueprint revert-volume-to-snapshot
+(cherry picked from commit bf041fb7ffb38506402b49b8f3225c391c63fada)
+---
+ cinder/volume/drivers/rbd.py                               | 14 ++++++++++++++
+ ...rt-to-snapshot-support-rbd-driver-08f77fa50d535622.yaml |  3 +++
+ 2 files changed, 17 insertions(+)
+ create mode 100644 releasenotes/notes/add-revert-to-snapshot-support-rbd-driver-08f77fa50d535622.yaml
+
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index 73905c9e0..f9c329de1 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -249,6 +249,7 @@ class RBDDriver(driver.VolumeDriver):
+     """Implements RADOS block device (RBD) volume commands."""
+ 
+     VERSION = '1.1.0'
++    support_reverting_to_any_snapshot = False
+ 
+     def __init__(self, *args, **kwargs):
+         super(RBDDriver, self).__init__(*args, **kwargs)
+@@ -684,6 +685,19 @@ class RBDDriver(driver.VolumeDriver):
+                 new_name = "%s.deleted" % (volume_name)
+                 self.rbd.RBD().rename(client.ioctx, volume_name, new_name)
+ 
++    def revert_to_snapshot(self, context, volume, snapshot):
++        """Revert a volume to a snapshot"""
++        volume_name = "volume-" + volume['id']
++        snap_name = "snapshot-" + snapshot['id']
++
++        with RBDVolumeProxy(self, volume_name) as dest_volume:
++            try:
++                dest_volume.rollback_to_snap(strutils.safe_encode(snap_name))
++            except self.rbd.ImageNotFound:
++                LOG.error("RBD volume %s not found, allowing revert"
++                          "operation to proceed.", volume_name)
++                raise exception.VolumeNotFound(volume_id=volume_name)
++
+     def create_snapshot(self, snapshot):
+         """Creates an rbd snapshot."""
+         with RBDVolumeProxy(self, snapshot['volume_name']) as volume:
+diff --git a/releasenotes/notes/add-revert-to-snapshot-support-rbd-driver-08f77fa50d535622.yaml b/releasenotes/notes/add-revert-to-snapshot-support-rbd-driver-08f77fa50d535622.yaml
+new file mode 100644
+index 000000000..9e063fdd2
+--- /dev/null
++++ b/releasenotes/notes/add-revert-to-snapshot-support-rbd-driver-08f77fa50d535622.yaml
+@@ -0,0 +1,3 @@
++---
++features:
++  - Add revert to snapshot support in RBD driver.
+-- 
+2.14.1
+

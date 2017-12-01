@@ -1,0 +1,186 @@
+From 4fcfd5e8ff1197d1872d0a8509c13ac5d83ff2e5 Mon Sep 17 00:00:00 2001
+From: wanghao <wanghao749@huawei.com>
+Date: Sat, 10 Oct 2015 11:18:02 +0800
+Subject: [PATCH 50/53] Retyping volume got error under max vol limit
+
+After reaching the max volume limit and
+retyping one of volumes, cinder will raise
+error: "VolumeLimitExceeded".
+
+This error shouldn't be occurring since the
+volume type limit is -1 and retyping doesn't
+change the volume quota, it changes the volume
+type quota.
+
+Change-Id: I5f25c47158ac24bef94078457a84248daa67e80f
+Closes-Bug: #1504719
+(cherry picked from commit c68bc2eb2be41a437390cbd81a499bb0ea94f180)
+---
+ cinder/quota_utils.py       |  8 +++++++-
+ cinder/tests/test_quota.py  | 20 ++++++++++++++++++++
+ cinder/tests/test_volume.py | 30 +++++++++++++++++++++++++++++-
+ cinder/volume/api.py        |  9 +++++++--
+ cinder/volume/manager.py    |  5 +++++
+ 5 files changed, 68 insertions(+), 4 deletions(-)
+
+diff --git a/cinder/quota_utils.py b/cinder/quota_utils.py
+index f493a0ca9..22c2b102d 100644
+--- a/cinder/quota_utils.py
++++ b/cinder/quota_utils.py
+@@ -23,13 +23,19 @@ LOG = logging.getLogger(__name__)
+ QUOTAS = quota.QUOTAS
+ 
+ 
+-def get_volume_type_reservation(ctxt, volume, type_id):
++def get_volume_type_reservation(ctxt, volume, type_id,
++                                reserve_vol_type_only=False):
+     # Reserve quotas for the given volume type
+     try:
+         reserve_opts = {'volumes': 1, 'gigabytes': volume['size']}
+         QUOTAS.add_volume_type_opts(ctxt,
+                                     reserve_opts,
+                                     type_id)
++        # If reserve_vol_type_only is True, just reserve volume_type quota,
++        # not volume quota.
++        if reserve_vol_type_only:
++            reserve_opts.pop('volumes')
++            reserve_opts.pop('gigabytes')
+         # Note that usually the project_id on the volume will be the same as
+         # the project_id in the context. But, if they are different then the
+         # reservations must be recorded against the project_id that owns the
+diff --git a/cinder/tests/test_quota.py b/cinder/tests/test_quota.py
+index 51f90e76e..91154d03b 100644
+--- a/cinder/tests/test_quota.py
++++ b/cinder/tests/test_quota.py
+@@ -1638,3 +1638,23 @@ class QuotaVolumeTypeReservationTestCase(test.TestCase):
+                                              project_id='vol_project_id',
+                                              gigabytes='1',
+                                              volumes=1)
++
++    @mock.patch.object(quota.QUOTAS, 'reserve')
++    def test_volume_type_reservation_with_type_only(self, mock_reserve):
++        my_context = FakeContext('MyProject', None)
++        volume = {'name': 'my_vol_name',
++                  'id': 'my_vol_id',
++                  'size': '1',
++                  'project_id': 'vol_project_id',
++                  }
++        quota_utils.get_volume_type_reservation(my_context,
++                                                volume,
++                                                self.volume_type['id'],
++                                                reserve_vol_type_only=True)
++        vtype_volume_quota = "%s_%s" % ('volumes', self.volume_type['name'])
++        vtype_size_quota = "%s_%s" % ('gigabytes', self.volume_type['name'])
++        reserve_opts = {vtype_volume_quota: 1,
++                        vtype_size_quota: volume['size']}
++        mock_reserve.assert_called_once_with(my_context,
++                                             project_id='vol_project_id',
++                                             **reserve_opts)
+diff --git a/cinder/tests/test_volume.py b/cinder/tests/test_volume.py
+index fad6b6fd5..5d5a6abbf 100644
+--- a/cinder/tests/test_volume.py
++++ b/cinder/tests/test_volume.py
+@@ -2876,7 +2876,7 @@ class VolumeTestCase(BaseVolumeTestCase):
+ 
+     def _retype_volume_exec(self, driver, snap=False, policy='on-demand',
+                             migrate_exc=False, exc=None, diff_equal=False,
+-                            replica=False):
++                            replica=False, reserve_vol_type_only=False):
+         elevated = context.get_admin_context()
+         project_id = self.context.project_id
+ 
+@@ -2905,6 +2905,17 @@ class VolumeTestCase(BaseVolumeTestCase):
+         QUOTAS.add_volume_type_opts(self.context,
+                                     reserve_opts,
+                                     vol_type['id'])
++        if reserve_vol_type_only:
++            reserve_opts.pop('volumes')
++            reserve_opts.pop('gigabytes')
++            try:
++                usage = db.quota_usage_get(elevated, project_id, 'volumes')
++                total_volumes_in_use = usage.in_use
++                usage = db.quota_usage_get(elevated, project_id, 'gigabytes')
++                total_gigabytes_in_use = usage.in_use
++            except exception.QuotaUsageNotFound:
++                total_volumes_in_use = 0
++                total_gigabytes_in_use = 0
+         reservations = QUOTAS.reserve(self.context,
+                                       project_id=project_id,
+                                       **reserve_opts)
+@@ -2949,6 +2960,20 @@ class VolumeTestCase(BaseVolumeTestCase):
+         except exception.QuotaUsageNotFound:
+             volumes_in_use = 0
+ 
++        # Get new in_use after retype, it should not be changed.
++        if reserve_vol_type_only:
++            try:
++                usage = db.quota_usage_get(elevated, project_id, 'volumes')
++                new_total_volumes_in_use = usage.in_use
++                usage = db.quota_usage_get(elevated, project_id, 'gigabytes')
++                new_total_gigabytes_in_use = usage.in_use
++            except exception.QuotaUsageNotFound:
++                new_total_volumes_in_use = 0
++                new_total_gigabytes_in_use = 0
++            self.assertEqual(total_volumes_in_use, new_total_volumes_in_use)
++            self.assertEqual(total_gigabytes_in_use,
++                             new_total_gigabytes_in_use)
++
+         # check properties
+         if driver or diff_equal:
+             self.assertEqual(volume['volume_type_id'], vol_type['id'])
+@@ -2991,6 +3016,9 @@ class VolumeTestCase(BaseVolumeTestCase):
+     def test_retype_volume_migration_equal_types(self):
+         self._retype_volume_exec(False, diff_equal=True)
+ 
++    def test_retype_volume_with_type_only(self):
++        self._retype_volume_exec(True, reserve_vol_type_only=True)
++
+     def test_migrate_driver_not_initialized(self):
+         volume = tests_utils.create_volume(self.context, size=0,
+                                            host=CONF.host)
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 998e6e6ff..4e3f7d1a5 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -1234,8 +1234,8 @@ class API(base.Base):
+         # We're checking here in so that we can report any quota issues as
+         # early as possible, but won't commit until we change the type. We
+         # pass the reservations onward in case we need to roll back.
+-        reservations = quota_utils.get_volume_type_reservation(context, volume,
+-                                                               vol_type_id)
++        reservations = quota_utils.get_volume_type_reservation(
++            context, volume, vol_type_id, reserve_vol_type_only=True)
+ 
+         # Get old reservations
+         try:
+@@ -1243,6 +1243,11 @@ class API(base.Base):
+             QUOTAS.add_volume_type_opts(context,
+                                         reserve_opts,
+                                         old_vol_type_id)
++            # NOTE(wanghao): We don't need to reserve volumes and gigabytes
++            # quota for retyping operation since they didn't changed, just
++            # reserve volume_type and type gigabytes is fine.
++            reserve_opts.pop('volumes')
++            reserve_opts.pop('gigabytes')
+             old_reservations = QUOTAS.reserve(context,
+                                               project_id=volume['project_id'],
+                                               **reserve_opts)
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 5be894efa..72db38843 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -1529,6 +1529,11 @@ class VolumeManager(manager.SchedulerDependentManager):
+                 QUOTAS.add_volume_type_opts(context,
+                                             reserve_opts,
+                                             volume_ref.get('volume_type_id'))
++                # NOTE(wanghao): We don't need to reserve volumes and gigabytes
++                # quota for retyping operation since they didn't changed, just
++                # reserve volume_type and type gigabytes is fine.
++                reserve_opts.pop('volumes')
++                reserve_opts.pop('gigabytes')
+                 old_reservations = QUOTAS.reserve(context,
+                                                   project_id=project_id,
+                                                   **reserve_opts)
+-- 
+2.15.0.rc0
+

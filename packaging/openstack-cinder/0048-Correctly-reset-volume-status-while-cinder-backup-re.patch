@@ -1,0 +1,72 @@
+From 594803f2ffa7d31254af4610f54073ee6574ebc2 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Wed, 27 Sep 2017 18:07:28 +0800
+Subject: [PATCH 48/53] Correctly reset volume status while cinder-backup
+ restarts.
+
+Before this patch, when cinder-backup restarts, volumes and backups are
+resetting status separately. But volumes are filtered by host,
+cinder-backup's host configuration is not the same as cinder-volume by
+default, so in fact no volumes will be found and reset.
+
+This patch comes from faee0520a455e3402dd7d77662b077b64956db08, volumes
+are checked and reset according to the incompleted backup.
+
+Fixes: http://192.168.15.2/issues/9978
+
+Change-Id: I045c7711039ce4fa656c9fde01e6eb5329fbafcd
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/manager.py | 19 +++++++++----------
+ 1 file changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index 3894c1a15..1ee82b543 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -202,14 +202,6 @@ class BackupManager(manager.SchedulerDependentManager):
+ 
+     def _cleanup_incomplete_backup_operations(self, ctxt):
+         LOG.info(_("Cleaning up incomplete backup operations."))
+-        volumes = self.db.volume_get_all_by_host(ctxt, self.host)
+-
+-        for volume in volumes:
+-            try:
+-                self._cleanup_one_volume(ctxt, volume)
+-            except Exception:
+-                LOG.exception(_("Problem cleaning up volume %(vol)s."),
+-                              {'vol': volume['id']})
+ 
+         # TODO(smulcahy) implement full resume of backup and restore
+         # operations on restart (rather than simply resetting)
+@@ -251,18 +243,25 @@ class BackupManager(manager.SchedulerDependentManager):
+         if backup['status'] == 'creating':
+             LOG.info(_('Resetting backup %s to error (was creating).'),
+                      backup['id'])
++
++            volume = self.db.volume_get(ctxt, backup['volume_id'])
++            self._cleanup_one_volume(ctxt, volume)
++
+             err = 'incomplete backup reset on manager restart'
+             backup['status'] = 'error'
+             backup['fail_reason'] = err
+             self.db.backup_update(ctxt, backup['id'], {'status': 'error',
+                                                        'fail_reason': err})
+-        if backup['status'] == 'restoring':
++        elif backup['status'] == 'restoring':
+             LOG.info(_('Resetting backup %s to available (was restoring).'),
+                      backup['id'])
++            volume = self.db.volume_get(ctxt, backup['restore_volume_id'])
++            self._cleanup_one_volume(ctxt, volume)
++
+             backup['status'] = 'available'
+             self.db.backup_update(ctxt, backup['id'],
+                                   {'status': 'available'})
+-        if backup['status'] == 'deleting':
++        elif backup['status'] == 'deleting':
+             LOG.info(_('Resuming delete on backup: %s.'), backup['id'])
+             self.delete_backup(ctxt, backup['id'])
+ 
+-- 
+2.15.0.rc0
+

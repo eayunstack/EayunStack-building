@@ -1,0 +1,494 @@
+From 5174dc62870b0ef49acf591d2e4bba3c20fe6949 Mon Sep 17 00:00:00 2001
+From: TommyLike <tommylikehu@gmail.com>
+Date: Mon, 31 Oct 2016 15:38:59 +0800
+Subject: [PATCH 35/38] Cinder volume revert to snapshot
+
+Fixes: Feature #10661
+
+This patch implements the spec of reverting volume to
+latest snapshot, generic way to revert volume if driver's method
+is missing if not supported.
+Related tempest and client patches:
+
+[1] https://review.openstack.org/#/c/463906/
+[2] https://review.openstack.org/#/c/464903/
+
+APIImpact
+DocImpact
+Partial-Implements: blueprint revert-volume-to-snapshot
+
+Change-Id: Ib20d749c2118c350b5fa0361ed1811296d518a17
+(cherry picked from commit 8fba9a90807714f8869c470af6e28bb1da027a54)
+
+Conflicts:
+	cinder/api/v3/volumes.py
+	cinder/db/sqlalchemy/api.py
+	cinder/exception.py
+	cinder/volume/api.py
+	cinder/volume/driver.py
+	cinder/volume/manager.py
+	cinder/volume/rpcapi.py
+	etc/cinder/policy.json
+---
+ cinder/api/contrib/volume_actions.py |  48 +++++++++++
+ cinder/brick/local_dev/lvm.py        |  17 ++--
+ cinder/db/api.py                     |   5 ++
+ cinder/db/sqlalchemy/api.py          |  14 ++++
+ cinder/exception.py                  |   4 +
+ cinder/volume/api.py                 |  19 +++++
+ cinder/volume/driver.py              |  11 +++
+ cinder/volume/drivers/lvm.py         |   9 +++
+ cinder/volume/manager.py             | 152 +++++++++++++++++++++++++++++++----
+ cinder/volume/rpcapi.py              |   6 ++
+ etc/cinder/policy.json               |   1 +
+ 11 files changed, 266 insertions(+), 20 deletions(-)
+
+diff --git a/cinder/api/contrib/volume_actions.py b/cinder/api/contrib/volume_actions.py
+index 24dcb9cf4..e14b40f8f 100644
+--- a/cinder/api/contrib/volume_actions.py
++++ b/cinder/api/contrib/volume_actions.py
+@@ -26,6 +26,8 @@ from cinder.openstack.common import strutils
+ from cinder import utils
+ from cinder import volume
+ 
++import six
++from cinder import db
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -367,6 +369,52 @@ class VolumeActionsController(wsgi.Controller):
+         self.volume_api.update(context, volume, update_dict)
+         return webob.Response(status_int=200)
+ 
++    @wsgi.action('os-revert')
++    def _revert(self, req, id, body):
++        """revert a volume to a snapshot"""
++
++        context = req.environ['cinder.context']
++
++        if not self.is_valid_body(body, 'os-revert'):
++            raise webob.exc.HTTPBadRequest(
++                explanation=_("Missing required element os_revert in "
++                              "request body."))
++        params = body['os-revert']
++        snapshot_id = params.get("snapshot_id", None)
++        if not snapshot_id:
++            msg = _("No snapshot id was specified in request.")
++            raise webob.exc.HTTPBadRequest(explanation=msg)
++
++        try:
++            volume = self.volume_api.get(context, id)
++        except exception.VolumeNotFound as error:
++            raise webob.exc.HTTPNotFound(explanation=error.msg)
++        try:
++            snapshot = self.volume_api.get_snapshot(context, snapshot_id)
++        except exception.NotFound:
++            msg = _("Snapshot could not be found")
++            raise webob.exc.HTTPNotFound(explanation=msg)
++
++        # Ensure snapshot is the volume's latest snapshot.
++        l_snap = db.snapshot_get_latest_for_volume(context,
++                                                        volume['id'])
++        if l_snap.id != snapshot_id:
++            msg = _("Specified snapshot %(s_id)s is not "
++                    "the latest one of volume %(v_id)s.")
++            raise webob.exc.HTTPBadRequest(
++                explanation=msg % {'s_id': snapshot_id, 'v_id': id})
++
++        msg = 'Reverting volume %(v_id)s to snapshot %(s_id)s.'
++        LOG.info(msg, {'v_id': id,
++                       's_id': snapshot_id})
++        try:
++            self.volume_api.revert_to_snapshot(context, volume, snapshot)
++        except (exception.InvalidVolume, exception.InvalidSnapshot) as e:
++            raise webob.exc.HTTPConflict(explanation=six.text_type(e))
++        except exception.VolumeSizeExceedsAvailableQuota as e:
++            raise webob.exc.HTTPForbidden(explanation=six.text_type(e))
++        return webob.Response(status_int=202)
++
+ 
+ class Volume_actions(extensions.ExtensionDescriptor):
+     """Enable volume actions
+diff --git a/cinder/brick/local_dev/lvm.py b/cinder/brick/local_dev/lvm.py
+index 9c31294b7..4e343c7d1 100644
+--- a/cinder/brick/local_dev/lvm.py
++++ b/cinder/brick/local_dev/lvm.py
+@@ -613,14 +613,21 @@ class LVM(executor.Executor):
+                 root_helper=self._root_helper, run_as_root=True)
+ 
+     def revert(self, snapshot_name):
+-        """Revert an LV from snapshot.
++        """Revert an LV to snapshot.
+ 
+         :param snapshot_name: Name of snapshot to revert
+-
+         """
+-        self._execute('lvconvert', '--merge',
+-                      snapshot_name, root_helper=self._root_helper,
+-                      run_as_root=True)
++
++        cmd = ['lvconvert', '--merge', '%s/%s' % (self.vg_name, snapshot_name)]
++        try:
++            self._execute(*cmd, root_helper=self._root_helper,
++                          run_as_root=True)
++        except putils.ProcessExecutionError as err:
++            LOG.exception('Error Revert Volume')
++            LOG.error('Cmd     :%s', err.cmd)
++            LOG.error('StdOut  :%s', err.stdout)
++            LOG.error('StdErr  :%s', err.stderr)
++            raise
+ 
+     def lv_has_snapshot(self, name):
+         out, err = self._execute(
+diff --git a/cinder/db/api.py b/cinder/db/api.py
+index 5765fb7fd..479d47f31 100644
+--- a/cinder/db/api.py
++++ b/cinder/db/api.py
+@@ -286,6 +286,11 @@ def snapshot_get_all_for_volume(context, volume_id):
+     return IMPL.snapshot_get_all_for_volume(context, volume_id)
+ 
+ 
++def snapshot_get_latest_for_volume(context, volume_id):
++    """Get latest snapshot for a volume"""
++    return IMPL.snapshot_get_latest_for_volume(context, volume_id)
++
++
+ def snapshot_update(context, snapshot_id, values):
+     """Set the given properties on an snapshot and update it.
+ 
+diff --git a/cinder/db/sqlalchemy/api.py b/cinder/db/sqlalchemy/api.py
+index a2294ba9c..ace34ad24 100644
+--- a/cinder/db/sqlalchemy/api.py
++++ b/cinder/db/sqlalchemy/api.py
+@@ -48,6 +48,7 @@ from cinder.openstack.common import log as logging
+ from cinder.openstack.common import timeutils
+ from cinder.openstack.common import uuidutils
+ 
++from sqlalchemy.sql.expression import desc
+ 
+ CONF = cfg.CONF
+ CONF.import_group("profiler", "cinder.service")
+@@ -1717,6 +1718,19 @@ def snapshot_get_all_for_volume(context, volume_id):
+         all()
+ 
+ 
++@require_context
++def snapshot_get_latest_for_volume(context, volume_id):
++    result = model_query(context, models.Snapshot, read_deleted='no',
++                         project_only=True).\
++        filter_by(volume_id=volume_id).\
++        options(joinedload('snapshot_metadata')).\
++        order_by(desc(models.Snapshot.created_at)).\
++        first()
++    if not result:
++        raise exception.VolumeSnapshotNotFound(volume_id=volume_id)
++    return result
++
++
+ @require_context
+ def snapshot_get_all_for_cgsnapshot(context, cgsnapshot_id):
+     return model_query(context, models.Snapshot, read_deleted='no',
+diff --git a/cinder/exception.py b/cinder/exception.py
+index fc747ce6f..98cede7ab 100644
+--- a/cinder/exception.py
++++ b/cinder/exception.py
+@@ -286,6 +286,10 @@ class SnapshotNotFound(NotFound):
+     message = _("Snapshot %(snapshot_id)s could not be found.")
+ 
+ 
++class VolumeSnapshotNotFound(NotFound):
++    message = _("No snapshots found for volume %(volume_id)s.")
++
++
+ class VolumeIsBusy(CinderException):
+     message = _("deleting volume %(volume_name)s that has snapshot")
+ 
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 9e3009635..4d5f13ee0 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -248,6 +248,25 @@ class API(base.Base):
+             flow_engine.run()
+             return flow_engine.storage.fetch('volume')
+ 
++    @wrap_check_policy
++    def revert_to_snapshot(self, context, volume, snapshot):
++        """revert a volume to a snapshot"""
++
++        if snapshot['status'] not in ['available']:
++            msg = _('Snapshot status must be available')
++            raise exception.InvalidSnapshot(reason=msg)
++
++        if volume['status'] not in ['available']:
++            msg = _('Volume status must be available')
++            raise exception.InvalidVolume(reason=msg)
++
++        # Setting the status.
++        self.db.snapshot_update(context, snapshot['id'],
++                                {'status': 'restoring'})
++        self.db.volume_update(context, volume['id'],
++                              {'status': 'reverting'})
++        self.volume_rpcapi.revert_to_snapshot(context, volume, snapshot)
++
+     @wrap_check_policy
+     def delete(self, context, volume, force=False, unmanage_only=False):
+         if context.is_admin and context.project_id != volume['project_id']:
+diff --git a/cinder/volume/driver.py b/cinder/volume/driver.py
+index 8c5ad5c77..f1281a2fa 100644
+--- a/cinder/volume/driver.py
++++ b/cinder/volume/driver.py
+@@ -707,6 +707,17 @@ class VolumeDriver(object):
+         """Accept the transfer of a volume for a new user/project."""
+         pass
+ 
++    def revert_to_snapshot(self, context, volume, snapshot):
++        """Revert volume to snapshot.
++
++        Note: the revert process should not change the volume's
++        current size, that means if the driver shrank
++        the volume during the process, it should extend the
++        volume internally.
++        """
++        msg = _("Revert volume to snapshot not implemented.")
++        raise NotImplementedError(msg)
++
+     def manage_existing(self, volume, existing_ref):
+         """Brings an existing backend storage object under Cinder management.
+ 
+diff --git a/cinder/volume/drivers/lvm.py b/cinder/volume/drivers/lvm.py
+index 5d8f81fa9..fc0e7ad1f 100644
+--- a/cinder/volume/drivers/lvm.py
++++ b/cinder/volume/drivers/lvm.py
+@@ -252,6 +252,15 @@ class LVMVolumeDriver(driver.VolumeDriver):
+         # it's quite slow.
+         self._delete_volume(snapshot, is_snapshot=True)
+ 
++    def revert_to_snapshot(self, context, volume, snapshot):
++        """Revert a volume to a snapshot"""
++
++        self.vg.revert(self._escape_snapshot(snapshot.name))
++        self.vg.deactivate_lv(volume.name)
++        self.vg.activate_lv(volume.name)
++        # Recreate the snapshot that was destroyed by the revert
++        self.create_snapshot(snapshot)
++
+     def local_path(self, volume, vg=None):
+         if vg is None:
+             vg = self.configuration.volume_group
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 1189bab60..7601b5e7a 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -67,6 +67,8 @@ from cinder.volume import volume_types
+ 
+ from eventlet.greenpool import GreenPool
+ 
++import six
++
+ LOG = logging.getLogger(__name__)
+ 
+ QUOTAS = quota.QUOTAS
+@@ -514,6 +516,123 @@ class VolumeManager(manager.SchedulerDependentManager):
+ 
+         return True
+ 
++    def _revert_to_snapshot(self, context, volume, snapshot):
++        """Use driver rollback volume."""
++
++        self._notify_about_volume_usage(context, volume, "revert.start")
++        self._notify_about_snapshot_usage(context, snapshot, "revert.start")
++        try:
++            self.driver.revert_to_snapshot(context, volume, snapshot)
++        except (NotImplementedError, AttributeError):
++            LOG.info("Driver's 'revert_to_snapshot' is not found. "
++                     "Try to use copy-snapshot-to-volume method.")
++            raise
++        self._notify_about_volume_usage(context, volume, "revert.end")
++        self._notify_about_snapshot_usage(context, snapshot, "revert.end")
++
++    def _create_backup_snapshot(self, context, volume):
++        name = '[revert] volume %s backup snapshot' % volume['id']
++        description = str('This is only used for backup when '
++                          'reverting. If the reverting process '
++                          'failed, you can restore you data by '
++                          'creating new volume with this snapshot.')
++        options = {'volume_id': volume['id'],
++                   'cgsnapshot_id': None,
++                   'user_id': context.user_id,
++                   'project_id': context.project_id,
++                   'status': "creating",
++                   'progress': '0%',
++                   'volume_size': volume['size'],
++                   'display_name': name,
++                   'display_description': description,
++                   'volume_type_id': volume['volume_type_id'],
++                   'encryption_key_id': volume['encryption_key_id'],
++                   'metadata': {}}
++
++        snapshot = self.db.snapshot_create(context, options)
++        self.create_snapshot(context, volume['id'], snapshot['id'])
++
++        return snapshot
++
++    def revert_to_snapshot(self, context, volume, snapshot):
++        """Revert a volume to a snapshot.
++
++        The process of reverting to snapshot consists of several steps:
++        1.   create a snapshot for backup (in case of data loss)
++        2.1. use driver's specific logic to revert volume
++        3.   delete the backup snapshot
++        """
++        backup_snapshot = None
++
++        # check the volume status before revert
++        volume_ref_now = self.db.volume_get(context, volume['id'])
++        actual_status = volume_ref_now['status']
++        if actual_status != 'reverting':
++            err = (_('Revert volume aborted, expected volume status '
++                     '%(expected_status)s but got %(actual_status)s.') %
++                   {'expected_status': 'reverting',
++                    'actual_status': actual_status})
++            self.db.volume_update(context, volume['id'],
++                                  {'status': 'error_reverting'})
++            self.db.snapshot_update(context, snapshot['id'],
++                                    {'status': 'available'})
++            raise exception.InvalidVolume(reason=err)
++
++        # check the snapshot status
++        snapshot_ref_now = self.db.snapshot_get(context, snapshot['id'])
++        actual_status = snapshot_ref_now['status']
++        if actual_status != 'restoring':
++            err = (_('Restore snapshot aborted, expected snapshot status '
++                     '%(expected_status)s but got %(actual_status)s.') %
++                   {'expected_status': 'restoring',
++                    'actual_status': actual_status})
++            self.db.volume_update(context, volume['id'],
++                                  {'status': 'error_reverting'})
++            self.db.snapshot_update(context, snapshot['id'],
++                                    {'status': 'error_restoring'})
++            raise exception.InvalidSnapshot(reason=err)
++
++        LOG.info("Start to perform revert to snapshot process.")
++
++        # Create a snapshot which can be used to restore the volume
++        # data by hand if revert process failed
++        try:
++            backup_snapshot = self._create_backup_snapshot(context, volume)
++            self._revert_to_snapshot(context, volume_ref_now, snapshot_ref_now)
++        except Exception as error:
++            with excutils.save_and_reraise_exception():
++                self._notify_about_volume_usage(context, volume_ref_now,
++                                                "revert.end")
++                self._notify_about_snapshot_usage(context, snapshot_ref_now,
++                                                  "revert.end")
++                msg = ('Volume %(v_id)s revert to '
++                       'snapshot %(s_id)s failed with %(error)s.')
++                msg_args = {'v_id': volume['id'],
++                            's_id': snapshot['id'],
++                            'error': six.text_type(error)}
++                LOG.exception(msg, msg_args)
++                self.db.volume_update(context, volume['id'],
++                                      {'status': 'error_reverting'})
++                self.db.snapshot_update(context, snapshot['id'],
++                                        {'status': 'available'})
++
++        self._notify_about_volume_usage(context, volume_ref_now,
++                                        "revert.end")
++        self._notify_about_snapshot_usage(context, snapshot_ref_now,
++                                          "revert.end")
++        self.db.volume_update(context, volume['id'],
++                              {'status': 'available'})
++        self.db.snapshot_update(context, snapshot['id'],
++                                {'status': 'available'})
++
++        if backup_snapshot:
++            self.delete_snapshot(context, backup_snapshot['id'],
++                                 handle_quota=False)
++        msg = ('Volume %(v_id)s reverted to snapshot %(snap_id)s '
++               'successfully.')
++        msg_args = {'v_id': volume['id'], 'snap_id': snapshot['id']}
++        LOG.info(msg, msg_args)
++
+     def create_snapshot(self, context, volume_id, snapshot_id):
+         """Creates and exports the snapshot."""
+         caller_context = context
+@@ -574,7 +693,7 @@ class VolumeManager(manager.SchedulerDependentManager):
+         return snapshot_id
+ 
+     @locked_snapshot_operation
+-    def delete_snapshot(self, context, snapshot_id):
++    def delete_snapshot(self, context, snapshot_id, handle_quota=True):
+         """Deletes and unexports snapshot."""
+         caller_context = context
+         context = context.elevated()
+@@ -612,21 +731,24 @@ class VolumeManager(manager.SchedulerDependentManager):
+                                         {'status': 'error_deleting'})
+ 
+         # Get reservations
++        reservations = None
+         try:
+-            if CONF.no_snapshot_gb_quota:
+-                reserve_opts = {'snapshots': -1}
+-            else:
+-                reserve_opts = {
+-                    'snapshots': -1,
+-                    'gigabytes': -snapshot_ref['volume_size'],
+-                }
+-            volume_ref = self.db.volume_get(context, snapshot_ref['volume_id'])
+-            QUOTAS.add_volume_type_opts(context,
+-                                        reserve_opts,
+-                                        volume_ref.get('volume_type_id'))
+-            reservations = QUOTAS.reserve(context,
+-                                          project_id=project_id,
+-                                          **reserve_opts)
++            if handle_quota:
++                if CONF.no_snapshot_gb_quota:
++                    reserve_opts = {'snapshots': -1}
++                else:
++                    reserve_opts = {
++                        'snapshots': -1,
++                        'gigabytes': -snapshot_ref['volume_size'],
++                    }
++                volume_ref = self.db.volume_get(context,
++                                                snapshot_ref['volume_id'])
++                QUOTAS.add_volume_type_opts(context,
++                                            reserve_opts,
++                                            volume_ref.get('volume_type_id'))
++                reservations = QUOTAS.reserve(context,
++                                              project_id=project_id,
++                                              **reserve_opts)
+         except Exception:
+             reservations = None
+             LOG.exception(_("Failed to update usages deleting snapshot"))
+diff --git a/cinder/volume/rpcapi.py b/cinder/volume/rpcapi.py
+index 6c7638c35..591dec834 100644
+--- a/cinder/volume/rpcapi.py
++++ b/cinder/volume/rpcapi.py
+@@ -115,6 +115,12 @@ class VolumeAPI(object):
+                    source_volid=source_volid,
+                    consistencygroup_id=consistencygroup_id)
+ 
++    def revert_to_snapshot(self, ctxt, volume, snapshot):
++        new_host = utils.extract_host(volume['host'])
++        cctxt = self.client.prepare(server=new_host)
++        cctxt.cast(ctxt, 'revert_to_snapshot', volume=volume,
++                   snapshot=snapshot)
++
+     def delete_volume(self, ctxt, volume, unmanage_only=False):
+         new_host = utils.extract_host(volume['host'])
+         cctxt = self.client.prepare(server=new_host, version='1.15')
+diff --git a/etc/cinder/policy.json b/etc/cinder/policy.json
+index f5ed2da29..9c7454fc5 100644
+--- a/etc/cinder/policy.json
++++ b/etc/cinder/policy.json
+@@ -16,6 +16,7 @@
+     "volume:extend": "",
+     "volume:update_readonly_flag": "",
+     "volume:retype": "",
++    "volume:revert_to_snapshot": "rule:admin_or_owner",
+ 
+     "volume_extension:types_manage": "rule:admin_api",
+     "volume_extension:types_extra_specs": "rule:admin_api",
+-- 
+2.14.1
+

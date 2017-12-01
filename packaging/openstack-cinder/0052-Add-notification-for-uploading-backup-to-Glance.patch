@@ -1,0 +1,44 @@
+From edf9101a2265d2cdf6b831e519cf01ac49b2b7a5 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Thu, 28 Sep 2017 10:49:02 +0800
+Subject: [PATCH 52/53] Add notification for uploading backup to Glance.
+
+Fixes: http://192.168.15.2/issues/10111
+
+Change-Id: I6adeb8af2a2647fc7e99fbc52821f6a2ea925733
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/manager.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index dfac0e6ab..bb46be294 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -435,6 +435,7 @@ class BackupManager(manager.SchedulerDependentManager):
+                    'image_id: %(image_id)s.'),
+                  {'backup_id': backup['id'], 'image_id': image_meta['id']})
+         self.db.backup_update(context, backup['id'], {'host': self.host})
++        self._notify_about_backup_usage(context, backup, "upload.start")
+ 
+         payload = {'backup_id': backup['id'], 'image_id': image_meta['id']}
+ 
+@@ -486,12 +487,13 @@ class BackupManager(manager.SchedulerDependentManager):
+             with excutils.save_and_reraise_exception():
+                 payload['message'] = unicode(error)
+         finally:
+-            self.db.backup_update(context, backup['id'],
+-                                  {'status': 'available'})
++            backup = self.db.backup_update(context, backup['id'],
++                                           {'status': 'available'})
+ 
+         LOG.info(_('Upload backup finished, backup %(backup_id)s uploaded'
+                    ' to glance %(image_id)s.') %
+                  {'backup_id': backup['id'], 'image_id': image_meta['id']})
++        self._notify_about_backup_usage(context, backup, "upload.end")
+ 
+     def restore_backup(self, context, backup_id, volume_id):
+         """Restore volume backups from configured backup service."""
+-- 
+2.15.0.rc0
+

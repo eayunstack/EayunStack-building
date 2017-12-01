@@ -1,0 +1,61 @@
+From 5a684df6ddf08ee04f934a896bda04cc320e63a9 Mon Sep 17 00:00:00 2001
+From: Zhao Chao <zhaochao1984@gmail.com>
+Date: Wed, 27 Sep 2017 21:19:46 +0800
+Subject: [PATCH 46/53] Keep consistency of referring db backup object.
+
+In upstream code, most cinder components can be referred as an object,
+but we should keep consistency of referring them as a dict by now.
+
+These accidental changes were introduced in non-disruptive backup
+backport, in these commits:
+c73af2733710e859c13349211cb3edb98e120e30
+606c3597f90164a82ed7f0daec195b9c2412b34b.
+
+Change-Id: I2a04866e4a522e4ae931ddb54c3e7e6eec4107a9
+Signed-off-by: Zhao Chao <zhaochao1984@gmail.com>
+---
+ cinder/backup/manager.py | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/cinder/backup/manager.py b/cinder/backup/manager.py
+index 89ef9987a..3894c1a15 100644
+--- a/cinder/backup/manager.py
++++ b/cinder/backup/manager.py
+@@ -282,20 +282,20 @@ class BackupManager(manager.SchedulerDependentManager):
+         # that are not deleted. Make sure any temporary volumes or snapshots
+         # create by the backup job are deleted when service is started.
+         try:
+-            volume = self.db.volume_get(ctxt, backup.volume_id)
++            volume = self.db.volume_get(ctxt, backup['volume_id'])
+             volume_host = volume_utils.extract_host(volume['host'],
+                                                     'backend')
+             backend = self._get_volume_backend(host=volume_host)
+             mgr = self._get_manager(backend)
+         except (KeyError, exception.VolumeNotFound):
+             LOG.debug("Could not find a volume to clean up for "
+-                      "backup %s.", backup.id)
++                      "backup %s.", backup['id'])
+             return
+ 
+         if backup['temp_volume_id'] and backup['status'] == 'error':
+             try:
+                 temp_volume = self.db.volume_get(ctxt,
+-                                                 backup.temp_volume_id)
++                                                 backup['temp_volume_id'])
+                 # The temp volume should be deleted directly thru the
+                 # the volume driver, not thru the volume manager.
+                 mgr.driver.delete_volume(temp_volume)
+@@ -303,8 +303,8 @@ class BackupManager(manager.SchedulerDependentManager):
+             except exception.VolumeNotFound:
+                 LOG.debug("Could not find temp volume %(vol)s to clean up "
+                           "for backup %(backup)s.",
+-                          {'vol': backup.temp_volume_id,
+-                           'backup': backup.id})
++                          {'vol': backup['temp_volume_id'],
++                           'backup': backup['id']})
+             backup['temp_volume_id'] = None
+             self.db.backup_update(ctxt, backup['id'],
+                                   {'temp_volume_id': None})
+-- 
+2.15.0.rc0
+
