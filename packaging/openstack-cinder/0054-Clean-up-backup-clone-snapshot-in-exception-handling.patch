@@ -1,0 +1,87 @@
+From 5c47366c898641d61ded26957a7e0ef3dab3e2b0 Mon Sep 17 00:00:00 2001
+From: Xiaojun Liao <xiaojunliao85@gmail.com>
+Date: Fri, 1 Dec 2017 10:13:18 +0800
+Subject: [PATCH 54/54] Clean up backup clone snapshot in exception handling
+
+Fixes: http://redmine.eayun.net/issues/11278
+
+Signed-off-by: Xiaojun Liao <xiaojunliao85@gmail.com>
+(cherry picked from commit 298e5036ac6b13e8227b301fd7d1fffa006e63b6)
+---
+ cinder/backup/drivers/ceph.py | 32 ++++++++++++++++++++------------
+ 1 file changed, 20 insertions(+), 12 deletions(-)
+
+diff --git a/cinder/backup/drivers/ceph.py b/cinder/backup/drivers/ceph.py
+index a07f181b6..a54a2cd9e 100644
+--- a/cinder/backup/drivers/ceph.py
++++ b/cinder/backup/drivers/ceph.py
+@@ -1253,6 +1253,11 @@ class CephBackupDriver(BackupDriver):
+                 volume.create_snap(snap)
+                 volume.protect_snap(snap)
+ 
++            def _cleanup_backup_temp_snapshot():
++                volume.unprotect_snap(snap)
++                if not snapshot['name']:
++                    volume.remove_snap(snap)
++
+             with rbd_driver.RADOSClient(self,
+                                         str(parent_pool))as dest_client:
+                 # clone backup into Glance's storage pool.
+@@ -1263,12 +1268,19 @@ class CephBackupDriver(BackupDriver):
+                                snap=snap,
+                                dest_pool=parent_pool,
+                                dest_name=image_meta['id']))
+-                self.rbd.RBD().clone(volume.ioctx,
+-                                     volume_name,
+-                                     snap,
+-                                     dest_client.ioctx,
+-                                     str(image_meta['id']),
+-                                     features=self.rbd.RBD_FEATURE_LAYERING)
++
++                try:
++                    self.rbd.RBD().clone(volume.ioctx,
++                                         volume_name,
++                                         snap,
++                                         dest_client.ioctx,
++                                         str(image_meta['id']),
++                                         features=(self.rbd
++                                                   .RBD_FEATURE_LAYERING))
++                except Exception:
++                    _cleanup_backup_temp_snapshot()
++                    raise
++
+                 try:
+                     dest_volume = self.rbd.Image(dest_client.ioctx,
+                                                  strutils.safe_encode(
+@@ -1280,6 +1292,7 @@ class CephBackupDriver(BackupDriver):
+                     self.rbd.RBD().remove(dest_client.ioctx,
+                                           strutils.safe_encode(
+                                               image_meta['id']))
++                    _cleanup_backup_temp_snapshot()
+                     raise
+ 
+                 try:
+@@ -1297,12 +1310,6 @@ class CephBackupDriver(BackupDriver):
+                     dest_volume.create_snap(strutils.safe_encode('snap'))
+                     dest_volume.protect_snap(strutils.safe_encode('snap'))
+ 
+-                    # all done with the source snapshot
+-                    # backup snap is unprotected originally,so unprotect it
+-                    volume.unprotect_snap(snap)
+-                    if not snapshot['name']:
+-                        volume.remove_snap(snap)
+-
+                     # prepare the metadata
+                     metadata = {
+                         'status': 'active',
+@@ -1324,6 +1331,7 @@ class CephBackupDriver(BackupDriver):
+                                                      dest_volume)
+                     raise
+                 finally:
++                    _cleanup_backup_temp_snapshot()
+                     dest_volume.close()
+ 
+         return True
+-- 
+2.15.0
+

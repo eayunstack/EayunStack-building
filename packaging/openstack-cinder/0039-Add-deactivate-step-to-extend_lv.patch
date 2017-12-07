@@ -1,0 +1,76 @@
+From f2e3e2541d262e174a2c1f0a6a09246bcd7a27a0 Mon Sep 17 00:00:00 2001
+From: Curt Bruns <curt.e.bruns@intel.com>
+Date: Mon, 6 Jul 2015 15:09:41 +0000
+Subject: [PATCH 39/54] Add deactivate step to extend_lv
+
+Extending a linear LVM volume that has a snapshot requires
+that the LV be deactivated explicitly prior to extending.
+
+This adds a deactivate_lv method and calls it prior to
+issuing the extend call. If auto_activation_volume_list
+is not defined lvm.conf, then volumes will be reactivated
+automatically after the extend.  If auto_activation_volume_list
+is defined, then volumes that should be automatically
+reactivated should be added to the auto_activation_volume_list
+or they won't be activated automatically.
+NOTE: This doesn't apply to thin provisioned LVs as they don't
+require the deactivation step.
+
+DocImpact: When a user extends LVM Volumes with a snapshot, the
+volumes will be deactivated.  Their re-activation is automatic,
+unless auto_activation_volume_list is defined in lvm.conf.
+See lvm.conf for more info.  Thin provisioned LVM Volumes
+will not be deactivated as they don't require it.
+
+Co-Authored-By: John Griffith <john.griffith8@gmail.com>
+Change-Id: If746625cfe658c3528525dc7f4bf869f1c9704dc
+Closes-Bug: #1470558
+(cherry picked from commit 314611f79afa6fe79f3d5022c814772048669bb0)
+(cherry picked from commit de3677740c69e445294766be16b23a526f5d5a8b)
+---
+ cinder/brick/local_dev/lvm.py | 22 +++++++++++++++++++++-
+ 1 file changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/cinder/brick/local_dev/lvm.py b/cinder/brick/local_dev/lvm.py
+index 4e2be1a10..9c31294b7 100644
+--- a/cinder/brick/local_dev/lvm.py
++++ b/cinder/brick/local_dev/lvm.py
+@@ -516,6 +516,21 @@ class LVM(executor.Executor):
+             return name
+         return '_' + name
+ 
++    def deactivate_lv(self, name):
++        lv_path = self.vg_name + '/' + self._mangle_lv_name(name)
++        cmd = ['lvchange', '-a', 'n']
++        cmd.append(lv_path)
++        try:
++            self._execute(*cmd,
++                          root_helper=self._root_helper,
++                          run_as_root=True)
++        except putils.ProcessExecutionError as err:
++            LOG.exception(_('Error deactivating LV'))
++            LOG.error(_('Cmd     :%s'), err.cmd)
++            LOG.error(_('StdOut  :%s'), err.stdout)
++            LOG.error(_('StdErr  :%s'), err.stderr)
++            raise
++
+     def activate_lv(self, name, is_snapshot=False):
+         """Ensure that logical volume/snapshot logical volume is activated.
+ 
+@@ -620,7 +635,12 @@ class LVM(executor.Executor):
+ 
+     def extend_volume(self, lv_name, new_size):
+         """Extend the size of an existing volume."""
+-
++        # Volumes with snaps have attributes 'o' or 'O' and will be
++        # deactivated, but Thin Volumes with snaps have attribute 'V'
++        # and won't be deactivated because the lv_has_snapshot method looks
++        # for 'o' or 'O'
++        if self.lv_has_snapshot(lv_name):
++            self.deactivate_lv(lv_name)
+         try:
+             self._execute('lvextend', '-L', new_size,
+                           '%s/%s' % (self.vg_name, lv_name),
+-- 
+2.15.0
+

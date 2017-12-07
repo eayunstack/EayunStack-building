@@ -1,0 +1,217 @@
+From e59626428695e0cc74ffc8fd874ffb6bd7ba6c4a Mon Sep 17 00:00:00 2001
+From: Nate Potter <nathaniel.potter@intel.com>
+Date: Tue, 8 Dec 2015 22:12:27 +0000
+Subject: [PATCH 49/54] Move retype quota checks to API
+
+Currently the retype quota check is done in the manager, where it will
+raise an exception if the check fails. This patch moves the check to the
+API so that the user is given feedback before the RPC cast is made.
+
+APIImpact
+Closes-bug: #1508249
+
+Change-Id: Iba24edd8ad824837028353b52c90742df55c9173
+(cherry picked from commit d78399e614a90b062bcc1ff10aa00a037b158cad)
+(cherry picked from commit 4e20d32dbd47eb01a4ed68c82f93c176f468592e)
+---
+ cinder/scheduler/manager.py        |  5 ++++-
+ cinder/tests/test_volume.py        | 14 +++++++++++--
+ cinder/tests/test_volume_rpcapi.py |  3 ++-
+ cinder/volume/api.py               | 17 +++++++++++++++-
+ cinder/volume/manager.py           | 40 +++++++++++++++++++++++---------------
+ cinder/volume/rpcapi.py            |  6 ++++--
+ 6 files changed, 62 insertions(+), 23 deletions(-)
+
+diff --git a/cinder/scheduler/manager.py b/cinder/scheduler/manager.py
+index 6db095b57..e8796936e 100644
+--- a/cinder/scheduler/manager.py
++++ b/cinder/scheduler/manager.py
+@@ -185,6 +185,7 @@ class SchedulerManager(manager.Manager):
+ 
+         volume_ref = db.volume_get(context, volume_id)
+         reservations = request_spec.get('quota_reservations')
++        old_reservations = request_spec.get('old_reservations', None)
+         new_type = request_spec.get('volume_type')
+         if new_type is None:
+             msg = _('New volume type not specified in request_spec.')
+@@ -214,7 +215,9 @@ class SchedulerManager(manager.Manager):
+         else:
+             volume_rpcapi.VolumeAPI().retype(context, volume_ref,
+                                              new_type['id'], tgt_host,
+-                                             migration_policy, reservations)
++                                             migration_policy,
++                                             reservations,
++                                             old_reservations)
+ 
+     def manage_existing(self, context, topic, volume_id,
+                         request_spec, filter_properties=None):
+diff --git a/cinder/tests/test_volume.py b/cinder/tests/test_volume.py
+index 1e8582f70..fad6b6fd5 100644
+--- a/cinder/tests/test_volume.py
++++ b/cinder/tests/test_volume.py
+@@ -2909,6 +2909,14 @@ class VolumeTestCase(BaseVolumeTestCase):
+                                       project_id=project_id,
+                                       **reserve_opts)
+ 
++        old_reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
++        QUOTAS.add_volume_type_opts(self.context,
++                                    old_reserve_opts,
++                                    old_vol_type['id'])
++        old_reservations = QUOTAS.reserve(self.context,
++                                          project_id=project_id,
++                                          **old_reserve_opts)
++
+         with mock.patch.object(self.volume.driver, 'retype') as _retype:
+             with mock.patch.object(volume_types, 'volume_types_diff') as _diff:
+                 with mock.patch.object(self.volume, 'migrate_volume') as _mig:
+@@ -2923,13 +2931,15 @@ class VolumeTestCase(BaseVolumeTestCase):
+                         self.volume.retype(self.context, volume['id'],
+                                            vol_type['id'], host_obj,
+                                            migration_policy=policy,
+-                                           reservations=reservations)
++                                           reservations=reservations,
++                                           old_reservations=old_reservations)
+                     else:
+                         self.assertRaises(exc, self.volume.retype,
+                                           self.context, volume['id'],
+                                           vol_type['id'], host_obj,
+                                           migration_policy=policy,
+-                                          reservations=reservations)
++                                          reservations=reservations,
++                                          old_reservations=old_reservations)
+ 
+         # get volume/quota properties
+         volume = db.volume_get(elevated, volume['id'])
+diff --git a/cinder/tests/test_volume_rpcapi.py b/cinder/tests/test_volume_rpcapi.py
+index 82fe6396d..4c1767c2f 100644
+--- a/cinder/tests/test_volume_rpcapi.py
++++ b/cinder/tests/test_volume_rpcapi.py
+@@ -283,7 +283,8 @@ class VolumeRpcAPITestCase(test.TestCase):
+                               new_type_id='fake',
+                               dest_host=dest_host,
+                               migration_policy='never',
+-                              reservations=None,
++                              reservations=self.fake_reservations,
++                              old_reservations=self.fake_reservations,
+                               version='1.12')
+ 
+     def test_manage_existing(self):
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 4d5f13ee0..998e6e6ff 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -1237,13 +1237,28 @@ class API(base.Base):
+         reservations = quota_utils.get_volume_type_reservation(context, volume,
+                                                                vol_type_id)
+ 
++        # Get old reservations
++        try:
++            reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
++            QUOTAS.add_volume_type_opts(context,
++                                        reserve_opts,
++                                        old_vol_type_id)
++            old_reservations = QUOTAS.reserve(context,
++                                              project_id=volume['project_id'],
++                                              **reserve_opts)
++        except Exception:
++            LOG.exception(_("Failed to update quota usage while retyping"
++                            " volume."))
++            raise exception.CinderException(msg)
++
+         self.update(context, volume, {'status': 'retyping'})
+ 
+         request_spec = {'volume_properties': volume,
+                         'volume_id': volume['id'],
+                         'volume_type': vol_type,
+                         'migration_policy': migration_policy,
+-                        'quota_reservations': reservations}
++                        'quota_reservations': reservations,
++                        'old_reservations': old_reservations}
+ 
+         self.scheduler_rpcapi.retype(context, CONF.volume_topic, volume['id'],
+                                      request_spec=request_spec,
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 0cf21aa63..5be894efa 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -1484,7 +1484,8 @@ class VolumeManager(manager.SchedulerDependentManager):
+             extra_usage_info={'size': int(new_size)})
+ 
+     def retype(self, ctxt, volume_id, new_type_id, host,
+-               migration_policy='never', reservations=None):
++               migration_policy='never', reservations=None,
++               old_reservations=None):
+ 
+         def _retype_error(context, volume_id, old_reservations,
+                           new_reservations, status_update):
+@@ -1516,21 +1517,28 @@ class VolumeManager(manager.SchedulerDependentManager):
+                 # for now.
+                 self.db.volume_update(context, volume_id, status_update)
+ 
+-        # Get old reservations
+-        try:
+-            reserve_opts = {'volumes': -1, 'gigabytes': -volume_ref['size']}
+-            QUOTAS.add_volume_type_opts(context,
+-                                        reserve_opts,
+-                                        volume_ref.get('volume_type_id'))
+-            old_reservations = QUOTAS.reserve(context,
+-                                              project_id=project_id,
+-                                              **reserve_opts)
+-        except Exception:
+-            old_reservations = None
+-            self.db.volume_update(context, volume_id, status_update)
+-            LOG.exception(_("Failed to update usages while retyping volume."))
+-            raise exception.CinderException(_("Failed to get old volume type"
+-                                              " quota reservations"))
++        # If old_reservations has been passed in from the API, we should
++        # skip quotas.
++        # TODO(ntpttr): These reservation checks are left in to be backwards
++        #               compatible with Liberty and can be removed in N.
++        if not old_reservations:
++            # Get old reservations
++            try:
++                reserve_opts = {'volumes': -1,
++                                'gigabytes': -volume_ref['size']}
++                QUOTAS.add_volume_type_opts(context,
++                                            reserve_opts,
++                                            volume_ref.get('volume_type_id'))
++                old_reservations = QUOTAS.reserve(context,
++                                                  project_id=project_id,
++                                                  **reserve_opts)
++            except Exception:
++                old_reservations = None
++                self.db.volume_update(context, volume_id, status_update)
++                LOG.exception(_("Failed to update usages while retyping"
++                                " volume."))
++                raise exception.CinderException(_("Failed to get old volume"
++                                                  " type quota reservations"))
+ 
+         # We already got the new reservations
+         new_reservations = reservations
+diff --git a/cinder/volume/rpcapi.py b/cinder/volume/rpcapi.py
+index 591dec834..23e1d55c2 100644
+--- a/cinder/volume/rpcapi.py
++++ b/cinder/volume/rpcapi.py
+@@ -208,7 +208,8 @@ class VolumeAPI(object):
+                           error=error)
+ 
+     def retype(self, ctxt, volume, new_type_id, dest_host,
+-               migration_policy='never', reservations=None):
++               migration_policy='never', reservations=None,
++               old_reservations=None):
+         new_host = utils.extract_host(volume['host'])
+         cctxt = self.client.prepare(server=new_host, version='1.12')
+         host_p = {'host': dest_host.host,
+@@ -216,7 +217,8 @@ class VolumeAPI(object):
+         cctxt.cast(ctxt, 'retype', volume_id=volume['id'],
+                    new_type_id=new_type_id, host=host_p,
+                    migration_policy=migration_policy,
+-                   reservations=reservations)
++                   reservations=reservations,
++                   old_reservations=old_reservations)
+ 
+     def manage_existing(self, ctxt, volume, ref):
+         new_host = utils.extract_host(volume['host'])
+-- 
+2.15.0
+

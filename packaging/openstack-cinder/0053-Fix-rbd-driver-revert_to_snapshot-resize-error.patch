@@ -1,0 +1,29 @@
+From 515b99d41210257ae7e4e59dc6340b0ecacbca3a Mon Sep 17 00:00:00 2001
+From: Xiaojun Liao <xiaojunliao85@gmail.com>
+Date: Fri, 13 Oct 2017 16:31:15 +0800
+Subject: [PATCH 53/54] Fix rbd driver revert_to_snapshot resize error
+
+Fixes: http://192.168.15.2/issues/11083
+
+Signed-off-by: Xiaojun Liao <xiaojunliao85@gmail.com>
+(cherry picked from commit 296c3dbfc9a942c60854e9bd067050da93aa29a9)
+---
+ cinder/volume/drivers/rbd.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index e1eeac88c..b73ca4e47 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -701,7 +701,7 @@ class RBDDriver(driver.VolumeDriver):
+             # resize rbd to snap volume size if the snapshot is created
+             # before the rbd extended
+             if volume['size'] != snapshot['volume_size']:
+-                dest_volume.resize(volume['size'])
++                dest_volume.resize(int(volume['size']) * units.Gi)
+ 
+     def create_snapshot(self, snapshot):
+         """Creates an rbd snapshot."""
+-- 
+2.15.0
+
