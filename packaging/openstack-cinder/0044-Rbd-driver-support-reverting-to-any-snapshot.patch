@@ -1,0 +1,31 @@
+From 6e6f4e848371f9f2c9ae5522f7af1639dd6a1ff9 Mon Sep 17 00:00:00 2001
+From: Xiaojun Liao <xiaojunliao85@gmail.com>
+Date: Tue, 19 Sep 2017 10:35:09 +0800
+Subject: [PATCH 44/54] Rbd driver support reverting to any snapshot
+
+The commit 878eb1cff372cd630cc45630b3f514423f4fb3bc not allow rbd
+reverting to any snapshot, just enable support_revert_to_any_snapshot
+flag.
+
+Signed-off-by: Xiaojun Liao <xiaojunliao85@gmail.com>
+(cherry picked from commit 0af15e62a8c635f6ed3e8c056ed96009cb089113)
+---
+ cinder/volume/drivers/rbd.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index 7b205da79..e1eeac88c 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -249,7 +249,7 @@ class RBDDriver(driver.VolumeDriver):
+     """Implements RADOS block device (RBD) volume commands."""
+ 
+     VERSION = '1.1.0'
+-    support_reverting_to_any_snapshot = False
++    support_reverting_to_any_snapshot = True
+ 
+     def __init__(self, *args, **kwargs):
+         super(RBDDriver, self).__init__(*args, **kwargs)
+-- 
+2.15.0
+

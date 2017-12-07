@@ -1,0 +1,63 @@
+From c24072158ea70c36bcf10b9576bac6c88e89464a Mon Sep 17 00:00:00 2001
+From: Anton Arefiev <aarefiev@mirantis.com>
+Date: Wed, 1 Apr 2015 19:14:26 +0300
+Subject: [PATCH 35/54] Fix always false condition in glance wrapper
+
+If statement's condition in GlanceClientWrapper's method 'call'
+always false, because 'version' key passed through kwargs is
+string, and variable chacked in 'call' is None or int.
+
+Change-Id: Ief1e8d2c41aaa774666bc59d63cdea68f80f308a
+Closes-Bug: #1439275
+(cherry picked from commit 486da4305d607b32b03709c6b0f26430776a37cf)
+(cherry picked from commit 34e05d37ccc0dc87487cc6eedb9be18701cec2cb)
+---
+ cinder/image/glance.py            | 5 ++---
+ cinder/tests/image/test_glance.py | 8 ++++++++
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/cinder/image/glance.py b/cinder/image/glance.py
+index 16340d508..f57330806 100644
+--- a/cinder/image/glance.py
++++ b/cinder/image/glance.py
+@@ -73,8 +73,7 @@ def _parse_image_ref(image_href):
+     return (image_id, netloc, use_ssl)
+ 
+ 
+-def _create_glance_client(context, netloc, use_ssl,
+-                          version=CONF.glance_api_version):
++def _create_glance_client(context, netloc, use_ssl, version=None):
+     """Instantiate a new glanceclient.Client object."""
+     if version is None:
+         version = CONF.glance_api_version
+@@ -153,7 +152,7 @@ class GlanceClientWrapper(object):
+         retry the request according to CONF.glance_num_retries.
+         """
+         version = self.version
+-        if version in kwargs:
++        if 'version' in kwargs:
+             version = kwargs['version']
+ 
+         retry_excs = (glanceclient.exc.ServiceUnavailable,
+diff --git a/cinder/tests/image/test_glance.py b/cinder/tests/image/test_glance.py
+index b252ac987..d7e7e0f96 100644
+--- a/cinder/tests/image/test_glance.py
++++ b/cinder/tests/image/test_glance.py
+@@ -607,6 +607,14 @@ class TestGlanceClientVersion(test.TestCase):
+         glance.GlanceClientWrapper('fake', 'fake_host', 9292, version=2)
+         self.assertEqual('2', _mockglanceclient.call_args[0][0])
+ 
++    @mock.patch('cinder.image.glance.glanceclient.Client')
++    def test_call_glance_version_by_arg(self, _mockglanceclient):
++        """Test glance version set by arg to GlanceClientWrapper"""
++        glance_wrapper = glance.GlanceClientWrapper()
++        glance_wrapper.call('fake_context', 'method', version=2)
++
++        self.assertEqual('2', _mockglanceclient.call_args[0][0])
++
+ 
+ def _create_failing_glance_client(info):
+     class MyGlanceStubClient(glance_stubs.StubGlanceClient):
+-- 
+2.15.0
+

@@ -1,0 +1,33 @@
+From 17d79709724bc2a8483e1381070601ec8b434dbf Mon Sep 17 00:00:00 2001
+From: Xiaojun Liao <xiaojunliao85@gmail.com>
+Date: Tue, 12 Sep 2017 13:44:33 +0800
+Subject: [PATCH 43/54] Resize rbd to match expected volume size when reverting
+ to a smaller snapshot
+
+If the snapshot is created before the rbd extended, resize rbd.
+
+Signed-off-by: Xiaojun Liao <xiaojunliao85@gmail.com>
+(cherry picked from commit 4f11404c0da89bdb5127a387283c33c953119910)
+---
+ cinder/volume/drivers/rbd.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/cinder/volume/drivers/rbd.py b/cinder/volume/drivers/rbd.py
+index f9c329de1..7b205da79 100644
+--- a/cinder/volume/drivers/rbd.py
++++ b/cinder/volume/drivers/rbd.py
+@@ -698,6 +698,11 @@ class RBDDriver(driver.VolumeDriver):
+                           "operation to proceed.", volume_name)
+                 raise exception.VolumeNotFound(volume_id=volume_name)
+ 
++            # resize rbd to snap volume size if the snapshot is created
++            # before the rbd extended
++            if volume['size'] != snapshot['volume_size']:
++                dest_volume.resize(volume['size'])
++
+     def create_snapshot(self, snapshot):
+         """Creates an rbd snapshot."""
+         with RBDVolumeProxy(self, snapshot['volume_name']) as volume:
+-- 
+2.15.0
+
