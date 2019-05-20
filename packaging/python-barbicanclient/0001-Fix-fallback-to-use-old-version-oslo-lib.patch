@@ -1,0 +1,112 @@
+From be5714cddc9aa535da42fc995480233530fbc6cc Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Mon, 10 Jul 2017 15:29:40 +0800
+Subject: [PATCH] Fix fallback to use old version oslo lib
+
+Fixes: redmine #10517
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+---
+ barbicanclient/_i18n.py         | 2 +-
+ barbicanclient/acls.py          | 2 +-
+ barbicanclient/cas.py           | 2 +-
+ barbicanclient/common/config.py | 2 +-
+ barbicanclient/containers.py    | 2 +-
+ barbicanclient/orders.py        | 2 +-
+ barbicanclient/secrets.py       | 2 +-
+ 7 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/barbicanclient/_i18n.py b/barbicanclient/_i18n.py
+index a283bc0..3b78a40 100644
+--- a/barbicanclient/_i18n.py
++++ b/barbicanclient/_i18n.py
+@@ -16,7 +16,7 @@ See http://docs.openstack.org/developer/oslo.i18n/usage.html .
+ 
+ """
+ 
+-import oslo_i18n as i18n
++import oslo.i18n as i18n
+ 
+ 
+ _translators = i18n.TranslatorFactory(domain='python-barbicanclient')
+diff --git a/barbicanclient/acls.py b/barbicanclient/acls.py
+index cec8378..d85dada 100644
+--- a/barbicanclient/acls.py
++++ b/barbicanclient/acls.py
+@@ -15,7 +15,7 @@
+ 
+ import logging
+ 
+-from oslo_utils.timeutils import parse_isotime
++from oslo.utils.timeutils import parse_isotime
+ 
+ from barbicanclient import base
+ from barbicanclient import formatter
+diff --git a/barbicanclient/cas.py b/barbicanclient/cas.py
+index 5fa3288..14b7131 100644
+--- a/barbicanclient/cas.py
++++ b/barbicanclient/cas.py
+@@ -16,7 +16,7 @@ import functools
+ import logging
+ import traceback
+ 
+-from oslo_utils.timeutils import parse_isotime
++from oslo.utils.timeutils import parse_isotime
+ 
+ from barbicanclient import base
+ from barbicanclient import formatter
+diff --git a/barbicanclient/common/config.py b/barbicanclient/common/config.py
+index eeb5b6a..6ec9209 100644
+--- a/barbicanclient/common/config.py
++++ b/barbicanclient/common/config.py
+@@ -21,7 +21,7 @@ import os
+ import sys
+ 
+ from barbicanclient.version import __version__
+-from oslo_config import cfg
++from oslo.config import cfg
+ 
+ CONF = cfg.CONF
+ 
+diff --git a/barbicanclient/containers.py b/barbicanclient/containers.py
+index a2c17f3..a2d18d5 100644
+--- a/barbicanclient/containers.py
++++ b/barbicanclient/containers.py
+@@ -16,7 +16,7 @@ import functools
+ import logging
+ import six
+ 
+-from oslo_utils.timeutils import parse_isotime
++from oslo.utils.timeutils import parse_isotime
+ 
+ from barbicanclient import acls as acl_manager
+ from barbicanclient import base
+diff --git a/barbicanclient/orders.py b/barbicanclient/orders.py
+index 91d4e34..9eec817 100644
+--- a/barbicanclient/orders.py
++++ b/barbicanclient/orders.py
+@@ -16,7 +16,7 @@ import abc
+ import functools
+ import logging
+ 
+-from oslo_utils.timeutils import parse_isotime
++from oslo.utils.timeutils import parse_isotime
+ import six
+ 
+ from barbicanclient import base
+diff --git a/barbicanclient/secrets.py b/barbicanclient/secrets.py
+index cf707ba..a260135 100644
+--- a/barbicanclient/secrets.py
++++ b/barbicanclient/secrets.py
+@@ -16,7 +16,7 @@ import base64
+ import functools
+ import logging
+ 
+-from oslo_utils.timeutils import parse_isotime
++from oslo.utils.timeutils import parse_isotime
+ import six
+ 
+ from barbicanclient import acls as acl_manager
+-- 
+2.7.4
+
