@@ -1,0 +1,225 @@
+From 05799039082848c3bbae36e9e8b3e89536ec0ced Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 25 May 2017 18:58:04 +0800
+Subject: [PATCH 109/118] Add status_changed notification for some components
+
+Supported components:
+  * Firewall
+  * Loadbalancer Pool
+  * Loadbalancer VIP
+  * Loadbalancer Member
+  * Loadbalancer Health Monitor
+  * VPN Service
+  * IPsec Site Connection
+  * Port used for PPTP VPN
+
+Fixes: redmine #10220
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/loadbalancer/loadbalancer_db.py         |  2 +
+ neutron/db/vpn/vpn_db.py                           |  4 +
+ neutron/notifiers/eayun.py                         | 93 ++++++++++++++++++++++
+ neutron/services/firewall/fwaas_plugin.py          |  2 +
+ .../drivers/common/agent_driver_base.py            |  2 +
+ 5 files changed, 103 insertions(+)
+ create mode 100644 neutron/notifiers/eayun.py
+
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index 061735b24..9598a1233 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -28,6 +28,7 @@ from neutron.db import servicetype_db as st_db
+ from neutron.extensions import loadbalancer
+ from neutron.extensions import loadbalancer_l7
+ from neutron import manager
++from neutron.notifiers.eayun import eayun_notify
+ from neutron.openstack.common import excutils
+ from neutron.openstack.common import jsonutils
+ from neutron.openstack.common import log as logging
+@@ -243,6 +244,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+     def _core_plugin(self):
+         return manager.NeutronManager.get_plugin()
+ 
++    @eayun_notify('LB_MEMBER', Member)
+     def update_status(self, context, model, id, status,
+                       status_description=None):
+         with context.session.begin(subtransactions=True):
+diff --git a/neutron/db/vpn/vpn_db.py b/neutron/db/vpn/vpn_db.py
+index d50d4bd6f..6034bbc3a 100644
+--- a/neutron/db/vpn/vpn_db.py
++++ b/neutron/db/vpn/vpn_db.py
+@@ -30,6 +30,7 @@ from neutron.db import servicetype_db as st_db
+ from neutron.db.vpn import vpn_validator
+ from neutron.extensions import vpnaas
+ from neutron import manager
++from neutron.notifiers.eayun import eayun_notify
+ from neutron.openstack.common import excutils
+ from neutron.openstack.common import log as logging
+ from neutron.openstack.common import uuidutils
+@@ -805,6 +806,7 @@ class VPNPluginRpcDbMixin():
+             l3_agent_db.RouterL3AgentBinding.l3_agent_id == agent.id)
+         return query
+ 
++    @eayun_notify(constants.VPN)
+     def update_status_by_agent(self, context, service_status_info_list):
+         """Updating vpnservice and vpnconnection status.
+ 
+@@ -842,6 +844,7 @@ class VPNPluginRpcDbMixin():
+                         context, conn_id, conn['status'],
+                         conn['updated_pending_status'])
+ 
++    @eayun_notify('PPTP')
+     def set_vpnservice_status(self, context, vpnservice_id, status):
+         with context.session.begin(subtransactions=True):
+             try:
+@@ -851,6 +854,7 @@ class VPNPluginRpcDbMixin():
+                 LOG.warn(_('vpnservice %s in db is already deleted'),
+                          vpnservice_db['id'])
+ 
++    @eayun_notify('PPTP_ports')
+     def update_pptp_status_by_agent(
+             self, context, host,
+             pptp_processes_status, credentials, updated_ports,
+diff --git a/neutron/notifiers/eayun.py b/neutron/notifiers/eayun.py
+new file mode 100644
+index 000000000..5c09c4774
+--- /dev/null
++++ b/neutron/notifiers/eayun.py
+@@ -0,0 +1,93 @@
++from neutron.common import rpc as n_rpc
++from neutron.common import constants as n_constants
++from neutron.plugins.common import constants
++
++
++class Notifier(object):
++
++    def __init__(self):
++        self._notifier = n_rpc.get_notifier('eayun')
++
++    def status_changed(self, context, resource, resource_id, status):
++        self._notifier.info(
++            context, resource + '.status.changed',
++            {resource: {'id': resource_id, 'status': status}})
++
++
++_notifier = Notifier()
++
++
++def eayun_notify(service, obj_model=None):
++    def handle_func(func):
++        def handle_firewall(
++                fw_rpc_callback, context, firewall_id, status, **kwargs
++        ):
++            ret = func(
++                fw_rpc_callback, context, firewall_id, status, **kwargs)
++            _notifier.status_changed(context, 'firewall', firewall_id, status)
++            return ret
++
++        def handle_ipsec_vpns(
++                vpn_plugin, context, service_status_info_list
++        ):
++            func(vpn_plugin, context, service_status_info_list)
++            for vpnservice in service_status_info_list:
++                _notifier.status_changed(
++                    context, 'vpnservice',
++                    vpnservice['id'], vpnservice['status'])
++                for conn_id, conn in vpnservice[
++                        'ipsec_site_connections'
++                ].items():
++                    _notifier.status_changed(
++                        context, 'ipsec_site_connection',
++                        conn_id, conn['status'])
++
++        def handle_loadbalancer(
++                lb_rpc_callback, context, obj_type, obj_id, status
++        ):
++            func(lb_rpc_callback, context, obj_type, obj_id, status)
++            if obj_type != 'member':
++                _notifier.status_changed(context, obj_type, obj_id, status)
++
++        def handle_lb_member(
++                lb_plugin, context, model, obj_id, status, **kwargs
++        ):
++            func(lb_plugin, context, model, obj_id, status, **kwargs)
++            if issubclass(model, obj_model):
++                _notifier.status_changed(context, 'member', obj_id, status)
++
++        def handle_pptp_vpn(
++                vpn_plugin, context, vpnservice_id, status
++        ):
++            func(vpn_plugin, context, vpnservice_id, status)
++            _notifier.status_changed(
++                context, 'vpnservice', vpnservice_id, status)
++
++        def handle_pptp_ports(
++                vpn_plugin, context, host, pptp_processes_status,
++                credentials, updated_ports, provider
++        ):
++            func(vpn_plugin, context, host, pptp_processes_status,
++                 credentials, updated_ports, provider)
++            for port_id, status in updated_ports.iteritems():
++                port_status = n_constants.PORT_STATUS_DOWN
++                if status:
++                    port_status = n_constants.PORT_STATUS_ACTIVE
++                _notifier.status_changed(
++                    context, 'pptp_port', port_id, port_status)
++
++        if service == constants.FIREWALL:
++            return handle_firewall
++        elif service == constants.VPN:
++            return handle_ipsec_vpns
++        elif service == constants.LOADBALANCER:
++            return handle_loadbalancer
++        elif service == 'LB_MEMBER':
++            return handle_lb_member
++        elif service == 'PPTP':
++            return handle_pptp_vpn
++        elif service == 'PPTP_ports':
++            return handle_pptp_ports
++        else:
++            raise NotImplementedError
++    return handle_func
+diff --git a/neutron/services/firewall/fwaas_plugin.py b/neutron/services/firewall/fwaas_plugin.py
+index 4d7aaf833..e99a46f20 100644
+--- a/neutron/services/firewall/fwaas_plugin.py
++++ b/neutron/services/firewall/fwaas_plugin.py
+@@ -24,6 +24,7 @@ from neutron.db.firewall import firewall_db
+ from neutron.db.firewall import targetrouters_db
+ from neutron.extensions import firewall as fw_ext
+ from neutron.extensions.firewall_target_routers import FW_TARGET_ROUTERS
++from neutron.notifiers.eayun import eayun_notify
+ from neutron.openstack.common import log as logging
+ from neutron.plugins.common import constants as const
+ 
+@@ -38,6 +39,7 @@ class FirewallCallbacks(n_rpc.RpcCallback):
+         super(FirewallCallbacks, self).__init__()
+         self.plugin = plugin
+ 
++    @eayun_notify(const.FIREWALL)
+     def set_firewall_status(self, context, firewall_id, status, **kwargs):
+         """Agent uses this to set a firewall's status."""
+         LOG.debug(_("set_firewall_status() called"))
+diff --git a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+index 5c24f30c3..dd1028eb9 100644
+--- a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
++++ b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+@@ -25,6 +25,7 @@ from neutron.db import agents_db
+ from neutron.db.loadbalancer import loadbalancer_db
+ from neutron.extensions import lbaas_agentscheduler
+ from neutron.extensions import portbindings
++from neutron.notifiers.eayun import eayun_notify
+ from neutron.openstack.common import importutils
+ from neutron.openstack.common import log as logging
+ from neutron.plugins.common import constants
+@@ -158,6 +159,7 @@ class LoadBalancerCallbacks(n_rpc.RpcCallback):
+                 if hm.status in constants.ACTIVE_PENDING_STATUSES:
+                     hm.status = constants.ACTIVE
+ 
++    @eayun_notify(constants.LOADBALANCER)
+     def update_status(self, context, obj_type, obj_id, status):
+         model_mapping = {
+             'pool': loadbalancer_db.Pool,
+-- 
+2.13.3
+

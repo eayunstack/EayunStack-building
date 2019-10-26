@@ -4,7 +4,7 @@
 
 Name:		openstack-neutron
 Version:	2014.2
-Release:	28%{?dist_eayunstack}
+Release:	42%{?dist_eayunstack}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.4.b3
 Summary:	OpenStack Networking Service
@@ -131,6 +131,59 @@ Patch0085: 0085-metering-extend-neutron-metering.patch
 Patch0086: 0086-l3_agent-implement-EayunStack-floating-ip-mechanism.patch
 Patch0087: 0087-Implement-lbaas-L7-policy-rule-model.patch
 Patch0088: 0088-Implement-l7policy-for-lbaas-agent.patch
+Patch0089: 0089-Fix-errors-in-lbaas-L7-policy-implemetation.patch
+Patch0090: 0090-iptables_firewall-use-wrap-chains-and-rules-for-mete.patch
+Patch0091: 0091-firewall_l3_agent-only-get-hosted-routers-info.patch
+Patch0092: 0092-metering-update-external-device-of-metering-iptables.patch
+Patch0093: 0093-Fix-lbaas-l7-implement-many-errors.patch
+Patch0094: 0094-Enable-egress-qos-to-be-set-on-floatingip-ports.patch
+Patch0095: 0095-Add-extra-action-for-lb-session-persistence.patch
+Patch0096: 0096-iptables_firewall-minor-fix-for-_setup_metering_chai.patch
+Patch0097: 0097-Validate-http_method-and-url_path-for-lbaas-health-m.patch
+Patch0098: 0098-Enable-ES-port-metering-on-all-sg-enabled-ports.patch
+Patch0099: 0099-Configuration-option-for-whether-to-use-ES-port-mete.patch
+Patch0100: 0100-Fix-enable-update-l7policy-value-attribute.patch
+Patch0101: 0101-l3_db-update-GatewayInUseByFloatingIp-check.patch
+Patch0102: 0102-Fix-fip-port-qos-namespace-selection-in-sync_qos.patch
+Patch0103: 0103-ES-fip-setup-ip-rule-for-floatingip-itself.patch
+Patch0104: 0104-Fix-error-when-update-l7policy-with-pool_id-None.patch
+Patch0105: 0105-es-metering-fix-port-selection-when-tcp_port-is-spec.patch
+Patch0106: 0106-Optimize-haproxy-driver-port_to_pool_id-dict.patch
+Patch0107: 0107-OpenFlow-EW-DVR-be-more-torelant-when-syncing-dvr-po.patch
+Patch0108: 0108-Add-check-if-extra-actions-params-is-correct.patch
+Patch0109: 0109-Add-status_changed-notification-for-some-components.patch
+Patch0110: 0110-FWaaS-apply-firewall-rules-to-router-ingress-traffic.patch
+Patch0111: 0111-FWaaS-support-some-more-protocols-in-FW-rules.patch
+Patch0112: 0112-Fix-firewall-port-range-compare-error.patch
+Patch0113: 0113-metering-properly-do-data-filtering-within-some-APIs.patch
+Patch0114: 0114-Loadbalancer-enable-a-created-free-port-to-be-used-b.patch
+Patch0115: 0115-Fix-exception-message-format-error.patch
+Patch0116: 0116-Add-monitor-address-and-port-for-lbaas-member.patch
+Patch0117: 0117-Fix-exception-error-when-l7rule-delete.patch
+Patch0118: 0118-Port-don-t-check-max-fixed_ips-quota-for-dhcp-agent-.patch
+Patch0119: 0119-EW-DVR-fix-issues-related-to-hosted-ports.patch
+Patch0120: 0120-Fix-syntax-error.patch
+Patch0121: 0121-Switch-to-use-classmethod-in-eayun-notifier.patch
+Patch0122: 0122-Porting-neutron-lbaas-certificates-manager-to-neutro.patch
+Patch0123: 0123-Add-query-and-fragment-valid-to-url_path.patch
+Patch0124: 0124-agent_sync-filter-out-not-ready-fip-port-targets.patch
+Patch0125: 0125-PPTP-allow-the-same-username-used-by-different-tenan.patch
+Patch0126: 0126-PPTP-fix-vpnservices-checking-for-PPTP-credentials.patch
+Patch0127: 0127-Metering-use-nfacct-to-get-metering-counters.patch
+Patch0128: 0128-metering-get-all-metering-label-at-once-on-a-host.patch
+Patch0129: 0129-metering-parallelize-workloads-in-iptables-drivers.patch
+Patch0130: 0130-Get-rid-of-ml2-port-model-hook-join.patch
+Patch0131: 0131-Get-rid-of-_network_model_hook-for-external_net.patch
+Patch0132: 0132-Get-rid-of-additional-fixed_ip-filter-join.patch
+Patch0133: 0133-Switch-to-subquery-for-1-M-relationships.patch
+Patch0134: 0134-ES-ACL-add-EayunStack-subnet-ACL-extension.patch
+Patch0135: 0135-ES-ACL-add-database-operations-related-to-subnet-ACL.patch
+Patch0136: 0136-ES-ACL-ACL-plugin-and-L3-agent-enhancement.patch
+Patch0137: 0137-metering-exclude-label-without-rules-when-getting-co.patch
+Patch0138: 0138-db-fix-backref-cascade-between-router-and-es_meter_l.patch
+Patch0139: 0139-metering-use-eventlet-when-sending-metering-reports.patch
+Patch0140: 0140-metering-always-setup-metering-iptables-rules-for-ro.patch
+Patch0141: 0141-Use-specific-priority-for-ES-fip-ip-rules.patch
 
 
 BuildArch:	noarch
@@ -221,7 +274,6 @@ Requires:	python-stevedore >= 1.0.0
 Requires:	python-six >= 1.7.0
 Requires:	python-webob >= 1.2.3
 Requires:	sudo
-Requires:	libreswan
 
 
 
@@ -571,6 +623,7 @@ Summary:	Neutron bandwidth metering agent
 Group:		Applications/System
 
 Requires:	openstack-neutron = %{version}-%{release}
+Requires:	nfacct >= 1.0.2
 
 %description metering-agent
 Neutron provides an API to measure bandwidth utilization
@@ -598,6 +651,7 @@ Summary:	Neutron VPNaaS agent
 Group:		Applications/System
 
 Requires:	openstack-neutron = %{version}-%{release}
+Requires:	libreswan
 
 %description vpn-agent
 Neutron provides an API to implement VPN as a service
@@ -697,6 +751,59 @@ IPSec.
 %patch0086 -p1
 %patch0087 -p1
 %patch0088 -p1
+%patch0089 -p1
+%patch0090 -p1
+%patch0091 -p1
+%patch0092 -p1
+%patch0093 -p1
+%patch0094 -p1
+%patch0095 -p1
+%patch0096 -p1
+%patch0097 -p1
+%patch0098 -p1
+%patch0099 -p1
+%patch0100 -p1
+%patch0101 -p1
+%patch0102 -p1
+%patch0103 -p1
+%patch0104 -p1
+%patch0105 -p1
+%patch0106 -p1
+%patch0107 -p1
+%patch0108 -p1
+%patch0109 -p1
+%patch0110 -p1
+%patch0111 -p1
+%patch0112 -p1
+%patch0113 -p1
+%patch0114 -p1
+%patch0115 -p1
+%patch0116 -p1
+%patch0117 -p1
+%patch0118 -p1
+%patch0119 -p1
+%patch0120 -p1
+%patch0121 -p1
+%patch0122 -p1
+%patch0123 -p1
+%patch0124 -p1
+%patch0125 -p1
+%patch0126 -p1
+%patch0127 -p1
+%patch0128 -p1
+%patch0129 -p1
+%patch0130 -p1
+%patch0131 -p1
+%patch0132 -p1
+%patch0133 -p1
+%patch0134 -p1
+%patch0135 -p1
+%patch0136 -p1
+%patch0137 -p1
+%patch0138 -p1
+%patch0139 -p1
+%patch0140 -p1
+%patch0141 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -965,6 +1072,7 @@ exit 0
 %{_datarootdir}/neutron/rootwrap/iptables-firewall.filters
 %{_datarootdir}/neutron/rootwrap/l3.filters
 %{_datarootdir}/neutron/rootwrap/lbaas-haproxy.filters
+%{_datarootdir}/neutron/rootwrap/metering.filters
 %{_datarootdir}/neutron/rootwrap/qos.filters
 
 
@@ -1158,6 +1266,85 @@ exit 0
 
 
 %changelog
+* Wed Oct 25 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-42.eayunstack.dev
+- add patch 0141 from github pull request #136 (redmine#11086)
+
+* Fri Oct 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-41.eayunstack.dev
+- fix dependency on libreswan (only vpn-agent needs it)
+- add patch 0130-0133 from github pull request #116 (redmine#10685)
+- add patch 0134-0136 from github pull request #130 (redmine#11027)
+- add patch 0137 from github pull request #131 (redmine#10988)
+- add patch 0138 from github pull request #132 (redmine#11042)
+- add patch 0139 from github pull request #133 (redmine#11060)
+- add patch 0140 from github pull request #135 (redmine#9992)
+
+* Thu Sep 14 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-40.eayunstack.dev
+- add patch 0128 from github pull request #127, #124(1), #128 (redmine#10957)
+- add patch 0129 from github pull request #124(2) (redmine#10956)
+
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-39.eayunstack.dev
+- update patch 0127 from github pull request #123 (redmine#10878)
+
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-38.eayunstack.dev
+- update patch 0127 from github pull request #122 (redmine#10878)
+
+* Wed Sep 13 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-37.eayunstack.dev
+- add patch 0125 from github pull request #118 (redmine#10809)
+- add patch 0126 from github pull request #119 (redmine#10813)
+- add patch 0127 from github pull request #120 (redmine#10878)
+
+* Tue Sep 05 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-36.eayunstack.dev
+- add patch 0122 from github pull request #108 (redmine#10330)
+- add patch 0123 from github pull request #111 (redmine#10435)
+- add patch 0124 from neutron-qos github pull request #26 (redmine#10738)
+
+* Wed Jul 19 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-35.eayunstack.dev
+- add patch 0109 from github pull request #100 (redmine#10220)
+- add patch 0110 from github pull request #101 (redmine#10238)
+- add patch 0111 from github pull request #102 (redmine#10240)
+- add patch 0112 from github pull request #103 (redmine#10246)
+- add patch 0113 from github pull request #105 (redmine#10261)
+- add patch 0114 from github pull request #106 (redmine#10286)
+- add patch 0115 from github pull request #107 (redmine#10312)
+- add patch 0116 from github pull request #95 (redmine#9977)
+- add patch 0117 from github pull request #109 (redmine#10380)
+- add patch 0118 from github pull request #110 (redmine#10437)
+- add patch 0119 from github pull request #113 (redmine#10558)
+- add patch 0120 from github pull request #114 (redmine#10240)
+- add patch 0121 from github pull request #115 (redmine#10220)
+
+* Thu Jun 01 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-34.eayunstack.dev
+- add patch 0108 from github pull request #99 (redmine#10217)
+
+* Thu May 18 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-33.eayunstack.dev
+- add patch 0105 from github pull request #93 (redmine#10055)
+- add patch 0106 from github pull request #94 (redmine#10056)
+- add patch 0107 from github pull request #96 (redmine#9118)
+
+* Mon May 08 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-32.eayunstack.dev
+- add patch 0098 from github pull request #86 (redmine#9968)
+- add patch 0099 from github pull request #87 (redmine#9970)
+- add patch 0100 from github pull request #90 (redmine#9989)
+- add patch 0101 from github pull request #89 (redmine#9990)
+- add patch 0102 from neutron-qos github pull request #25 (redmine#10008)
+- add patch 0103 from github pull request #88 (redmine#9982)
+- add patch 0104 from github pull request #91 (redmine#9998)
+
+* Wed Apr 26 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-31.eayunstack.dev
+- add patch 0095 from github pull request #82 (redmine#9667)
+- add patch 0096 from github pull request #83 (redmine#9154)
+- add patch 0097 from github pull request #85 (redmine#9861)
+
+* Thu Mar 23 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-30.eayunstack.dev
+- add patch 0090 from github pull request #76 (redmine#9154)
+- add patch 0091 from github pull request #77 (redmine#9588)
+- add patch 0092 from github pull request #79 (redmine#9641)
+- add patch 0093 from github pull request #78 (redmine#9518)
+- add patch 0094 from neutron-qos github pull request #24 (redmine#9642)
+
+* Tue Mar 07 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-29.eayunstack.dev
+- add patch 0089 from github pull request #75
+
 * Mon Mar 06 2017 Xu Meihong <meihong.xu@eayun.com> 2014.2-28.eayunstack.1.1
 - add patch 0077-0078 from github pull request #65 (redmine#9118)
 - add patch 0079 from github pull request #69 (redmine#9249)

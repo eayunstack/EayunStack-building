@@ -1,0 +1,40 @@
+From 50fba6053e3a90d75e39c9828c3e4ff08b388a64 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 11 May 2017 10:55:12 +0800
+Subject: [PATCH] Optimize haproxy driver port_to_pool_id dict
+
+Fixes: redmine #10056
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+index 7a5b315f6..1d72b3093 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+@@ -121,8 +121,8 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
+         # remember the pool<>port mapping
+         self.pool_to_port_id[pool_id] = logical_config['vip']['port']['id']
+         if port_id not in self.port_to_pool_id:
+-            self.port_to_pool_id[port_id] = []
+-        self.port_to_pool_id[port_id].append(pool_id)
++            self.port_to_pool_id[port_id] = set()
++        self.port_to_pool_id[port_id].add(pool_id)
+ 
+     @n_utils.synchronized('haproxy-driver')
+     def undeploy_instance(self, pool_id, cleanup_namespace=False):
+@@ -138,7 +138,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
+             namespace = get_ns_name(port_id)
+             ns = ip_lib.IPWrapper(self.root_helper, namespace)
+ 
+-            self.port_to_pool_id[port_id].remove(pool_id)
++            self.port_to_pool_id[port_id].discard(pool_id)
+             if not self.port_to_pool_id[port_id]:
+                 # last pool deteled
+                 self._unplug(namespace, port_id)
+-- 
+2.13.0
+

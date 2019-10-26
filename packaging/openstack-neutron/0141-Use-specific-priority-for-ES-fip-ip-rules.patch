@@ -1,0 +1,43 @@
+From 271b1f07db0de17546f0630772b4e29659a789e9 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Mon, 23 Oct 2017 14:50:43 +0800
+Subject: [PATCH] Use specific priority for ES-fip ip rules
+
+Ip-rule will automatically add a rule before all the existing rules. To
+prevent this, we need to specify the priority of the ip rules when using
+EayunStack fip mechanism.
+
+Fixes: redmine #11086
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/l3_agent.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/agent/l3_agent.py b/neutron/agent/l3_agent.py
+index 80b0316a0..aee4950a0 100644
+--- a/neutron/agent/l3_agent.py
++++ b/neutron/agent/l3_agent.py
+@@ -78,6 +78,7 @@ PRIORITY_SYNC_ROUTERS_TASK = 1
+ DELETE_ROUTER = 1
+ # For EayunStack floatingip mechanism
+ IPSET_CHAIN_LEN = 20
++ES_FIP_IP_RULE_PRIO = 32765
+ 
+ 
+ class L3PluginApi(n_rpc.RpcProxy):
+@@ -1254,8 +1255,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+ 
+         for ip in set(fixed_ips) - existing_ips:
+             table = netaddr.IPNetwork(ip).value
+-            ns_ipr.add_rule_from(ip, table)
+-            ns_ipr.add_rule_from(fip_map[ip], table)
++            ns_ipr.add_rule_from(ip, table, rule_pr=ES_FIP_IP_RULE_PRIO)
++            ns_ipr.add_rule_from(fip_map[ip], table,
++                                 rule_pr=ES_FIP_IP_RULE_PRIO)
+ 
+     def _es_add_floating_ip(self, ri, fip):
+         addr_added = False
+-- 
+2.13.5 (Apple Git-94)
+

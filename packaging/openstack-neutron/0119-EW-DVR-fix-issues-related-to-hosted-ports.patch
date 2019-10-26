@@ -1,0 +1,52 @@
+From a35c490e92ae06c43aa7255de17005833db122bf Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 13 Jul 2017 13:50:53 +0800
+Subject: [PATCH] EW DVR: fix issues related to hosted ports
+
+Hosted ports may not be ready when configuring rules. With this commit a
+chance is given for the rules of hosted ports to be re-configured during
+the next sync upon such case.
+
+This commit also fix a minor issue when deleting OpenFlow rules of
+removed hosted ports.
+
+Fixes: 56cf4bd93 ("openvswitch-agent: implement EW DVR using OpenFlow rules")
+Fixes: redmine #10558
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py b/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
+index 1dfce3c15..87056a50a 100644
+--- a/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
++++ b/neutron/plugins/openvswitch/agent/openflow_ew_dvr_agent.py
+@@ -232,8 +232,14 @@ class OFEWDVRAgent(object):
+                 dl_dst=gateway_mac, proto='ip', ip_dst=port['ip'])
+ 
+     def _add_flows_to_hosted_port(self, port, gateway_mac):
++        if port['host'] != self.host:
++            LOG.debug("Port %s is not hosted by this agent.", port['name'])
++            return
+         port_ofno = self.int_br.get_port_ofport(port['name'])
+-        if port_ofno == INVALID_OFPORT or port['host'] != self.host:
++        if port_ofno == INVALID_OFPORT:
++            LOG.warning("Port %s is not ready.", port['name'])
++            # Setting port['host'] to None for next sync.
++            port['host'] = None
+             return
+         actions = "strip_vlan,mod_dl_src:%s,dec_ttl,output:%s" % (
+             gateway_mac, port_ofno)
+@@ -289,7 +295,7 @@ class OFEWDVRAgent(object):
+ 
+             old_port = old_subnet['ports'].pop(port_id)
+             if self._port_moved_out_of_host(old_port, port):
+-                self._del_flows_to_hosted_port(port)
++                self._del_flows_to_hosted_port(old_port)
+             elif self._port_moved_into_host(old_port, port):
+                 self._add_flows_to_hosted_port(port, gateway_mac)
+ 
+-- 
+2.13.3
+

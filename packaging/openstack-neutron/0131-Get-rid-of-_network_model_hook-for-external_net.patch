@@ -1,0 +1,61 @@
+From 8f698ccdd021989db9d20367ba1e7a34e14eec09 Mon Sep 17 00:00:00 2001
+From: Kevin Benton <kevin@benton.pub>
+Date: Mon, 9 Jan 2017 05:30:56 -0800
+Subject: [PATCH 131/133] Get rid of _network_model_hook for external_net
+
+The network already has a joined relationship to the external
+network table so we can leverage that instead of causing an
+additional join for the filtering criteria.
+
+Partial-Bug: #1649317
+Change-Id: Idfee69b124f4ab8e2998da8492c5fa627f705bb9
+(cherry picked from commit 495b7863a0c9c1f4ab319bb114ff0bec442376df)
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+
+Conflicts:
+    neutron/db/external_net_db.py
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/external_net_db.py | 12 +++---------
+ 1 file changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/neutron/db/external_net_db.py b/neutron/db/external_net_db.py
+index 53f389536..b38cc07f7 100644
+--- a/neutron/db/external_net_db.py
++++ b/neutron/db/external_net_db.py
+@@ -48,12 +48,6 @@ class ExternalNetwork(model_base.BASEV2):
+ class External_net_db_mixin(object):
+     """Mixin class to add external network methods to db_base_plugin_v2."""
+ 
+-    def _network_model_hook(self, context, original_model, query):
+-        query = query.outerjoin(ExternalNetwork,
+-                                (original_model.id ==
+-                                 ExternalNetwork.network_id))
+-        return query
+-
+     def _network_filter_hook(self, context, original_model, conditions):
+         if conditions is not None and not hasattr(conditions, '__iter__'):
+             conditions = (conditions, )
+@@ -68,8 +62,8 @@ class External_net_db_mixin(object):
+         if not vals:
+             return query
+         if vals[0]:
+-            return query.filter((ExternalNetwork.network_id != expr.null()))
+-        return query.filter((ExternalNetwork.network_id == expr.null()))
++            return query.filter(models_v2.Network.external.has())
++        return query.filter(~models_v2.Network.external.has())
+ 
+     # TODO(salvatore-orlando): Perform this operation without explicitly
+     # referring to db_base_plugin_v2, as plugins that do not extend from it
+@@ -77,7 +71,7 @@ class External_net_db_mixin(object):
+     db_base_plugin_v2.NeutronDbPluginV2.register_model_query_hook(
+         models_v2.Network,
+         "external_net",
+-        '_network_model_hook',
++        None,
+         '_network_filter_hook',
+         '_network_result_filter_hook')
+ 
+-- 
+2.13.5 (Apple Git-94)
+

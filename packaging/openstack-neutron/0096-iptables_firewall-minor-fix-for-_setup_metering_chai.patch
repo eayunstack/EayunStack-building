@@ -1,0 +1,31 @@
+From 76ec0802797e21aadc4c3d730b99d87223c4c9e9 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 23 Mar 2017 20:14:48 +0800
+Subject: [PATCH 96/97] iptables_firewall: minor fix for _setup_metering_chains
+
+Fixes: redmine #9154
+Fixes: deaf40836 ("iptables_firewall: add firewall rules to meter instance
+port stats")
+Fixes: 9c324b301 ("iptables_firewall: use wrap chains and rules for metering)
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/linux/iptables_firewall.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/agent/linux/iptables_firewall.py b/neutron/agent/linux/iptables_firewall.py
+index c755cb99b..b0bfb208a 100644
+--- a/neutron/agent/linux/iptables_firewall.py
++++ b/neutron/agent/linux/iptables_firewall.py
+@@ -181,7 +181,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
+     def _setup_metering_chains(self, port, direction, chain_name):
+         if not port['device_owner'].startswith('compute:'):
+             # Only meter instances' ports
+-            return '$' + chain_name
++            return chain_name
+         # Only support IPv4
+         chains = self._metering_chain_names(port, direction)
+         for m_chain_name in chains:
+-- 
+2.12.2
+

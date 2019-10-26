@@ -1,0 +1,659 @@
+From a745a36326274d26fec001a177b816086a206653 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 20 Sep 2017 20:05:09 +0800
+Subject: [PATCH 136/136] ES ACL: ACL plugin and L3 agent enhancement
+
+Use L3 agent to setup subnet ACL rules.
+
+Fixes(3/3): redmine #11027
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/agent/l3_agent.py                         |   9 +
+ neutron/db/es_acl_db.py                           |  76 ++++++-
+ neutron/services/es_acl/__init__.py               |   0
+ neutron/services/es_acl/agents/__init__.py        |   0
+ neutron/services/es_acl/agents/es_acl_l3_agent.py | 237 ++++++++++++++++++++++
+ neutron/services/es_acl/common/__init__.py        |   0
+ neutron/services/es_acl/common/topics.py          |  16 ++
+ neutron/services/es_acl/es_acl_l3_plugin.py       | 157 ++++++++++++++
+ 8 files changed, 493 insertions(+), 2 deletions(-)
+ create mode 100644 neutron/services/es_acl/__init__.py
+ create mode 100644 neutron/services/es_acl/agents/__init__.py
+ create mode 100644 neutron/services/es_acl/agents/es_acl_l3_agent.py
+ create mode 100644 neutron/services/es_acl/common/__init__.py
+ create mode 100644 neutron/services/es_acl/common/topics.py
+ create mode 100644 neutron/services/es_acl/es_acl_l3_plugin.py
+
+diff --git a/neutron/agent/l3_agent.py b/neutron/agent/l3_agent.py
+index 86d87735e..80b0316a0 100644
+--- a/neutron/agent/l3_agent.py
++++ b/neutron/agent/l3_agent.py
+@@ -51,6 +51,7 @@ from neutron.openstack.common import processutils
+ from neutron.openstack.common import service
+ from neutron.openstack.common import timeutils
+ from neutron import service as neutron_service
++from neutron.services.es_acl.agents import es_acl_l3_agent
+ from neutron.services.firewall.agents.l3reference import firewall_l3_agent
+ 
+ LOG = logging.getLogger(__name__)
+@@ -449,6 +450,7 @@ class RouterProcessingQueue(object):
+ 
+ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+                  l3_ha_agent.AgentMixin,
++                 es_acl_l3_agent.EsAclL3AgentMixin,
+                  manager.Manager):
+     """Manager for L3NatAgent
+ 
+@@ -585,6 +587,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+ 
+         self.target_ex_net_id = None
+         self.use_ipv6 = ipv6_utils.is_enabled()
++        self.init_es_acl(self.conf)
+ 
+     def _check_config_params(self):
+         """Check items in configuration files.
+@@ -904,6 +907,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+         for p in new_ports:
+             self._set_subnet_info(p)
+             self.internal_network_added(ri, p)
++            self.es_acl_internal_network_added(ri, p)
+             ri.internal_ports.append(p)
+             self._set_subnet_arp_info(ri, p)
+             if (not new_ipv6_port and
+@@ -1007,6 +1011,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             self.plugin_rpc.update_portmapping_statuses(
+                 self.context, pm_statuses)
+ 
++        # Process EayunStack ACL rules
++        self.es_acl_process_router(ri)
++
+         # Process SNAT/DNAT rules for floating IPs
+         fip_statuses = {}
+         try:
+@@ -1994,6 +2001,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+                     update.timestamp = timeutils.utcnow()
+                     routers = self.plugin_rpc.get_routers(self.context,
+                                                           [update.id])
++                    self.es_acl_update_router_info(routers)
+                 except Exception:
+                     msg = _("Failed to fetch router information for '%s'")
+                     LOG.exception(msg, update.id)
+@@ -2045,6 +2053,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
+             timestamp = timeutils.utcnow()
+             routers = self.plugin_rpc.get_routers(
+                 context, router_ids)
++            self.es_acl_update_router_info(routers)
+ 
+             LOG.debug(_('Processing :%r'), routers)
+             for r in routers:
+diff --git a/neutron/db/es_acl_db.py b/neutron/db/es_acl_db.py
+index af2ffe175..edb0a9e75 100644
+--- a/neutron/db/es_acl_db.py
++++ b/neutron/db/es_acl_db.py
+@@ -28,6 +28,7 @@ from neutron.openstack.common import uuidutils
+ from neutron.openstack.common import log as logging
+ 
+ from neutron import manager
++from neutron.plugins.common import constants as p_constants
+ 
+ 
+ LOG = logging.getLogger(__name__)
+@@ -93,6 +94,11 @@ class EsAclDbMixin(es_acl.EsAclPluginBase, base_db.CommonDbMixin):
+     def _core_plugin(self):
+         return manager.NeutronManager.get_plugin()
+ 
++    @property
++    def _l3_plugin(self):
++        return manager.NeutronManager.get_service_plugins().get(
++            p_constants.L3_ROUTER_NAT)
++
+     def _get_es_acl(self, context, es_acl_id):
+         try:
+             return self._get_by_id(context, EsAcl, es_acl_id)
+@@ -156,6 +162,7 @@ class EsAclDbMixin(es_acl.EsAclPluginBase, base_db.CommonDbMixin):
+         """Bind subnets to ACL."""
+         subnet_ids = subnet_ids['subnet_ids']
+         bound_subnets = []
++        affected_routers = set()
+         with context.session.begin(subtransactions=True):
+             acl_db = self._get_es_acl(context, es_acl_id)
+             already_bound = set(
+@@ -205,18 +212,23 @@ class EsAclDbMixin(es_acl.EsAclPluginBase, base_db.CommonDbMixin):
+                     router_port_id=router_port_id)
+                 context.session.add(binding_db)
+                 bound_subnets.append(subnet_id)
+-        return {'bound_subnets': bound_subnets}
++                if router_id:
++                    affected_routers.add(router_id)
++        return {'bound_subnets': bound_subnets}, affected_routers
+ 
+     def unbind_subnets(self, context, es_acl_id, subnet_ids):
+         """Unbind subnets from ACL."""
+         subnet_ids = subnet_ids['subnet_ids']
+         unbound_subnets = []
++        affected_routers = set()
+         with context.session.begin(subtransactions=True):
+             acl_db = self._get_es_acl(context, es_acl_id)
+             subnet_ids = set(subnet_ids)
+             for binding in acl_db.bindings:
+                 subnet_id = binding.subnet_id
+                 if subnet_id in subnet_ids:
++                    if binding.router_id:
++                        affected_routers.add(binding.router_id)
+                     context.session.delete(binding)
+                     subnet_ids.remove(subnet_id)
+                     unbound_subnets.append(subnet_id)
+@@ -224,7 +236,7 @@ class EsAclDbMixin(es_acl.EsAclPluginBase, base_db.CommonDbMixin):
+                 LOG.warn('ACL %(acl_id)s is not bound to '
+                          'subnet(s) %(subnet_ids)s.',
+                          {'acl_id': es_acl_id, 'subnet_ids': subnet_ids})
+-        return {'unbound_subnets': unbound_subnets}
++        return {'unbound_subnets': unbound_subnets}, affected_routers
+ 
+     def _get_es_acl_rule(self, context, es_acl_rule_id):
+         try:
+@@ -416,3 +428,63 @@ class EsAclDbMixin(es_acl.EsAclPluginBase, base_db.CommonDbMixin):
+             context, EsAclRule, self._make_es_acl_rule_dict,
+             filters=filters, fields=fields, sorts=sorts,
+             limit=limit, marker_obj=marker_object, page_reverse=page_reverse)
++
++    # Helper functions for plugin
++    def _make_es_acl_rule_dict_for_agent(self, acl_rule_db):
++        fields_for_agent = set(
++            ['protocol', 'source_ip_address', 'destination_ip_address',
++             'source_port', 'destination_port', 'action'])
++        return self._make_es_acl_rule_dict(acl_rule_db, fields_for_agent)
++
++    def _make_es_acl_dict_for_agent(self, acl_db):
++        res = {
++            'ingress': [
++                self._make_es_acl_rule_dict_for_agent(rule)
++                for rule in acl_db.ingress_rules],
++            'egress': [
++                self._make_es_acl_rule_dict_for_agent(rule)
++                for rule in acl_db.egress_rules]}
++        return res
++
++    def get_related_routers(self, context, acl_id):
++        routers = set()
++        if acl_id is not None:
++            acl_db = self._get_es_acl(context, acl_id)
++            routers = set(binding.router_id for binding in acl_db.bindings)
++        return routers
++
++    def get_es_acl_by_routers(self, context, router_ids):
++        routers = {}
++        acls = {}
++        binding_query = context.session.query(EsAclSubnetBinding).filter(
++            EsAclSubnetBinding.router_id.in_(router_ids))
++        acl_ids = set()
++        for binding in binding_query:
++            acl_id = binding.acl_id
++            router_id = binding.router_id
++            acl_ids.add(acl_id)
++            router_ports = routers.get(router_id, {})
++            if acl_id not in router_ports:
++                router_ports[acl_id] = set()
++            router_ports[acl_id].add(binding.router_port_id)
++            routers[router_id] = router_ports
++
++        acl_query = context.session.query(EsAcl).filter(EsAcl.id.in_(acl_ids))
++        for acl in acl_query:
++            acls[acl.id] = self._make_es_acl_dict_for_agent(acl)
++
++        return {'acls': acls, 'routers': routers}
++
++    def internal_port_added_to_router(self, context,
++                                      router_id, subnet_id, port_id):
++        with context.session.begin(subtransactions=True):
++            binding = context.session.query(
++                EsAclSubnetBinding
++            ).filter_by(subnet_id=subnet_id).with_lockmode('update').first()
++            if not binding:
++                return {}
++
++            binding.update({'router_id': router_id, 'router_port_id': port_id})
++            acl_id = binding.acl_id
++            acl_db = self._get_es_acl(context, acl_id)
++        return {acl_id: self._make_es_acl_dict_for_agent(acl_db)}
+diff --git a/neutron/services/es_acl/__init__.py b/neutron/services/es_acl/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/services/es_acl/agents/__init__.py b/neutron/services/es_acl/agents/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/services/es_acl/agents/es_acl_l3_agent.py b/neutron/services/es_acl/agents/es_acl_l3_agent.py
+new file mode 100644
+index 000000000..39b40cc61
+--- /dev/null
++++ b/neutron/services/es_acl/agents/es_acl_l3_agent.py
+@@ -0,0 +1,237 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from oslo.config import cfg
++
++from neutron.common import rpc as n_rpc
++from neutron.openstack.common import log as logging
++from neutron.plugins.common import constants
++
++from neutron.services.es_acl.common import topics as es_acl_topics
++
++LOG = logging.getLogger(__name__)
++
++EsAclOpts = [
++    cfg.BoolOpt('enabled', default=False, help="Enable EayunStack ACL"),
++]
++cfg.CONF.register_opts(EsAclOpts, 'es_acl')
++
++ES_ACL_INFO_KEY = 'ES_ACL'
++ES_ACL_CHAIN_PREFIX = 'acl-'
++
++INGRESS_DIRECTION = 'ingress'
++EGRESS_DIRECTION = 'egress'
++
++CHAIN_NAME_PREFIX = {INGRESS_DIRECTION: 'i',
++                     EGRESS_DIRECTION: 'o'}
++
++# ACL applied on internal ports.
++IPTABLES_DIR = {INGRESS_DIRECTION: '-o',
++                EGRESS_DIRECTION: '-i'}
++PORT_VALID_PROTOCOLS = (
++    6,  # TCP
++    17,  # UDP
++    33,  # DCCP
++    132,  # SCTP
++    # 136,  # UDPLite, not yet supported by iptables v1.4.21
++)
++ACTIONS = {'allow': 'ACCEPT',
++           'deny': 'DROP'}
++
++
++class EsAclPluginApi(n_rpc.RpcProxy):
++    API_VERSION = '1.0'
++
++    def __init__(self):
++        super(EsAclPluginApi, self).__init__(
++            es_acl_topics.ES_ACL_PLUGIN, self.API_VERSION)
++
++    def get_es_acl_by_routers(self, context, router_ids):
++        return self.call(
++            context,
++            self.make_msg('get_es_acl_by_routers', router_ids=router_ids))
++
++    def internal_port_added_to_router(self, context,
++                                      router_id, subnet_id, port_id):
++        return self.call(
++            context,
++            self.make_msg(
++                'internal_port_added_to_router',
++                router_id=router_id, subnet_id=subnet_id, port_id=port_id))
++
++
++def _run_if_enabled(switch_name, default_ret=None):
++    def _decorator(func):
++        def _func(*args, **kwargs):
++            if getattr(args[0], switch_name, False):
++                return func(*args, **kwargs)
++            else:
++                return default_ret
++        return _func
++    return _decorator
++
++
++class EsAclL3AgentMixin(object):
++
++    def init_es_acl(self, conf):
++        self.es_acl_enabled = cfg.CONF.es_acl.enabled
++        if self.neutron_service_plugins is not None:
++            plugin_configured = (
++                constants.ES_ACL in self.neutron_service_plugins)
++            if plugin_configured and not self.es_acl_enabled:
++                LOG.error('EayunStack ACL plugin is configured in the server '
++                          'side, but EayunStack ACL is disabled in L3 agent.')
++            self.es_acl_enabled = self.es_acl_enabled and plugin_configured
++        if self.es_acl_enabled:
++            self.es_acl_plugin_api = EsAclPluginApi()
++
++    @property
++    def empty_acl_info(self):
++        return {'rules': {}, 'ports': {}}
++
++    @_run_if_enabled('es_acl_enabled')
++    def es_acl_update_router_info(self, routers):
++        router_ids = [router['id'] for router in routers]
++        LOG.debug(
++            'Getting EayunStack ACL information for routers %s.', router_ids)
++        acl_by_routers = self.es_acl_plugin_api.get_es_acl_by_routers(
++            self.context, router_ids)
++        LOG.debug('Get EayunStack ACL information: %r.' % acl_by_routers)
++        acls = acl_by_routers['acls']
++        acl_routers = acl_by_routers['routers']
++
++        for router in routers:
++            router_id = router['id']
++            acl_info = self.empty_acl_info
++            for acl_id, ports in acl_routers.get(router_id, {}).items():
++                acl_info['ports'][acl_id] = set(ports)
++            related_acl_ids = set(acl_info['ports'].keys())
++            acl_info['rules'] = {
++                acl_id: acls.get(acl_id)
++                for acl_id in related_acl_ids
++            }
++            LOG.debug('EayunStack ACL information for router %(router_id)s: '
++                      '%(info)r', {'router_id': router_id, 'info': acl_info})
++            router[ES_ACL_INFO_KEY] = acl_info
++
++    @staticmethod
++    def _get_es_acl_chain_name(direction, acl_id):
++        return "%s%s%s" % (
++            ES_ACL_CHAIN_PREFIX, CHAIN_NAME_PREFIX[direction], acl_id)
++
++    @staticmethod
++    def _drop_invalid_packets_rule():
++        return '-m state --state INVALID -j DROP'
++
++    @staticmethod
++    def _allow_established_rule():
++        return '-m state --state ESTABLISHED,RELATED -j ACCEPT'
++
++    @staticmethod
++    def _default_drop_all_rule():
++        return '-j DROP'
++
++    @staticmethod
++    def _translate_acl_rule(rule):
++        parts = []
++        if rule['protocol']:
++            parts.append('-p %s' % rule['protocol'])
++        if rule['source_ip_address']:
++            parts.append('-s %s' % rule['source_ip_address'])
++        if rule['destination_ip_address']:
++            parts.append('-d %s' % rule['destination_ip_address'])
++        if rule['protocol'] in PORT_VALID_PROTOCOLS:
++            if rule['source_port']:
++                parts.append('--sport %s' % rule['source_port'])
++            if rule['destination_port']:
++                parts.append('--dport %s' % rule['destination_port'])
++        parts.append('-j %s' % ACTIONS[rule['action']])
++        return ' '.join(parts)
++
++    @_run_if_enabled('es_acl_enabled')
++    def es_acl_process_router(self, ri):
++        # Called with ri.iptables_manager.iptables_apply_deferred = True
++        im = ri.iptables_manager
++        table = im.ipv4['filter']
++        acl_info = ri.router.get(ES_ACL_INFO_KEY, self.empty_acl_info)
++
++        LOG.debug('Processing EayunStack ACL information for router '
++                  '%(router_id)s: %(info)r.',
++                  {'router_id': ri.router_id, 'info': acl_info})
++        # Clear all the chains
++        acl_chains = set(
++            chain for chain in table.chains
++            if chain.startswith(ES_ACL_CHAIN_PREFIX))
++        for chain in acl_chains:
++            table.ensure_remove_chain(chain)
++
++        # Build acl rules
++        for acl_id, acl_rules in acl_info['rules'].items():
++            ports = acl_info['ports'].get(acl_id, set())
++            for direction in (INGRESS_DIRECTION, EGRESS_DIRECTION):
++                chain = self._get_es_acl_chain_name(direction, acl_id)
++                table.add_chain(chain)
++
++                rules = [self._drop_invalid_packets_rule(),
++                         self._allow_established_rule()]
++                rules += [
++                    self._translate_acl_rule(rule)
++                    for rule in acl_rules.get(direction, [])
++                ]
++                rules.append(self._default_drop_all_rule())
++                for rule in rules:
++                    table.add_rule(chain, rule)
++
++                for port_id in ports:
++                    rule = '%s %s -j $%s' % (
++                        IPTABLES_DIR[direction],
++                        self.get_internal_device_name(port_id),
++                        chain
++                    )
++                    table.add_rule('FORWARD', rule)
++
++        im.apply()
++
++    @_run_if_enabled('es_acl_enabled')
++    def es_acl_remove_from_router_info(self, ri):
++        ri.router[ES_ACL_INFO_KEY] = self.empty_acl_info
++
++    @_run_if_enabled('es_acl_enabled')
++    def es_acl_internal_network_added(self, ri, port):
++        acl_info = ri.router.get(ES_ACL_INFO_KEY, self.empty_acl_info)
++
++        router_id = ri.router_id
++        subnet_id = port['subnet']['id']
++        port_id = port['id']
++        try:
++            acls = self.es_acl_plugin_api.internal_port_added_to_router(
++                self.context, router_id, subnet_id, port_id)
++            LOG.debug(
++                'Get EayunStack ACL information for subnet %(subnet_id)s '
++                'newly added to router %(router_id)s: %(info)r.',
++                {'subnet_id': subnet_id, 'router_id': router_id, 'info': acls})
++        except Exception:
++            LOG.exception(
++                'Failed to fetch EayunStack ACL information for '
++                'subnet %(subnet_id)s newly added to router %(router_id)s.',
++                {subnet_id: subnet_id, router_id: router_id})
++            return
++
++        for acl_id, rules in acls.items():
++            if acl_id not in acl_info['rules']:
++                acl_info['rules']['acl_id'] = rules
++            if acl_id not in acl_info['ports']:
++                acl_info['ports'][acl_id] = set()
++            acl_info['ports'][acl_id].add(port_id)
+diff --git a/neutron/services/es_acl/common/__init__.py b/neutron/services/es_acl/common/__init__.py
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/neutron/services/es_acl/common/topics.py b/neutron/services/es_acl/common/topics.py
+new file mode 100644
+index 000000000..0adc2bf5f
+--- /dev/null
++++ b/neutron/services/es_acl/common/topics.py
+@@ -0,0 +1,16 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++ES_ACL_PLUGIN = 'es_acl_plugin'
+diff --git a/neutron/services/es_acl/es_acl_l3_plugin.py b/neutron/services/es_acl/es_acl_l3_plugin.py
+new file mode 100644
+index 000000000..39d018a8c
+--- /dev/null
++++ b/neutron/services/es_acl/es_acl_l3_plugin.py
+@@ -0,0 +1,157 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from oslo.config import cfg
++
++from neutron.common import constants
++from neutron.common import rpc as n_rpc
++from neutron.common import topics
++from neutron.common import utils
++from neutron.db import es_acl_db
++from neutron.openstack.common import log as logging
++from neutron.services.es_acl.common import topics as es_acl_topics
++
++LOG = logging.getLogger(__name__)
++
++
++class EsAclL3Callbacks(n_rpc.RpcCallback):
++    RPC_API_VERSION = '1.0'
++
++    def __init__(self, plugin):
++        super(EsAclL3Callbacks, self).__init__()
++        self.plugin = plugin
++
++    def get_es_acl_by_routers(self, context, router_ids):
++        return self.plugin.get_es_acl_by_routers(context, router_ids)
++
++    def internal_port_added_to_router(self, context,
++                                      router_id, subnet_id, port_id):
++        return self.plugin.internal_port_added_to_router(
++            context, router_id, subnet_id, port_id)
++
++
++class EsAclL3AgentApi(n_rpc.RpcProxy):
++    API_VERSION = '1.0'
++
++    def __init__(self, plugin, host):
++        super(EsAclL3AgentApi, self).__init__(
++            topics.L3_AGENT, self.API_VERSION)
++        self.plugin = plugin
++        self.host = host
++
++    def _agent_notify_routers_update(self, context, routers):
++        adminContext = context.is_admin and context or context.elevated()
++
++        routers_by_host = {}
++        for router_id in routers:
++            l3_agents = self.plugin._l3_plugin.get_l3_agents_hosting_routers(
++                adminContext, [router_id], admin_state_up=True, active=True)
++            for l3_agent in l3_agents:
++                host = l3_agent['host']
++                host_routers = routers_by_host.get(host, [])
++                host_routers.append(router_id)
++                routers_by_host[host] = host_routers
++
++        for host, host_routers in routers_by_host.items():
++            self.cast(context,
++                      self.make_msg('routers_updated', routers=host_routers),
++                      topic='%s.%s' % (self.topic, host))
++
++    def _fanout_notify_routers_update(self, context, routers):
++        self.fanout_cast(
++            context, self.make_msg('routers_updated', routers=routers))
++
++    def notify_routers_update(self, context, routers):
++        if utils.is_extension_supported(
++            self.plugin._l3_plugin, constants.L3_AGENT_SCHEDULER_EXT_ALIAS
++        ):
++            self._agent_notify_routers_update(context, routers)
++        else:
++            self._fanout_notify_routers_update(context, routers)
++
++
++class EsAclL3Plugin(es_acl_db.EsAclDbMixin):
++
++    supported_extension_aliases = ['es-acl']
++
++    def __init__(self):
++        self.endpoints = [EsAclL3Callbacks(self)]
++        self.conn = n_rpc.create_connection(new=True)
++        self.conn.create_consumer(
++            es_acl_topics.ES_ACL_PLUGIN, self.endpoints, fanout=False)
++        self.conn.consume_in_threads()
++
++        self.agent_rpc = EsAclL3AgentApi(self, cfg.CONF.host)
++
++    def bind_subnets(self, context, es_acl_id, subnet_ids):
++        bound_subnets, affected_routers = super(
++            EsAclL3Plugin, self
++        ).bind_subnets(context, es_acl_id, subnet_ids)
++
++        self.agent_rpc.notify_routers_update(context, affected_routers)
++
++        return bound_subnets
++
++    def unbind_subnets(self, context, es_acl_id, subnet_ids):
++        unbound_subnets, affected_routers = super(
++            EsAclL3Plugin, self
++        ).unbind_subnets(context, es_acl_id, subnet_ids)
++
++        self.agent_rpc.notify_routers_update(context, affected_routers)
++
++        return unbound_subnets
++
++    def create_es_acl_rule(self, context, es_acl_rule):
++        rule = super(
++            EsAclL3Plugin, self
++        ).create_es_acl_rule(context, es_acl_rule)
++
++        routers = self.get_related_routers(context, rule['acl_id'])
++        self.agent_rpc.notify_routers_update(context, routers)
++
++        return rule
++
++    @staticmethod
++    def _test_rule_changed(old_rule, rule):
++        changed_columns = set(
++            key for key in rule.keys() if old_rule[key] != rule[key])
++        changed_columns.discard('name')
++        return len(changed_columns) > 0
++
++    def update_es_acl_rule(self, context, es_acl_rule_id, es_acl_rule):
++        old_rule = self.get_es_acl_rule(context, es_acl_rule_id)
++        rule = super(
++            EsAclL3Plugin, self
++        ).update_es_acl_rule(context, es_acl_rule_id, es_acl_rule)
++
++        rule_changed = self._test_rule_changed(old_rule, rule)
++        if rule_changed:
++            routers = self.get_related_routers(context, rule['acl_id'])
++            if old_rule['acl_id'] != rule['acl_id']:
++                routers = routers.union(
++                    self.get_related_routers(context, old_rule['acl_id']))
++            self.agent_rpc.notify_routers_update(context, routers)
++        else:
++            LOG.warn('Nothing changed for ACL rule %(acl_rule_id)s.',
++                     {'acl_rule_id': es_acl_rule_id})
++
++        return rule
++
++    def delete_es_acl_rule(self, context, es_acl_rule_id):
++        rule = self.get_es_acl_rule(context, es_acl_rule_id)
++        super(EsAclL3Plugin, self).delete_es_acl_rule(context, es_acl_rule_id)
++
++        routers = self.get_related_routers(context, rule['acl_id'])
++        self.agent_rpc.notify_routers_update(context, routers)
+-- 
+2.13.5 (Apple Git-94)
+

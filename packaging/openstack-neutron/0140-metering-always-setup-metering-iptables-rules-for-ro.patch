@@ -1,0 +1,57 @@
+From 9e548394d34baba83dc82de063358f69241f9a97 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 11 Oct 2017 16:46:31 +0800
+Subject: [PATCH] metering: always setup metering iptables rules for routers
+
+The deployment of the metering iptables rules depends on routers
+connecting to external networks with router ports. As we have introduced
+EayunStack floatingip mechanism, this dependency should be removed. And
+we can now do metering for a floating IP even though its associated
+router is not connected to the external network with a router port.
+
+Fixes: redmine #9992
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ .../metering/drivers/iptables/iptables_driver.py        | 17 ++---------------
+ 1 file changed, 2 insertions(+), 15 deletions(-)
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 453f6b10d..746bbe423 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -112,20 +112,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+         return r
+ 
+     def _green_update_router(self, router):
+-        old_gw_port_id = None
+         old_rm = self.routers.get(router['id'])
+-        if old_rm:
+-            old_gw_port_id = old_rm.router['gw_port_id']
+-        gw_port_id = router['gw_port_id']
+-
+-        if gw_port_id != old_gw_port_id:
+-            if old_rm:
+-                with IptablesManagerTransaction(old_rm.iptables_manager):
+-                    self._process_disassociate_metering_label(router)
+-                    if gw_port_id:
+-                        self._process_associate_metering_label(router)
+-            elif gw_port_id:
+-                self._process_associate_metering_label(router)
++        if not old_rm:
++            self._process_associate_metering_label(router)
+ 
+     @log.log
+     def update_routers(self, context, routers):
+@@ -147,8 +136,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+ 
+     def _process_metering_label_rules(self, rm, rules, label_id, rules_chain):
+         im = rm.iptables_manager
+-        if not rm.router['gw_port_id']:
+-            return
+         ext_dev = "%s+" % EXTERNAL_DEV_PREFIX
+ 
+         for rule in rules:
+-- 
+2.13.5 (Apple Git-94)
+

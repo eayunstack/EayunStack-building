@@ -1,0 +1,152 @@
+From 35f487ba73d7bcb98e6d975ccbaae41537a43d54 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 4 May 2017 14:19:01 +0800
+Subject: [PATCH 116/118] Add monitor address and port for lbaas member
+
+This allow lbaas member health check different
+IP and Port tuple
+
+Fixes: redmine #9977
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/loadbalancer/loadbalancer_db.py         |  6 +++
+ ...tor_address_and_port_column_for_lbaas_member.py | 45 ++++++++++++++++++++++
+ .../db/migration/alembic_migrations/versions/HEAD  |  2 +-
+ neutron/extensions/loadbalancer.py                 | 11 +++++-
+ .../services/loadbalancer/drivers/haproxy/cfg.py   |  6 +++
+ 5 files changed, 68 insertions(+), 2 deletions(-)
+ create mode 100644 neutron/db/migration/alembic_migrations/versions/0ffcc7f9a449_add_monitor_address_and_port_column_for_lbaas_member.py
+
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index 061735b24..a96187b39 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -108,6 +108,8 @@ class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+     weight = sa.Column(sa.Integer, nullable=False)
+     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
+     priority = sa.Column(sa.Integer, nullable=False, default=256)
++    monitor_address = sa.Column(sa.String(64), nullable=True)
++    monitor_port = sa.Column(sa.Integer, nullable=True)
+ 
+ 
+ class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+@@ -778,6 +780,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                'weight': member['weight'],
+                'admin_state_up': member['admin_state_up'],
+                'priority': member['priority'],
++               'monitor_address': member['monitor_address'],
++               'monitor_port': member['monitor_port'],
+                'status': member['status'],
+                'status_description': member['status_description']}
+ 
+@@ -797,6 +801,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                                    address=v['address'],
+                                    protocol_port=v['protocol_port'],
+                                    weight=v['weight'],
++                                   monitor_address=v['monitor_address'],
++                                   monitor_port=v['monitor_port'],
+                                    admin_state_up=v['admin_state_up'],
+                                    status=constants.PENDING_CREATE)
+                 if attributes.is_attr_set(v['priority']):
+diff --git a/neutron/db/migration/alembic_migrations/versions/0ffcc7f9a449_add_monitor_address_and_port_column_for_lbaas_member.py b/neutron/db/migration/alembic_migrations/versions/0ffcc7f9a449_add_monitor_address_and_port_column_for_lbaas_member.py
+new file mode 100644
+index 000000000..bb7197c57
+--- /dev/null
++++ b/neutron/db/migration/alembic_migrations/versions/0ffcc7f9a449_add_monitor_address_and_port_column_for_lbaas_member.py
+@@ -0,0 +1,45 @@
++# Copyright 2017 OpenStack Foundation
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++#
++
++"""add priority column for lbaas member table
++
++Revision ID: 0ffcc7f9a449
++Revises: 7dc5a7c3d759
++Create Date: 2017-05-11 23:57:10.409817
++
++"""
++
++# revision identifiers, used by Alembic.
++revision = '0ffcc7f9a449'
++down_revision = '7dc5a7c3d759'
++
++from alembic import op
++import sqlalchemy as sa
++
++
++def upgrade():
++    op.add_column(
++        'members',
++        sa.Column('monitor_address', sa.String(64), nullable=True)
++    )
++    op.add_column(
++        'members',
++        sa.Column('monitor_port', sa.Integer, nullable=True)
++    )
++
++
++def downgrade():
++    op.drop_column('members', 'monitor_address')
++    op.drop_column('members', 'monitor_port')
+diff --git a/neutron/db/migration/alembic_migrations/versions/HEAD b/neutron/db/migration/alembic_migrations/versions/HEAD
+index 81eed9065..a2117f3c1 100644
+--- a/neutron/db/migration/alembic_migrations/versions/HEAD
++++ b/neutron/db/migration/alembic_migrations/versions/HEAD
+@@ -1 +1 @@
+-7dc5a7c3d759
++0ffcc7f9a449
+diff --git a/neutron/extensions/loadbalancer.py b/neutron/extensions/loadbalancer.py
+index 3c6ecb8ff..7db9841c6 100644
+--- a/neutron/extensions/loadbalancer.py
++++ b/neutron/extensions/loadbalancer.py
+@@ -260,7 +260,16 @@ RESOURCE_ATTRIBUTE_MAP = {
+         'status': {'allow_post': False, 'allow_put': False,
+                    'is_visible': True},
+         'status_description': {'allow_post': False, 'allow_put': False,
+-                               'is_visible': True}
++                               'is_visible': True},
++        'monitor_address': {'allow_post': True, 'allow_put': True,
++                            'validate': {'type:ip_address_or_none': None},
++                            'default': None,
++                            'is_visible': True},
++        'monitor_port': {'allow_post': True, 'allow_put': True,
++                         'validate': {'type:range_or_none': [1, 65535]},
++                         'default': None,
++                         'convert_to': attr.convert_to_int_if_not_none,
++                         'is_visible': True}
+     },
+     'health_monitors': {
+         'id': {'allow_post': False, 'allow_put': False,
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/cfg.py b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+index ca9899ce7..cecac69b8 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/cfg.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+@@ -285,6 +285,12 @@ def _build_backend(config):
+             if need_server_id:
+                 server += ' id %d' % _get_acl_member_id(member['id'])
+ 
++            # add health check address and port opt
++            if member['monitor_address'] is not None:
++                server += ' addr %s' % member['monitor_address']
++            if member['monitor_port'] is not None:
++                server += ' port %s' % member['monitor_port']
++
+             if _has_http_cookie_persistence(config):
+                 server += ' cookie %d' % config['members'].index(member)
+             member_opts.append(server)
+-- 
+2.13.3
+

@@ -1,0 +1,222 @@
+From 9c722b0cb6dc7e1a32729c55585ba388fec370d8 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 4 Jul 2017 14:03:37 +0800
+Subject: [PATCH 118/118] Port: don't check max fixed_ips quota for dhcp-agent
+ callbacks
+
+DHCP ports may have more fixed_ips than the normal quota value set by
+max_fixed_ips_per_port. This commit skips the check when port is created
+or updated by the dhcp-agent.
+
+Fixes: redmine #10437
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/api/rpc/handlers/dhcp_rpc.py | 12 ++++++++----
+ neutron/db/db_base_plugin_v2.py      | 38 ++++++++++++++++++++++++------------
+ neutron/plugins/ml2/plugin.py        | 12 +++++++-----
+ 3 files changed, 40 insertions(+), 22 deletions(-)
+
+diff --git a/neutron/api/rpc/handlers/dhcp_rpc.py b/neutron/api/rpc/handlers/dhcp_rpc.py
+index 56016be70..045233844 100644
+--- a/neutron/api/rpc/handlers/dhcp_rpc.py
++++ b/neutron/api/rpc/handlers/dhcp_rpc.py
+@@ -58,9 +58,11 @@ class DhcpRpcCallback(n_rpc.RpcCallback):
+         """Perform port operations taking care of concurrency issues."""
+         try:
+             if action == 'create_port':
+-                return plugin.create_port(context, port)
++                return plugin.create_port(context, port,
++                                          check_fixed_ips_amount=False)
+             elif action == 'update_port':
+-                return plugin.update_port(context, port['id'], port['port'])
++                return plugin.update_port(context, port['id'], port['port'],
++                                          check_fixed_ips_amount=False)
+             else:
+                 msg = _('Unrecognized action')
+                 raise n_exc.Invalid(message=msg)
+@@ -172,7 +174,8 @@ class DhcpRpcCallback(n_rpc.RpcCallback):
+                     [dict(subnet_id=s) for s in dhcp_enabled_subnet_ids])
+ 
+                 retval = plugin.update_port(context, port['id'],
+-                                            dict(port=port))
++                                            dict(port=port),
++                                            check_fixed_ips_amount=False)
+ 
+         except n_exc.NotFound as e:
+             LOG.warning(e)
+@@ -247,7 +250,8 @@ class DhcpRpcCallback(n_rpc.RpcCallback):
+                 if fixed_ips[i]['subnet_id'] == subnet_id:
+                     del fixed_ips[i]
+                     break
+-            plugin.update_port(context, port['id'], dict(port=port))
++            plugin.update_port(context, port['id'], dict(port=port),
++                               check_fixed_ips_amount=False)
+ 
+     def update_lease_expiration(self, context, **kwargs):
+         """Release the fixed_ip associated the subnet on a port."""
+diff --git a/neutron/db/db_base_plugin_v2.py b/neutron/db/db_base_plugin_v2.py
+index 9582efed3..f213438cc 100644
+--- a/neutron/db/db_base_plugin_v2.py
++++ b/neutron/db/db_base_plugin_v2.py
+@@ -394,7 +394,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+                 return True
+         return False
+ 
+-    def _test_fixed_ips_for_port(self, context, network_id, fixed_ips):
++    def _test_fixed_ips_for_port(self, context, network_id, fixed_ips,
++                                 check_fixed_ips_amount=True):
+         """Test fixed IPs for port.
+ 
+         Check that configured subnets are valid prior to allocating any
+@@ -454,7 +455,10 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+                                      'ip_address': fixed['ip_address']})
+             else:
+                 fixed_ip_set.append({'subnet_id': subnet_id})
+-        if len(fixed_ip_set) > cfg.CONF.max_fixed_ips_per_port:
++        if (
++                check_fixed_ips_amount and
++                len(fixed_ip_set) > cfg.CONF.max_fixed_ips_per_port
++        ):
+             msg = _('Exceeded maximim amount of fixed ips per port')
+             raise n_exc.InvalidInput(error_message=msg)
+         return fixed_ip_set
+@@ -480,14 +484,17 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+         return ips
+ 
+     def _update_ips_for_port(self, context, network_id, port_id, original_ips,
+-                             new_ips):
++                             new_ips, check_fixed_ips_amount=True):
+         """Add or remove IPs from the port."""
+         ips = []
+         # These ips are still on the port and haven't been removed
+         prev_ips = []
+ 
+         # the new_ips contain all of the fixed_ips that are to be updated
+-        if len(new_ips) > cfg.CONF.max_fixed_ips_per_port:
++        if (
++                check_fixed_ips_amount and
++                len(new_ips) > cfg.CONF.max_fixed_ips_per_port
++        ):
+             msg = _('Exceeded maximim amount of fixed ips per port')
+             raise n_exc.InvalidInput(error_message=msg)
+ 
+@@ -501,7 +508,9 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+                     prev_ips.append(original_ip)
+ 
+         # Check if the IP's to add are OK
+-        to_add = self._test_fixed_ips_for_port(context, network_id, new_ips)
++        to_add = self._test_fixed_ips_for_port(
++            context, network_id, new_ips,
++            check_fixed_ips_amount=check_fixed_ips_amount)
+         for ip in original_ips:
+             LOG.debug(_("Port update. Hold %s"), ip)
+             NeutronDbPluginV2._delete_ip_allocation(context,
+@@ -514,7 +523,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+             ips = self._allocate_fixed_ips(context, to_add)
+         return ips, prev_ips
+ 
+-    def _allocate_ips_for_port(self, context, port):
++    def _allocate_ips_for_port(self, context, port,
++                               check_fixed_ips_amount=True):
+         """Allocate IP addresses for the port.
+ 
+         If port['fixed_ips'] is set to 'ATTR_NOT_SPECIFIED', allocate IP
+@@ -526,9 +536,9 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+ 
+         fixed_configured = p['fixed_ips'] is not attributes.ATTR_NOT_SPECIFIED
+         if fixed_configured:
+-            configured_ips = self._test_fixed_ips_for_port(context,
+-                                                           p["network_id"],
+-                                                           p['fixed_ips'])
++            configured_ips = self._test_fixed_ips_for_port(
++                context, p["network_id"], p['fixed_ips'],
++                check_fixed_ips_amount=check_fixed_ips_amount)
+             ips = self._allocate_fixed_ips(context, configured_ips)
+         else:
+             filter = {'network_id': [p['network_id']]}
+@@ -1290,7 +1300,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+     def create_port_bulk(self, context, ports):
+         return self._create_bulk('port', context, ports)
+ 
+-    def create_port(self, context, port):
++    def create_port(self, context, port, check_fixed_ips_amount=True):
+         p = port['port']
+         port_id = p.get('id') or uuidutils.generate_uuid()
+         network_id = p['network_id']
+@@ -1338,7 +1348,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+             context.session.add(db_port)
+ 
+             # Update the IP's for the port
+-            ips = self._allocate_ips_for_port(context, port)
++            ips = self._allocate_ips_for_port(
++                context, port, check_fixed_ips_amount=check_fixed_ips_amount)
+             if ips:
+                 for ip in ips:
+                     ip_address = ip['ip_address']
+@@ -1348,7 +1359,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+ 
+         return self._make_port_dict(db_port, process_extensions=False)
+ 
+-    def update_port(self, context, id, port):
++    def update_port(self, context, id, port, check_fixed_ips_amount=True):
+         p = port['port']
+ 
+         changed_ips = False
+@@ -1378,7 +1389,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
+                 original = self._make_port_dict(port, process_extensions=False)
+                 added_ips, prev_ips = self._update_ips_for_port(
+                     context, port["network_id"], id, original["fixed_ips"],
+-                    p['fixed_ips'])
++                    p['fixed_ips'],
++                    check_fixed_ips_amount=check_fixed_ips_amount)
+ 
+                 # Update ips if necessary
+                 for ip in added_ips:
+diff --git a/neutron/plugins/ml2/plugin.py b/neutron/plugins/ml2/plugin.py
+index d1b411cde..9d37c871e 100644
+--- a/neutron/plugins/ml2/plugin.py
++++ b/neutron/plugins/ml2/plugin.py
+@@ -778,7 +778,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+             # the fact that an error occurred.
+             LOG.error(_("mechanism_manager.delete_subnet_postcommit failed"))
+ 
+-    def create_port(self, context, port):
++    def create_port(self, context, port, check_fixed_ips_amount=True):
+         attrs = port['port']
+         attrs['status'] = const.PORT_STATUS_DOWN
+ 
+@@ -787,7 +787,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+             self._ensure_default_security_group_on_port(context, port)
+             sgids = self._get_security_groups_on_port(context, port)
+             dhcp_opts = port['port'].get(edo_ext.EXTRADHCPOPTS, [])
+-            result = super(Ml2Plugin, self).create_port(context, port)
++            result = super(Ml2Plugin, self).create_port(
++                context, port, check_fixed_ips_amount=check_fixed_ips_amount)
+             self.extension_manager.process_create_port(session, attrs, result)
+             self._process_port_create_security_group(context, result, sgids)
+             network = self.get_network(context, result['network_id'])
+@@ -829,7 +830,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+                 self.delete_port(context, result['id'])
+         return bound_context._port
+ 
+-    def update_port(self, context, id, port):
++    def update_port(self, context, id, port, check_fixed_ips_amount=True):
+         attrs = port['port']
+         need_port_update_notify = False
+ 
+@@ -845,8 +846,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
+             if not port_db:
+                 raise exc.PortNotFound(port_id=id)
+             original_port = self._make_port_dict(port_db)
+-            updated_port = super(Ml2Plugin, self).update_port(context, id,
+-                                                              port)
++            updated_port = super(Ml2Plugin, self).update_port(
++                context, id, port,
++                check_fixed_ips_amount=check_fixed_ips_amount)
+             self.extension_manager.process_update_port(session, attrs,
+                                                        original_port)
+             if addr_pair.ADDRESS_PAIRS in port['port']:
+-- 
+2.13.3
+

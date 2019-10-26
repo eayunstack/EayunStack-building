@@ -1,0 +1,470 @@
+From 4625b61f7bd5e2a8b15f4071c8223acdc505f1fd Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Thu, 7 Sep 2017 15:41:13 +0800
+Subject: [PATCH] Metering: use nfacct to get metering counters
+
+Using nfacct can speed up the process of getting traffic counters by
+getting counters in the same router at once.
+
+Use eventlet to parallelize the procedures of getting traffic counters
+among lots of routers.
+
+Fixes: redmine #10878
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ etc/neutron/rootwrap.d/metering.filters            |  12 ++
+ neutron/agent/linux/nfacct.py                      | 122 +++++++++++++++++++++
+ .../drivers/iptables/es_iptables_driver.py         |  34 +++---
+ .../metering/drivers/iptables/iptables_driver.py   |  99 +++++++----------
+ setup.cfg                                          |   1 +
+ 5 files changed, 190 insertions(+), 78 deletions(-)
+ create mode 100644 etc/neutron/rootwrap.d/metering.filters
+ create mode 100644 neutron/agent/linux/nfacct.py
+
+diff --git a/etc/neutron/rootwrap.d/metering.filters b/etc/neutron/rootwrap.d/metering.filters
+new file mode 100644
+index 000000000..1e720eb32
+--- /dev/null
++++ b/etc/neutron/rootwrap.d/metering.filters
+@@ -0,0 +1,12 @@
++# neutron-rootwrap command filters for nodes on which neutron is
++# expected to control network
++#
++# This file should be owned by (and only-writeable by) the root user
++
++# format seems to be
++# cmd-name: filter-name, raw-command, user, args
++
++[Filters]
++
++# metering-agent
++nfacct: CommandFilter, nfacct, root
+diff --git a/neutron/agent/linux/nfacct.py b/neutron/agent/linux/nfacct.py
+new file mode 100644
+index 000000000..2595f7724
+--- /dev/null
++++ b/neutron/agent/linux/nfacct.py
+@@ -0,0 +1,122 @@
++# Copyright (c) 2017 Eayun, Inc.
++# All rights reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import json
++
++from neutron.agent.linux import iptables_manager
++from neutron.openstack.common import log as logging
++
++LOG = logging.getLogger(__name__)
++
++
++class NfacctMixin(object):
++    """
++    The following attributes/methods are not defined in this class:
++      * methods
++        - self.execute
++      * attributes
++        - self.root_helper
++        - self.namespace
++    """
++    NFACCT_OBJECT_NAME_LEN = 31
++
++    @staticmethod
++    def _get_nfacct_object_name(nfacct_object):
++        return nfacct_object[:NfacctMixin.NFACCT_OBJECT_NAME_LEN]
++
++    @staticmethod
++    def get_nfacct_rule_part(nfacct_object):
++        nfacct_object_name = NfacctMixin._get_nfacct_object_name(nfacct_object)
++        return "-m nfacct --nfacct-name %s" % nfacct_object_name
++
++    def _ns_wrap_cmd(self, cmd):
++        if self.namespace:
++            cmd = ['ip', 'netns', 'exec', self.namespace] + cmd
++        return cmd
++
++    def get_objects(self):
++        args = self._ns_wrap_cmd(['nfacct', 'list', 'json'])
++        try:
++            nfacct_out = self.execute(args, root_helper=self.root_helper)
++        except RuntimeError:
++            return set()
++
++        if not nfacct_out:
++            return set()
++
++        return set(
++            counter['name']
++            for counter in json.loads(nfacct_out)['nfacct_counters']
++        )
++
++    def add_nfacct_objects(self, nfacct_objects):
++        args_prefix = self._ns_wrap_cmd(['nfacct', 'add'])
++        existing_objests = self.get_objects()
++        for nfacct_object in nfacct_objects:
++            nfacct_object_name = self._get_nfacct_object_name(nfacct_object)
++            if nfacct_object_name in existing_objests:
++                continue
++            args = args_prefix + [nfacct_object_name]
++            self.execute(args, root_helper=self.root_helper,
++                         check_exit_code=False)
++
++    def nfacct_flush(self):
++        args = self._ns_wrap_cmd(['nfacct', 'flush'])
++        self.execute(args, root_helper=self.root_helper, check_exit_code=False)
++
++    def parse_nfacct_output(self, nfacct_out):
++        accs = {}
++        for counter in json.loads(nfacct_out)['nfacct_counters']:
++            name = counter.pop('name')
++            accs[name] = counter
++        return accs
++
++    def get_result(self, nfacct_objects):
++        args = self._ns_wrap_cmd(['nfacct', 'list', 'reset', 'json'])
++        try:
++            nfacct_out = self.execute(args, root_helper=self.root_helper)
++        except RuntimeError:
++            return None
++
++        if not nfacct_out:
++            return None
++
++        parsed_accs = self.parse_nfacct_output(nfacct_out)
++        ret_accs = {}
++        for nfacct_object in nfacct_objects:
++            nfacct_object_name = self._get_nfacct_object_name(nfacct_object)
++            acc = parsed_accs.get(nfacct_object_name, None)
++            if acc:
++                ret_accs[nfacct_object] = acc
++        return ret_accs
++
++
++class NfacctIptablesManager(iptables_manager.IptablesManager,
++                            NfacctMixin):
++
++    def __init__(self, *args, **kwargs):
++        super(NfacctIptablesManager, self).__init__(*args, **kwargs)
++        self.nfacct_objects = set()
++
++    def add_nfacct_object(self, object_name):
++        self.nfacct_objects.add(object_name)
++
++    def apply(self):
++        if self.iptables_apply_deferred:
++            return
++        self.add_nfacct_objects(self.nfacct_objects)
++        self.nfacct_objects = set()
++        super(NfacctIptablesManager, self).apply()
++        self.nfacct_flush()
+diff --git a/neutron/services/metering/drivers/iptables/es_iptables_driver.py b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+index 9c2040053..9d5c0fa34 100644
+--- a/neutron/services/metering/drivers/iptables/es_iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/es_iptables_driver.py
+@@ -16,6 +16,7 @@
+ import six
+ 
+ from neutron.agent.linux import iptables_manager
++from neutron.agent.linux.nfacct import NfacctMixin
+ from neutron.common import constants as constants
+ from neutron.common import log
+ from neutron.openstack.common import log as logging
+@@ -46,8 +47,8 @@ class EsRouterWithMetering(iptables_driver.RouterWithMetering):
+             iptables_driver.EXTERNAL_DEV_PREFIX, ES_METERING_MARK)
+         im.ipv4['mangle'].add_rule('PREROUTING', mark_rule)
+ 
+-    def iter_metering_labels(self):
+-        return self.metering_labels.items() + self.es_metering_labels.items()
++    def get_metering_labels(self):
++        return self.metering_labels.keys() + self.es_metering_labels.keys()
+ 
+ 
+ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+@@ -104,7 +105,7 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+                 self._process_associate_es_metering_label(router)
+ 
+     @staticmethod
+-    def _get_es_meter_rule(label, label_chain):
++    def _get_es_meter_rule(label):
+         rule_parts = []
+         if label['direction'] == 'ingress':
+             rule_parts += ['-m mark --mark %s' % ES_METERING_MARK]
+@@ -121,38 +122,31 @@ class EsIptablesMeteringDriver(iptables_driver.IptablesMeteringDriver):
+         if label['tcp_port'] is not None:
+             rule_parts += ['-p tcp %s %s' % (port_selector, label['tcp_port'])]
+ 
+-        rule_parts += ['-j %s' % label_chain]
++        rule_parts += [NfacctMixin.get_nfacct_rule_part(label['id'])]
+ 
+         return ' '.join(rule_parts)
+ 
+-    @staticmethod
+-    def _get_label_chain_name(label_id):
+-        return iptables_manager.get_chain_name(
+-            iptables_driver.WRAP_NAME + iptables_driver.LABEL + label_id,
+-            wrap=False)
+-
+     def _add_es_metering_label(self, rm, label):
+         table = rm.iptables_manager.ipv4['mangle']
+-        label_id = label['id']
+-        label_chain = self._get_label_chain_name(label_id)
+-        table.add_chain(label_chain, wrap=False)
+-        es_meter_rule = self._get_es_meter_rule(label, label_chain)
++        rm.iptables_manager.add_nfacct_object(label['id'])
++        es_meter_rule = self._get_es_meter_rule(label)
+         table.add_rule('POSTROUTING', es_meter_rule)
+         if label['internal_ip'] is None and label['direction'] == 'ingress':
+             # If internal IP is unspecified, we should also count traffic
+             # directed to the router itself.
+             table.add_rule('INPUT', es_meter_rule)
+-        table.add_rule(label_chain, '', wrap=False)
+-        rm.es_metering_labels[label_id] = label
++        rm.es_metering_labels[label['id']] = label
+ 
+     def _remove_es_metering_label(self, rm, label_id):
+         table = rm.iptables_manager.ipv4['mangle']
+-        if label_id not in rm.es_metering_labels:
++        label = rm.es_metering_labels.pop(label_id, None)
++        if label is None:
+             return
+-        label_chain = self._get_label_chain_name(label_id)
+-        table.remove_chain(label_chain, wrap=False)
+ 
+-        del rm.es_metering_labels[label_id]
++        es_meter_rule = self._get_es_meter_rule(label)
++        table.remove_rule('POSTROUTING', es_meter_rule)
++        if label['internal_ip'] is None and label['direction'] == 'ingress':
++            table.remove_rule('INPUT', es_meter_rule)
+ 
+     def _process_associate_es_metering_label(self, router):
+         self._update_router(router)
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index 1610bbe71..963c16c31 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -15,9 +15,12 @@
+ from oslo.config import cfg
+ import six
+ 
++import eventlet
++
+ from neutron.agent.common import config
+-from neutron.agent.linux import interface
+ from neutron.agent.linux import iptables_manager
++from neutron.agent.linux import interface
++from neutron.agent.linux.nfacct import NfacctMixin, NfacctIptablesManager
+ from neutron.common import constants as constants
+ from neutron.common import ipv6_utils
+ from neutron.common import log
+@@ -32,7 +35,6 @@ WRAP_NAME = 'neutron-meter'
+ EXTERNAL_DEV_PREFIX = 'qg-'
+ TOP_CHAIN = WRAP_NAME + "-local"
+ RULE = '-r-'
+-LABEL = '-l-'
+ 
+ config.register_interface_driver_opts_helper(cfg.CONF)
+ config.register_use_namespaces_opts_helper(cfg.CONF)
+@@ -71,7 +73,7 @@ class RouterWithMetering(object):
+         self.router = router
+         self.root_helper = config.get_root_helper(self.conf)
+         self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
+-        self.iptables_manager = iptables_manager.IptablesManager(
++        self.iptables_manager = NfacctIptablesManager(
+             root_helper=self.root_helper,
+             namespace=self.ns_name,
+             binary_name=WRAP_NAME,
+@@ -79,8 +81,8 @@ class RouterWithMetering(object):
+             use_ipv6=ipv6_utils.is_enabled())
+         self.metering_labels = {}
+ 
+-    def iter_metering_labels(self):
+-        return self.metering_labels.items()
++    def get_metering_labels(self):
++        return self.metering_labels.keys()
+ 
+ 
+ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+@@ -133,8 +135,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+         if router_id in self.routers:
+             del self.routers[router_id]
+ 
+-    def _process_metering_label_rules(self, rm, rules, label_chain,
+-                                      rules_chain):
++    def _process_metering_label_rules(self, rm, rules, label_id, rules_chain):
+         im = rm.iptables_manager
+         if not rm.router['gw_port_id']:
+             return
+@@ -153,7 +154,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 im.ipv4['filter'].add_rule(rules_chain, ipt_rule,
+                                            wrap=False, top=True)
+             else:
+-                ipt_rule = '%s -j %s' % (dir_opt, label_chain)
++                ipt_rule = '%s %s' % (
++                    dir_opt, NfacctMixin.get_nfacct_rule_part(label_id))
++                im.add_nfacct_object(label_id)
+                 im.ipv4['filter'].add_rule(rules_chain, ipt_rule,
+                                            wrap=False, top=False)
+ 
+@@ -166,12 +169,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+             for label in labels:
+                 label_id = label['id']
+ 
+-                label_chain = iptables_manager.get_chain_name(WRAP_NAME +
+-                                                              LABEL + label_id,
+-                                                              wrap=False)
+-                rm.iptables_manager.ipv4['filter'].add_chain(label_chain,
+-                                                             wrap=False)
+-
+                 rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                               RULE + label_id,
+                                                               wrap=False)
+@@ -181,14 +178,10 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                                                             rules_chain,
+                                                             wrap=False)
+ 
+-                rm.iptables_manager.ipv4['filter'].add_rule(label_chain,
+-                                                            '',
+-                                                            wrap=False)
+-
+                 rules = label.get('rules')
+                 if rules:
+                     self._process_metering_label_rules(rm, rules,
+-                                                       label_chain,
++                                                       label_id,
+                                                        rules_chain)
+ 
+                 rm.metering_labels[label_id] = label
+@@ -205,15 +198,10 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 if label_id not in rm.metering_labels:
+                     continue
+ 
+-                label_chain = iptables_manager.get_chain_name(WRAP_NAME +
+-                                                              LABEL + label_id,
+-                                                              wrap=False)
+                 rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                               RULE + label_id,
+                                                               wrap=False)
+ 
+-                rm.iptables_manager.ipv4['filter'].remove_chain(label_chain,
+-                                                                wrap=False)
+                 rm.iptables_manager.ipv4['filter'].remove_chain(rules_chain,
+                                                                 wrap=False)
+ 
+@@ -239,9 +227,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+             for label in labels:
+                 label_id = label['id']
+ 
+-                label_chain = iptables_manager.get_chain_name(WRAP_NAME +
+-                                                              LABEL + label_id,
+-                                                              wrap=False)
+                 rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                               RULE + label_id,
+                                                               wrap=False)
+@@ -251,7 +236,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+                 rules = label.get('rules')
+                 if rules:
+                     self._process_metering_label_rules(rm, rules,
+-                                                       label_chain,
++                                                       label_id,
+                                                        rules_chain)
+ 
+     @log.log
+@@ -259,44 +244,42 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+         for router in routers:
+             self._process_disassociate_metering_label(router)
+ 
++    def get_traffic_counter(self, router):
++        router_id = router['id']
++        rm = self.routers.get(router_id)
++        if not rm:
++            return (True, router_id, {})
++
++        label_ids = rm.get_metering_labels()
++        accs = rm.iptables_manager.get_result(label_ids)
++        if accs is None:
++            return (False, router_id, {})
++
++        missing_labels = set(label_ids) - set(accs.keys())
++        successful = False if missing_labels else True
++        for label_id in missing_labels:
++            LOG.warn("Missing counter for label %s.", label_id)
++        return (successful, router_id, accs)
++
+     @log.log
+     def get_traffic_counters(self, context, routers):
+         accs = {}
+         routers_to_reconfigure = []
+-        for router in routers:
+-            rm = self.routers.get(router['id'])
+-            if not rm:
+-                continue
+-
+-            router_to_reconfigure = False
+-            for label_id, label in rm.iter_metering_labels():
+-                try:
+-                    chain = iptables_manager.get_chain_name(WRAP_NAME +
+-                                                            LABEL +
+-                                                            label_id,
+-                                                            wrap=False)
+-
+-                    chain_acc = rm.iptables_manager.get_traffic_counters(
+-                        chain, wrap=False, zero=True)
+-                except RuntimeError:
+-                    LOG.exception(_('Failed to get traffic counters, '
+-                                    'router: %s'), router)
+-                    router_to_reconfigure = True
+-                    continue
+-
+-                if not chain_acc:
+-                    continue
+ 
++        pool = eventlet.greenpool.GreenPool()
++        for successful, router_id, acc in pool.imap(
++            self.get_traffic_counter, routers
++        ):
++            if not successful:
++                routers_to_reconfigure.append(router_id)
++                LOG.exception(_('Failed to get traffic counters, '
++                                'router: %s'), router_id)
++            for label_id, label_acc in acc.items():
+                 acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
+-
+-                acc['pkts'] += chain_acc['pkts']
+-                acc['bytes'] += chain_acc['bytes']
+-
++                acc['pkts'] += label_acc['pkts']
++                acc['bytes'] += label_acc['bytes']
+                 accs[label_id] = acc
+ 
+-            if router_to_reconfigure:
+-                routers_to_reconfigure.append(router['id'])
+-
+         for router_id in routers_to_reconfigure:
+             self.routers.pop(router_id, None)
+ 
+diff --git a/setup.cfg b/setup.cfg
+index e6431b35a..6ed791989 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -42,6 +42,7 @@ data_files =
+	etc/neutron/rootwrap.d/l3.filters
+	etc/neutron/rootwrap.d/lbaas-haproxy.filters
+	etc/neutron/rootwrap.d/linuxbridge-plugin.filters
++	etc/neutron/rootwrap.d/metering.filters
+	etc/neutron/rootwrap.d/nec-plugin.filters
+	etc/neutron/rootwrap.d/openvswitch-plugin.filters
+	etc/neutron/rootwrap.d/qos.filters
+-- 
+2.11.0 (Apple Git-81)
+

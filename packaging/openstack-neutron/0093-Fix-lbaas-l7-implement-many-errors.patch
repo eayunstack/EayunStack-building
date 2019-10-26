@@ -1,0 +1,476 @@
+From 1eb4c1307a1083be9c114f638eb941dfd7344274 Mon Sep 17 00:00:00 2001
+From: "cheng.tang" <tangch318@gmail.com>
+Date: Thu, 9 Mar 2017 11:48:14 +0800
+Subject: [PATCH 93/94] Fix lbaas l7 implement many errors
+
+Fixes: redmin #9518
+Fixes: 67091dd5a ("Implement lbaas L7 policy rule model")
+
+Signed-off-by: cheng.tang <tangch318@gmail.com>
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/loadbalancer/loadbalancer_db.py         | 42 +++++++--------
+ neutron/extensions/loadbalancer_l7.py              | 28 ++++------
+ .../services/loadbalancer/agent/agent_manager.py   |  4 +-
+ .../drivers/common/agent_driver_base.py            |  4 +-
+ .../services/loadbalancer/drivers/haproxy/cfg.py   | 29 ++++++++---
+ .../drivers/haproxy/namespace_driver.py            |  2 +-
+ neutron/services/loadbalancer/plugin.py            | 60 +++++++++++-----------
+ 7 files changed, 87 insertions(+), 82 deletions(-)
+
+diff --git a/neutron/db/loadbalancer/loadbalancer_db.py b/neutron/db/loadbalancer/loadbalancer_db.py
+index c00a68a97..c4addd0b5 100644
+--- a/neutron/db/loadbalancer/loadbalancer_db.py
++++ b/neutron/db/loadbalancer/loadbalancer_db.py
+@@ -919,19 +919,19 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+         ]
+         return self._fields(res, fields)
+ 
+-    def create_l7policy(self, context, policy):
+-        p = policy['l7policy']
++    def create_l7policy(self, context, l7policy):
++        p = l7policy['l7policy']
+ 
+         tenant_id = self._get_tenant_id_for_create(context, p)
+         with context.session.begin(subtransactions=True):
+             policy_db = L7policy(id=uuidutils.generate_uuid(),
+                                  tenant_id=tenant_id,
+                                  pool_id=p['pool_id'],
+-                                 prority=p['prority'],
++                                 priority=p['priority'],
+                                  action=p['action'],
+                                  key=p['key'],
+                                  value=p['value'],
+-                                 admin_state_up=v['admin_state_up'])
++                                 admin_state_up=p['admin_state_up'])
+             context.session.add(policy_db)
+ 
+         return self._make_l7policy_dict(policy_db)
+@@ -940,8 +940,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+         policy = self._get_resource(context, L7policy, id)
+         return self._make_l7policy_dict(policy, fields)
+ 
+-    def update_l7policy(self, context, id, policy):
+-        p = policy['l7policy']
++    def update_l7policy(self, context, id, l7policy):
++        p = l7policy['l7policy']
+         with context.session.begin(subtransactions=True):
+             db = self._get_resource(context, L7policy, id)
+             if p:
+@@ -982,8 +982,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+ 
+         return self._fields(res, fields)
+ 
+-    def create_l7rule(self, context, rule):
+-        r = rule['l7rule']
++    def create_l7rule(self, context, l7rule):
++        r = l7rule['l7rule']
+ 
+         tenant_id = self._get_tenant_id_for_create(context, r)
+         with context.session.begin(subtransactions=True):
+@@ -994,7 +994,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                              compare_value=r['compare_value'],
+                              key=r['key'],
+                              value=r['value'],
+-                             admin_state_up=v['admin_state_up'])
++                             admin_state_up=r['admin_state_up'])
+             context.session.add(rule_db)
+ 
+         return self._make_l7rule_dict(rule_db)
+@@ -1003,11 +1003,11 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+         rule = self._get_resource(context, L7rule, id)
+         return self._make_l7rule_dict(rule, fields)
+ 
+-    def update_l7rule(self, context, id, rule):
+-        r = rule['l7rule']
++    def update_l7rule(self, context, id, l7rule):
++        r = l7rule['l7rule']
+         with context.session.begin(subtransactions=True):
+             db = self._get_resource(context, L7rule, id)
+-            if p:
++            if r:
+                 db.update(r)
+ 
+         return self._make_l7rule_dict(db)
+@@ -1025,11 +1025,11 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+                 raise loadbalancer_l7.L7ruleInUse(l7rule_id=id)
+             context.session.delete(db)
+ 
+-    def create_l7policy_l7rule(self, context, rule, l7policy_id):
+-        add_rule = rule['rule']
++    def create_l7policy_l7rule(self, context, l7rule, l7policy_id):
++        add_rule = l7rule['l7rule']
+         tenant_id = self._get_tenant_id_for_create(context, add_rule)
+         with context.session.begin(subtransactions=True):
+-            assoc_qry = context.session.query(L7policyRuleAssociation)
++            assoc_qry = context.session.query(L7policyL7ruleAssociation)
+             assoc = assoc_qry.filter_by(policy_id=l7policy_id,
+                                         rule_id=add_rule['id']).first()
+             if assoc:
+@@ -1041,13 +1041,9 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             if l7policy['tenant_id'] != tenant_id:
+                 raise n_exc.NotAuthorized()
+ 
+-            assoc = L7policyRuleAssociation(policy_id=l7policy_id,
+-                                            rule_id=add_rule['id'])
++            assoc = L7policyL7ruleAssociation(policy_id=l7policy_id,
++                                              rule_id=add_rule['id'])
+             context.session.add(assoc)
+-            rules = [
+-                policy_rule_assoc['rule_id']
+-                for policy_rule_assoc in l7policy['policy_rule_assoc']
+-            ]
+ 
+         res = {'policy_id': l7policy_id,
+                'rule_id': add_rule['id'],
+@@ -1056,7 +1052,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+ 
+     def _get_l7policy_l7rule(self, context, id, policy_id):
+         try:
+-            assoc_qry = context.session.query(L7policyRuleAssociation)
++            assoc_qry = context.session.query(L7policyL7ruleAssociation)
+             return assoc_qry.filter_by(policy_id=policy_id, rule_id=id).one()
+         except exc.NoResultFound:
+             raise loadbalancer_l7.L7policyRuleAssociationNotFound(
+@@ -1068,7 +1064,7 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
+             context.session.delete(assoc)
+ 
+     def get_l7policy_l7rule(self, context, id, l7policy_id, fields=None):
+-        policy_rule = self._get_l7policy_l7rule(context, id, l7policy_id)
++        self._get_l7policy_l7rule(context, id, l7policy_id)
+         # need to add tenant_id for admin_or_owner policy check to pass
+         rule = self.get_l7rule(context, id)
+         res = {'policy_id': l7policy_id,
+diff --git a/neutron/extensions/loadbalancer_l7.py b/neutron/extensions/loadbalancer_l7.py
+index 57aa51202..f3d369a18 100644
+--- a/neutron/extensions/loadbalancer_l7.py
++++ b/neutron/extensions/loadbalancer_l7.py
+@@ -57,7 +57,7 @@ class L7ruleTypeKeyValueNotSupport(qexception.BadRequest):
+ 
+ class L7ruleCompareTypeValueNotSupport(qexception.BadRequest):
+     message = _("L7rule compare_type %(l7rule_compare_type)s with "
+-                "compare value %(l7_rule_compare_value)s dose not support")
++                "compare value %(l7rule_compare_value)s dose not support")
+ 
+ 
+ class L7policyRuleAssociationExists(qexception.BadRequest):
+@@ -80,15 +80,9 @@ RESOURCE_ATTRIBUTE_MAP = {
+                       'validate': {'type:string': None},
+                       'required_by_policy': True,
+                       'is_visible': True},
+-        'name': {'allow_post': True, 'allow_put': True,
+-                 'validate': {'type:string': None},
+-                 'default': '',
+-                 'is_visible': True},
+-        'description': {'allow_post': True, 'allow_put': True,
+-                        'validate': {'type:string': None},
+-                        'is_visible': True, 'default': ''},
+         'pool_id': {'allow_post': True, 'allow_put': True,
+-                    'validate': {'type:uuid': None},
++                    'validate': {'type:uuid_or_none': None},
++                    'default': None,
+                     'is_visible': True},
+         'priority': {'allow_post': True, 'allow_put': True,
+                      'validate': {'type:range': [0, 255]},
+@@ -108,6 +102,8 @@ RESOURCE_ATTRIBUTE_MAP = {
+                            'default': True,
+                            'convert_to': attr.convert_to_boolean,
+                            'is_visible': True},
++        'rules': {'allow_post': False, 'allow_put': False,
++                  'is_visible': True},
+     },
+     'l7rules': {
+         'id': {'allow_post': False, 'allow_put': False,
+@@ -246,11 +242,11 @@ class LoadbalancerL7Base(object):
+     """
+ 
+     @abc.abstractmethod
+-    def create_l7policy(self, context, policy):
++    def create_l7policy(self, context, l7policy):
+         pass
+ 
+     @abc.abstractmethod
+-    def update_l7policy(self, context, id, policy):
++    def update_l7policy(self, context, id, l7policy):
+         pass
+ 
+     @abc.abstractmethod
+@@ -266,11 +262,11 @@ class LoadbalancerL7Base(object):
+         pass
+ 
+     @abc.abstractmethod
+-    def create_l7rule(self, context, rule):
++    def create_l7rule(self, context, l7rule):
+         pass
+ 
+     @abc.abstractmethod
+-    def update_l7rule(self, context, id, policy):
++    def update_l7rule(self, context, id, l7rule):
+         pass
+ 
+     @abc.abstractmethod
+@@ -286,11 +282,7 @@ class LoadbalancerL7Base(object):
+         pass
+ 
+     @abc.abstractmethod
+-    def delete_l7rule(self, context, id):
+-        pass
+-
+-    @abc.abstractmethod
+-    def create_l7policy_l7rule(self, context, rule, l7policy_id):
++    def create_l7policy_l7rule(self, context, l7rule, l7policy_id):
+         pass
+ 
+     @abc.abstractmethod
+diff --git a/neutron/services/loadbalancer/agent/agent_manager.py b/neutron/services/loadbalancer/agent/agent_manager.py
+index e675cee14..3ae4aa07c 100644
+--- a/neutron/services/loadbalancer/agent/agent_manager.py
++++ b/neutron/services/loadbalancer/agent/agent_manager.py
+@@ -345,9 +345,9 @@ class LbaasAgentManager(n_rpc.RpcCallback, periodic_task.PeriodicTasks):
+         driver = self._get_driver(l7policy['pool_id'])
+         driver.delete_l7policy(l7policy)
+ 
+-    def update_l7rule(self, context, old_rule, rule, pool_id):
++    def update_l7rule(self, context, old_l7rule, l7rule, pool_id):
+         driver = self._get_driver(pool_id)
+-        driver.update_l7rule(old_rule, rule. pool_id)
++        driver.update_l7rule(old_l7rule, l7rule, pool_id)
+ 
+     def create_l7policy_l7rule(self, context, l7policy):
+         driver = self._get_driver(l7policy['pool_id'])
+diff --git a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+index d2453084d..5c24f30c3 100644
+--- a/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
++++ b/neutron/services/loadbalancer/drivers/common/agent_driver_base.py
+@@ -122,7 +122,7 @@ class LoadBalancerCallbacks(n_rpc.RpcCallback):
+             # policy and rules
+             retval['l7policies'] = [
+                 {
+-                    'policy': self.plugin._make_policy_dict(policy),
++                    'policy': self.plugin._make_l7policy_dict(policy),
+                     'rules': [
+                         self.plugin._make_l7rule_dict(
+                             policy_rule_assoc.rule
+@@ -540,7 +540,7 @@ class AgentDriverBase(abstract_driver.LoadBalancerAbstractDriver):
+         if ((old_policy['pool_id'] or policy['pool_id']) and
+                 old_policy['pool_id'] == policy['pool_id']):
+             agent = self.get_pool_agent(context, policy['pool_id'])
+-            return self.agent_rpc.update_l7policy(context, policy,
++            return self.agent_rpc.update_l7policy(context, old_policy, policy,
+                                                   agent['host'])
+ 
+         # l7policy pool change, delete and create
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/cfg.py b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+index a450a4217..0cee42c46 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/cfg.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/cfg.py
+@@ -47,7 +47,7 @@ STATS_MAP = {
+ }
+ 
+ ACL_TYPE_MAP = {
+-    'backServerId': 'be_id %(value)s',
++    'backendServerId': 'srv_id',
+ }
+ 
+ ACL_COMPARE_MAP = {
+@@ -62,7 +62,7 @@ POLICY_ACTION_MAP = {
+ 
+ ACTIVE_PENDING_STATUSES = qconstants.ACTIVE_PENDING_STATUSES
+ INACTIVE = qconstants.INACTIVE
+-ACL_RULE_ID_LENGTH = 10
++ACL_RULE_ID_LENGTH = 9
+ ACL_RULE_NAME_LENGTH = 12
+ 
+ 
+@@ -148,13 +148,18 @@ def _get_acl_name(rule):
+     return ('acl_' + rule['id'])[:ACL_RULE_NAME_LENGTH]
+ 
+ 
+-def _get_acl_member_id(rule):
+-    return int(('0x' + rule['value'])[:ACL_RULE_ID_LENGTH])
++def _get_acl_member_id(id):
++    # Max id is 2**31 -1
++    return int(('0x' + id)[:ACL_RULE_ID_LENGTH], base=16)
++
++
++def _update_backserver_value(rule):
++    rule['value'] = _get_acl_member_id(rule['value'])
+ 
+ 
+ def _build_acl(rule):
+     type_value_convert_map = {
+-        'backServerId': _get_acl_member_id,
++        'backendServerId': _update_backserver_value,
+     }
+ 
+     acl_name = 'acl %s' % _get_acl_name(rule)
+@@ -165,7 +170,7 @@ def _build_acl(rule):
+     acl_match = ACL_TYPE_MAP[rule['type']] % rule
+     acl_compare = ACL_COMPARE_MAP[rule['compare_type']] % rule
+ 
+-    return ' '.jion([acl_name, acl_match, acl_compare])
++    return ' '.join([acl_name, acl_match, acl_compare])
+ 
+ 
+ def _build_policy_action(policy, rule):
+@@ -179,13 +184,23 @@ def _build_policy_action(policy, rule):
+     return acl
+ 
+ 
++def _sort_policy_by_priority(policies):
++    def _cmp_policies(a, b):
++        return int(a['policy']['priority']) - int(b['policy']['priority'])
++
++    policies.sort(cmp=_cmp_policies)
++    return policies
++
++
+ def _build_policy_and_acl(config):
+     opts = []
+     need_add_server_id = False
+     policies = config['l7policies']
++    policies = _sort_policy_by_priority(policies)
++
+     for policy in policies:
+         for rule in policy['rules']:
+-            if rule['type'] == 'backServerId':
++            if rule['type'] == 'backendServerId':
+                 need_add_server_id = True
+ 
+             opts.append(_build_acl(rule))
+diff --git a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+index 2db456399..7a5b315f6 100644
+--- a/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
++++ b/neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py
+@@ -427,7 +427,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
+     def delete_l7policy(self, l7policy):
+         self._refresh_device(l7policy['pool_id'])
+ 
+-    def update_l7rule(self, old_rule, rule, pool_id):
++    def update_l7rule(self, old_l7rule, l7rule, pool_id):
+         self._refresh_device(pool_id)
+ 
+     def create_l7policy_l7rule(self, l7policy):
+diff --git a/neutron/services/loadbalancer/plugin.py b/neutron/services/loadbalancer/plugin.py
+index 733930f0a..bc994e14a 100644
+--- a/neutron/services/loadbalancer/plugin.py
++++ b/neutron/services/loadbalancer/plugin.py
+@@ -19,6 +19,7 @@ from neutron import context
+ from neutron.db.loadbalancer import loadbalancer_db as ldb
+ from neutron.db import servicetype_db as st_db
+ from neutron.extensions import loadbalancer
++from neutron.extensions import loadbalancer_l7
+ from neutron.openstack.common import excutils
+ from neutron.openstack.common import log as logging
+ from neutron.plugins.common import constants
+@@ -356,34 +357,34 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
+         # check by action
+         if not action_check_map.get(policy['action'])(policy):
+             raise loadbalancer_l7.L7policyActionKeyValueNotSupport(
+-                l7policy_action=p['action'],
+-                l7policy_key=p['key'],
+-                l7policy_value=p['value']
++                l7policy_action=policy['action'],
++                l7policy_key=policy['key'],
++                l7policy_value=policy['value']
+             )
+ 
+-    def create_l7policy(self, context, policy):
+-        p = policy['l7policy']
++    def create_l7policy(self, context, l7policy):
++        p = l7policy['l7policy']
+         # check policy action and key/value
+         self._check_policy_action_key_value(p)
+-        p = super(LoadBalancerPlugin, self).create_l7policy(context, policy)
++        p = super(LoadBalancerPlugin, self).create_l7policy(context, l7policy)
+         if p['pool_id']:
+             driver = self._get_driver_for_pool(context, p['pool_id'])
+             driver.create_l7policy(context, p, p['pool_id'])
+         return p
+ 
+-    def update_l7policy(self, context, id, policy):
++    def update_l7policy(self, context, id, l7policy):
+         # TODO only allow update for same pool provider
+-        old_policy = self.get_l7policy(context, id)
+-        update_policy = super(LoadBalancerPlugin, self).update_l7policy(
+-            context, policy)
+-        if update_policy['pool_id'] or old_policy['pool_id']:
++        old_l7policy = self.get_l7policy(context, id)
++        update_l7policy = super(LoadBalancerPlugin, self).update_l7policy(
++            context, id, l7policy)
++        if update_l7policy['pool_id'] or old_l7policy['pool_id']:
+             driver = self._get_driver_for_pool(context,
+-                                               update_policy['pool_id'])
+-            driver.update_l7policy(context, old_policy, update_policy)
+-        return update_policy
++                                               update_l7policy['pool_id'])
++            driver.update_l7policy(context, old_l7policy, update_l7policy)
++        return update_l7policy
+ 
+     def delete_l7policy(self, context, id):
+-        policy = self.get_l7policy(id)
++        policy = self.get_l7policy(context, id)
+         super(LoadBalancerPlugin, self).delete_l7policy(context, id)
+         if policy['pool_id']:
+             driver = self._get_driver_for_pool(context, policy['pool_id'])
+@@ -429,26 +430,27 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
+                 l7rule_compare_value=r['compare_value']
+             )
+ 
+-    def create_l7rule(self, context, rule):
+-        r = rule['rule']
++    def create_l7rule(self, context, l7rule):
++        r = l7rule['l7rule']
+         self._check_rule_type_key_value(context, r)
+         self._check_rule_compare_type_and_value(r)
+-        return super(LoadBalancerPlugin, self).create_l7rule(context, rule)
++        return super(LoadBalancerPlugin, self).create_l7rule(context, l7rule)
+ 
+-    def update_l7rule(self, context, id, rule):
+-        rule_res = self.get_rule(id)
+-        if 'compare_value' in rule:
+-            rule_res['compare_value'] = rule['compare_value']
++    def update_l7rule(self, context, id, l7rule):
++        rule_res = self.get_l7rule(context, id)
++        if 'compare_value' in l7rule['l7rule']:
++            rule_res['compare_value'] = l7rule['l7rule']['compare_value']
+             self._check_rule_compare_type_and_value(rule_res)
+ 
+-        if 'value' in rule:
+-            rule_res['value'] = rule['value']
++        if 'value' in l7rule['l7rule']:
++            rule_res['value'] = l7rule['l7rule']['value']
+             self._check_rule_type_key_value(context, rule_res)
+-        res = super(LoadBalancerPlugin, self).update_l7rule(context, id, rule)
++        res = super(LoadBalancerPlugin, self).update_l7rule(context, id,
++                                                            l7rule)
+ 
+         with context.session.begin(subtransactions=True):
+             qry = context.session.query(
+-                ldb.L7policyRuleAssociation
++                ldb.L7policyL7ruleAssociation
+             ).filter_by(rule_id=id).join(ldb.L7policy)
+             for assoc in qry:
+                 if assoc.policy['pool_id']:
+@@ -458,9 +460,9 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
+                                          assoc.policy['pool_id'])
+         return res
+ 
+-    def create_l7policy_l7rule(self, context, rule, l7policy_id):
++    def create_l7policy_l7rule(self, context, l7rule, l7policy_id):
+         res = super(LoadBalancerPlugin, self).create_l7policy_l7rule(
+-            context, rule, l7policy_id)
++            context, l7rule, l7policy_id)
+ 
+         policy = self.get_l7policy(context, l7policy_id)
+         if policy['pool_id']:
+@@ -473,5 +475,5 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
+             context, id, l7policy_id)
+         policy = self.get_l7policy(context, l7policy_id)
+         if policy['pool_id']:
+-            driver = self._get_driver_for_pool(policy['pool_id'])
++            driver = self._get_driver_for_pool(context, policy['pool_id'])
+             driver.delete_l7policy_l7rule(context, policy, policy['pool_id'])
+-- 
+2.12.1
+

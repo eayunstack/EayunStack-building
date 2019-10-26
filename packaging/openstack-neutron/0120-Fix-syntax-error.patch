@@ -1,0 +1,29 @@
+From 65a4fd2eb8c60e7466c0a996629097a616abfa7c Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 19 Jul 2017 15:37:54 +0800
+Subject: [PATCH] Fix syntax error
+
+Fixes: d26e41e4c ("FWaaS: support some more protocols in FW rules")
+Fixes: redmine #10240
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/extensions/firewall.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/neutron/extensions/firewall.py b/neutron/extensions/firewall.py
+index e6e13db42..fa4ed86fc 100644
+--- a/neutron/extensions/firewall.py
++++ b/neutron/extensions/firewall.py
+@@ -151,7 +151,7 @@ class FirewallRuleConflict(qexception.Conflict):
+                 "another tenant %(tenant_id)s")
+ 
+ 
+-fw_valid_protocol_values = [None, constants.TCP, constants.UDP, constants.ICMP
++fw_valid_protocol_values = [None, constants.TCP, constants.UDP, constants.ICMP,
+                             constants.SCTP, constants.GRE,
+                             constants.ESP, constants.AH]
+ fw_valid_action_values = [constants.FWAAS_ALLOW, constants.FWAAS_DENY]
+-- 
+2.13.3
+

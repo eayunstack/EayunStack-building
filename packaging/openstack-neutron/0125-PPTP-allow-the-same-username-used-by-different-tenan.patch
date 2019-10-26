@@ -1,0 +1,42 @@
+From 77b18f890e34fac82d64d9ec868ac7344c67b2bd Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 5 Sep 2017 16:19:48 +0800
+Subject: [PATCH] PPTP: allow the same username used by different tenants
+
+Fixes: redmine #10809
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/vpn/vpn_db.py | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/neutron/db/vpn/vpn_db.py b/neutron/db/vpn/vpn_db.py
+index 6034bbc3a..7cd7b6b9f 100644
+--- a/neutron/db/vpn/vpn_db.py
++++ b/neutron/db/vpn/vpn_db.py
+@@ -660,9 +660,10 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+                                pptp_credential['associations']]}
+         return self._fields(res, fields)
+ 
+-    def _username_already_exists(self, context, username):
+-        query = self._model_query(context, PPTPCredential)
+-        return len(query.filter_by(username=username).all()) > 0
++    def _username_already_exists(self, context, tenant_id, username):
++        credentials = self._model_query(context, PPTPCredential).filter_by(
++            tenant_id=tenant_id, username=username).all()
++        return len(credentials) > 0
+ 
+     def _create_port_for_vpnservice(self, context,
+                                     vpnservice_id, pptp_credential_id):
+@@ -696,7 +697,7 @@ class VPNPluginDb(vpnaas.VPNPluginBase, base_db.CommonDbMixin):
+         pptp_credential_id = uuidutils.generate_uuid()
+         with context.session.begin(subtransactions=True):
+             username = pptp_credential['username']
+-            if self._username_already_exists(context, username):
++            if self._username_already_exists(context, tenant_id, username):
+                 raise vpnaas.PPTPUsernameAlreadyExists(username=username)
+             pptp_credential_db = PPTPCredential(
+                 id=pptp_credential_id,
+-- 
+2.11.0 (Apple Git-81)
+

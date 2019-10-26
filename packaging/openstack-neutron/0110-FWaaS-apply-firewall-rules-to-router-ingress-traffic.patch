@@ -1,0 +1,51 @@
+From b4e776a67ec88c72b18d91ef6680aa9809751c5e Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Tue, 6 Jun 2017 11:33:04 +0800
+Subject: [PATCH 110/118] FWaaS: apply firewall rules to router ingress traffic
+
+Fixes: redmine #10238
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/services/firewall/drivers/linux/iptables_fwaas.py | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/neutron/services/firewall/drivers/linux/iptables_fwaas.py b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+index b7d3a67f1..18e5fec6f 100644
+--- a/neutron/services/firewall/drivers/linux/iptables_fwaas.py
++++ b/neutron/services/firewall/drivers/linux/iptables_fwaas.py
+@@ -39,6 +39,7 @@ IP_VER_TAG = {IPV4: 'v4',
+               IPV6: 'v6'}
+ 
+ INTERNAL_DEV_PREFIX = 'qr-'
++EXTERNAL_DEV_PREFIX = 'qg-'
+ SNAT_INT_DEV_PREFIX = 'sg-'
+ ROUTER_2_FIP_DEV_PREFIX = 'rfp-'
+ 
+@@ -265,6 +266,11 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+                         if_prefix, bname, chain_name)]
+                     self._add_rules_to_chain(ipt_mgr,
+                         ver, 'FORWARD', jump_rule)
++                    if direction == INGRESS_DIRECTION:
++                        jump_rule = ['-i %s+ -j %s-%s' % (
++                            EXTERNAL_DEV_PREFIX, bname, chain_name)]
++                        self._add_rules_to_chain(
++                            ipt_mgr, ver, 'INPUT', jump_rule)
+ 
+         #jump to DROP_ALL policy
+         chain_name = iptables_manager.get_chain_name(FWAAS_DEFAULT_CHAIN)
+@@ -278,6 +284,11 @@ class IptablesFwaasDriver(fwaas_base.FwaasDriverBase):
+         self._add_rules_to_chain(ipt_mgr, IPV4, 'FORWARD', jump_rule)
+         self._add_rules_to_chain(ipt_mgr, IPV6, 'FORWARD', jump_rule)
+ 
++        jump_rule = [
++            '-i %s+ -j %s-%s' % (EXTERNAL_DEV_PREFIX, bname, chain_name)]
++        self._add_rules_to_chain(ipt_mgr, IPV4, 'INPUT', jump_rule)
++        self._add_rules_to_chain(ipt_mgr, IPV6, 'INPUT', jump_rule)
++
+     def _convert_fwaas_to_iptables_rule(self, rule):
+         action = rule.get('action') == 'allow' and 'ACCEPT' or 'DROP'
+         args = [self._protocol_arg(rule.get('protocol')),
+-- 
+2.13.3
+

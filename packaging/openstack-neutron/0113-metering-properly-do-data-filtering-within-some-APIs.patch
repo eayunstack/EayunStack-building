@@ -1,0 +1,74 @@
+From d22988095ec094f9981d05bb5801874e9a5c7709 Mon Sep 17 00:00:00 2001
+From: Hunt Xu <mhuntxu@gmail.com>
+Date: Wed, 14 Jun 2017 12:19:09 +0800
+Subject: [PATCH 113/118] metering: properly do data filtering within some APIs
+
+This prevents getting and sending unrelated data to metering agents.
+
+Fixes: redmine #10261
+
+Signed-off-by: Hunt Xu <mhuntxu@gmail.com>
+---
+ neutron/db/metering/metering_db.py           |  1 +
+ neutron/services/metering/metering_plugin.py | 11 +++++------
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/neutron/db/metering/metering_db.py b/neutron/db/metering/metering_db.py
+index adef1af6b..94d5d3ddc 100644
+--- a/neutron/db/metering/metering_db.py
++++ b/neutron/db/metering/metering_db.py
+@@ -188,6 +188,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
+                 raise metering.MeteringLabelRuleNotFound(rule_id=rule_id)
+ 
+             context.session.delete(rule)
++        return rule
+ 
+     def _get_metering_rules_dict(self, metering_label):
+         rules = []
+diff --git a/neutron/services/metering/metering_plugin.py b/neutron/services/metering/metering_plugin.py
+index 6abb29708..cd4c564db 100644
+--- a/neutron/services/metering/metering_plugin.py
++++ b/neutron/services/metering/metering_plugin.py
+@@ -42,7 +42,7 @@ class MeteringPlugin(metering_db.MeteringDbMixin,
+             context, metering_label)
+ 
+         data = metering_db.MeteringDbMixin.get_sync_data_metering(
+-            self, context)
++            self, context, label['id'])
+         self.meter_rpc.add_metering_label(context, data)
+ 
+         return label
+@@ -62,7 +62,7 @@ class MeteringPlugin(metering_db.MeteringDbMixin,
+             context, metering_label_rule)
+ 
+         data = metering_db.MeteringDbMixin.get_sync_data_metering(
+-            self, context)
++            self, context, rule['metering_label_id'])
+         self.meter_rpc.update_metering_label_rules(context, data)
+ 
+         return rule
+@@ -71,18 +71,17 @@ class MeteringPlugin(metering_db.MeteringDbMixin,
+         rule = super(MeteringPlugin, self).delete_metering_label_rule(
+             context, rule_id)
+ 
++        label_id = rule['metering_label_id']
+         data = metering_db.MeteringDbMixin.get_sync_data_metering(
+-            self, context)
++            self, context, label_id)
+         self.meter_rpc.update_metering_label_rules(context, data)
+ 
+-        return rule
+-
+     def create_es_metering_label(self, context, es_metering_label):
+         label = super(MeteringPlugin, self).create_es_metering_label(
+             context, es_metering_label)
+ 
+         data = es_metering_db.EsMeteringDbMixin.get_sync_data_metering(
+-            self, context)
++            self, context, label_id=label['id'])
+         self.meter_rpc.add_es_metering_label(context, data)
+ 
+         return label
+-- 
+2.13.3
+
